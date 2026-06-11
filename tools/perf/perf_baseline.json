@@ -790,6 +790,11 @@
           "commit": "b2fa0ff",
           "duration_s": 1.034,
           "baseline": true
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "42838d5",
+          "duration_s": 1.064
         }
       ]
     },

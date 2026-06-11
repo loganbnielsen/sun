@@ -55,7 +55,7 @@ jobs:
           echo "Bundle structure verified"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v5
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/sun-linux-x86_64
