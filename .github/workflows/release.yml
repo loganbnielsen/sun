@@ -12,7 +12,7 @@ jobs:
   build-linux-x86_64:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install system dependencies
         run: sudo apt-get install -y librdkafka-dev libpq-dev libpq5
@@ -55,7 +55,7 @@ jobs:
           echo "Bundle structure verified"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v5
         with:
           files: |
             dist/sun-linux-x86_64
