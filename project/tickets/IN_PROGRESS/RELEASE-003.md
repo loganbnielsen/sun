@@ -3,6 +3,8 @@ id: RELEASE-003
 type: documentation
 severity: medium
 source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
+branch: RELEASE-003/public-docs-reconciliation
+worktree: /home/lbendtly/Code/sun-RELEASE-003-public-docs-reconciliation
 ---
 
 Reconcile public docs after the post-hardening release smoke test.
@@ -15,7 +17,7 @@ found during the clean release smoke test should be patched before calling the
 alpha path stable.
 
 **Goal:** Make the public docs and generated workspace README match the
-`v0.1.0-alpha.5` release-user path exactly.
+`v0.1.0-alpha.6` release-user path exactly.
 
 **Remediation:**
 
