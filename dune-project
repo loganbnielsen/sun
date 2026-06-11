@@ -3,6 +3,7 @@
 
 (package
  (name sun)
+ (allow_empty)
  (synopsis "Sun — opinionated OCaml 5 production platform for startups")
  (depends
   (ocaml (>= 5.4.0))
