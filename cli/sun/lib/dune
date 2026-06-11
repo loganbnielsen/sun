@@ -14,4 +14,5 @@
   Sun_cli_release_inspection
   Sun_cli_secret
   Sun_cli_hosted_executor
+  Sun_cli_registry
   Sun_cli_cmd_new))

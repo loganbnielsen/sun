@@ -188,8 +188,99 @@ let init_cmd =
              in the environment (AWS_* or GOOGLE_* variables).")
     Term.(const cloud_init $ aws_flag $ gcp_flag $ var_file_arg $ dry_run_flag)
 
+(* ── cloud deploy ────────────────────────────────────────────────────────── *)
+
+let git_sha () =
+  let tmp = Filename.temp_file "sun-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  if s = "" then "dev" else s
+
+let get_ok_or_exit = function
+  | Ok v -> v
+  | Error msg ->
+    Printf.eprintf "error: %s\n" msg;
+    exit 1
+
+let cloud_deploy environment image_tag dry_run output_json =
+  let workspace = Filename.basename (Sys.getcwd ()) in
+  let sha = match image_tag with Some t -> t | None -> git_sha () in
+
+  let registry = Sun_cli_registry.create () in
+  let project = Sun_cli_registry.create_project registry ~workspace
+    |> get_ok_or_exit in
+
+  if dry_run then begin
+    Printf.printf "Project:  %s\nEnv:      %s\nTag:      %s\n"
+      project.Sun_cli_registry.project_id environment sha;
+    Printf.printf "(dry-run: no release recorded)\n%!"
+  end else begin
+    let services = Sun_cli_manifest.discover_services ~filter_path:None in
+    let service_names =
+      List.map (fun (s : Sun_cli_manifest.service) ->
+        Sun_cli_deployment_plan.k8s_name_of s.name)
+        services
+    in
+    let release = Sun_cli_registry.create_release registry
+        ~project_id:project.Sun_cli_registry.project_id
+        ~environment
+        ~image_tag:sha
+        ~service_names
+      |> get_ok_or_exit
+    in
+    if output_json then
+      print_string (Yojson.Safe.pretty_to_string
+        (Sun_cli_registry.release_to_json release))
+    else begin
+      Printf.printf "Release:  %s\n" release.Sun_cli_registry.release_id;
+      Printf.printf "Project:  %s\n" release.Sun_cli_registry.project_id;
+      Printf.printf "Env:      %s\n" release.Sun_cli_registry.environment;
+      Printf.printf "Tag:      %s\n" release.Sun_cli_registry.image_tag;
+      Printf.printf "Status:   %s\n"
+        (Sun_cli_registry.release_status_to_string release.Sun_cli_registry.status);
+      if service_names <> [] then begin
+        Printf.printf "Services:\n";
+        List.iter (fun name -> Printf.printf "  %s\n" name) service_names
+      end
+    end;
+    print_char '\n'; flush stdout
+  end
+
+let environment_arg =
+  Arg.(value & opt string "production" &
+       info ["environment"; "env"] ~docv:"NAME"
+         ~doc:"Target environment name (default: production)")
+
+let cloud_image_tag_arg =
+  Arg.(value & opt (some string) None &
+       info ["image-tag"] ~docv:"TAG"
+         ~doc:"Image tag to record in the release (default: short git SHA)")
+
+let cloud_dry_run_flag =
+  Arg.(value & flag &
+       info ["dry-run"]
+         ~doc:"Print project/env/tag without recording a release")
+
+let output_json_flag =
+  Arg.(value & flag &
+       info ["output-json"]
+         ~doc:"Print the release record as JSON")
+
+let deploy_cmd =
+  Cmd.v
+    (Cmd.info "deploy"
+       ~doc:"Record a hosted release in the project registry. \
+             Creates the project if it does not exist, then records a new \
+             release with status=live. Use --dry-run to preview without \
+             recording.")
+    Term.(const cloud_deploy $ environment_arg $ cloud_image_tag_arg
+          $ cloud_dry_run_flag $ output_json_flag)
+
 let cmd =
   Cmd.group
     (Cmd.info "cloud"
-       ~doc:"Manage cloud infrastructure")
-    [ init_cmd ]
+       ~doc:"Manage cloud infrastructure and hosted deployments")
+    [ init_cmd; deploy_cmd ]
