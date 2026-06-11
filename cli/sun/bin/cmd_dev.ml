@@ -52,20 +52,21 @@ let write_pid name pid =
 type pf_spec = {
   name        : string;
   namespace   : string;
-  service     : string;
+  (* Full kubectl resource target, e.g. "svc/redpanda" or "pod/redpanda-0". *)
+  target      : string;
   local_port  : int;
   remote_port : int;
 }
 
 let start_port_forward pf =
   Printf.printf "  port-forward  %-12s localhost:%d → %s/%s:%d\n%!"
-    pf.name pf.local_port pf.namespace pf.service pf.remote_port;
+    pf.name pf.local_port pf.namespace pf.target pf.remote_port;
   (* Start in background, capture PID via $! *)
   let log_file = Printf.sprintf "/tmp/sun-pf-%s.log" pf.name in
   let script = Printf.sprintf
-    "kubectl port-forward -n %s svc/%s %d:%d </dev/null > %s 2>&1 & echo $! > %s"
+    "kubectl port-forward -n %s %s %d:%d </dev/null > %s 2>&1 & echo $! > %s"
     (Filename.quote pf.namespace)
-    (Filename.quote pf.service)
+    (Filename.quote pf.target)
     pf.local_port pf.remote_port
     (Filename.quote log_file)
     (Filename.quote (pid_file pf.name))
@@ -164,6 +165,15 @@ let dev_up () =
         ("resources.cpu.cores",           Str "1.5");  (* chart rejects int64 *)
         ("storage.persistentVolume.size", Val "1Gi");
         ("tls.enabled",                   Val "false");
+        (* Configure an external Kafka listener that advertises localhost:9092.
+           librdkafka bootstraps via the port-forward (localhost:9092→9094), gets
+           metadata back saying "reach me at localhost:9092", and reconnects
+           successfully — avoiding the internal cluster DNS that is unresolvable
+           from outside k3d. *)
+        ("external.enabled",                                    Val "true");
+        ("external.service.enabled",                            Val "false");
+        ("external.addresses[0]",                               Str "localhost");
+        ("listeners.kafka.external.default.advertisedPorts[0]", Val "9092");
       ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Redpanda install failed\n"; exit 1)
@@ -209,23 +219,26 @@ let dev_up () =
   ignore (Sys.command "sleep 2");  (* brief pause for service endpoints to settle *)
 
   if req.kafka then begin
+    (* Port-forward to the pod (not svc) so we reach the external listener on
+       9094.  The Redpanda headless service only exposes the internal port 9093;
+       9094 is only reachable via the pod directly. *)
     start_port_forward { name = "kafka"; namespace = "redpanda";
-                         service = "redpanda"; local_port = 9092; remote_port = 9093 };
+                         target = "pod/redpanda-0"; local_port = 9092; remote_port = 9094 };
     start_port_forward { name = "schema-registry"; namespace = "redpanda";
-                         service = "redpanda"; local_port = 8081; remote_port = 8081 };
+                         target = "svc/redpanda"; local_port = 8081; remote_port = 8081 };
   end;
   if req.postgres then
     start_port_forward { name = "postgres"; namespace = "postgresql";
-                         service = "postgresql"; local_port = 5432; remote_port = 5432 };
+                         target = "svc/postgresql"; local_port = 5432; remote_port = 5432 };
   if req.loki then
     start_port_forward { name = "loki"; namespace = "monitoring";
-                         service = "loki"; local_port = 3100; remote_port = 3100 };
+                         target = "svc/loki"; local_port = 3100; remote_port = 3100 };
   if need_grafana then
     start_port_forward { name = "grafana"; namespace = "monitoring";
-                         service = "loki-grafana"; local_port = 3000; remote_port = 80 };
+                         target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
   if req.prometheus then
     start_port_forward { name = "pushgateway"; namespace = "monitoring";
-                         service = "prometheus-prometheus-pushgateway";
+                         target = "svc/prometheus-prometheus-pushgateway";
                          local_port = 9091; remote_port = 9091 };
 
   (* Summary *)
