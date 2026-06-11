@@ -95,7 +95,7 @@ let test_post_release_creates () =
   check_string "environment" "production"
     (resp.body |> member "environment" |> to_string);
   check_int "service count" 2
-    (resp.body |> member "service_names" |> to_list |> List.length)
+    (resp.body |> member "services" |> to_list |> List.length)
 
 let test_post_release_unknown_project () =
   let r = registry () in
