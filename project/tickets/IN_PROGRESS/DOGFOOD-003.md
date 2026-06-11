@@ -4,7 +4,7 @@ type: feature
 severity: high
 source: product-planning-2026-06-11
 branch: DOGFOOD-003/local-cluster-deploy
-worktree: ../sun-DOGFOOD-003-local-cluster-deploy
+worktree: /home/lbendtly/Code/sun-DOGFOOD-003-local-cluster-deploy
 ---
 
 Local cluster deploy loop dogfood.
