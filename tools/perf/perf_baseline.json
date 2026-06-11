@@ -722,6 +722,11 @@
           "commit": "d42b6a2",
           "duration_s": 0.902,
           "baseline": true
+        },
+        {
+          "date": "2026-06-10",
+          "commit": "c20326e",
+          "duration_s": 1.620
         }
       ]
     },
