@@ -241,9 +241,13 @@ let cloud_deploy environment image_tag dry_run output_json =
       Printf.printf "Tag:      %s\n" release.Sun_cli_registry.image_tag;
       Printf.printf "Status:   %s\n"
         (Sun_cli_registry.release_status_to_string release.Sun_cli_registry.status);
-      if service_names <> [] then begin
+      if release.Sun_cli_registry.services <> [] then begin
         Printf.printf "Services:\n";
-        List.iter (fun name -> Printf.printf "  %s\n" name) service_names
+        List.iter (fun (s : Sun_cli_registry.release_service) ->
+          Printf.printf "  %-30s  %s\n"
+            s.service_name
+            (Sun_cli_registry.service_status_to_string s.service_status))
+          release.Sun_cli_registry.services
       end
     end;
     print_char '\n'; flush stdout

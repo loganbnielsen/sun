@@ -1,7 +1,18 @@
 type project_id = string
 type release_id = string
 
-type release_status = Live
+type release_status =
+  | Queued
+  | Building
+  | Live
+  | Failed
+
+type service_status = Service_live | Service_failed
+
+type release_service = {
+  service_name   : string;
+  service_status : service_status;
+}
 
 type project = {
   project_id : project_id;
@@ -9,13 +20,13 @@ type project = {
 }
 
 type release = {
-  release_id    : release_id;
-  project_id    : project_id;
-  environment   : string;
-  image_tag     : string;
-  service_names : string list;
-  status        : release_status;
-  created_at    : string;
+  release_id  : release_id;
+  project_id  : project_id;
+  environment : string;
+  image_tag   : string;
+  services    : release_service list;
+  status      : release_status;
+  created_at  : string;
 }
 
 type t = {
@@ -74,12 +85,16 @@ let create_release t ~project_id ~environment ~image_tag ~service_names =
   | Ok _ ->
     let release_id = next_release_id t ~project_id in
     let created_at = string_of_float (Unix.gettimeofday ()) in
+    let services =
+      List.map (fun name -> { service_name = name; service_status = Service_live })
+        service_names
+    in
     let release = {
       release_id;
       project_id;
       environment;
       image_tag;
-      service_names;
+      services;
       status = Live;
       created_at;
     } in
@@ -103,7 +118,20 @@ let get_release t release_id =
   | None -> Error (Printf.sprintf "release %S not found" release_id)
 
 let release_status_to_string = function
-  | Live -> "live"
+  | Queued   -> "queued"
+  | Building -> "building"
+  | Live     -> "live"
+  | Failed   -> "failed"
+
+let service_status_to_string = function
+  | Service_live   -> "live"
+  | Service_failed -> "failed"
+
+let release_service_to_json (s : release_service) =
+  `Assoc [
+    "service_name", `String s.service_name;
+    "status",       `String (service_status_to_string s.service_status);
+  ]
 
 let project_to_json (p : project) =
   `Assoc [
@@ -113,11 +141,11 @@ let project_to_json (p : project) =
 
 let release_to_json (r : release) =
   `Assoc [
-    "release_id",    `String r.release_id;
-    "project_id",    `String r.project_id;
-    "environment",   `String r.environment;
-    "image_tag",     `String r.image_tag;
-    "service_names", `List (List.map (fun s -> `String s) r.service_names);
-    "status",        `String (release_status_to_string r.status);
-    "created_at",    `String r.created_at;
+    "release_id",  `String r.release_id;
+    "project_id",  `String r.project_id;
+    "environment", `String r.environment;
+    "image_tag",   `String r.image_tag;
+    "status",      `String (release_status_to_string r.status);
+    "created_at",  `String r.created_at;
+    "services",    `List (List.map release_service_to_json r.services);
   ]

@@ -76,7 +76,7 @@ let test_create_release () =
   check_string "status" "live"
     (Sun_cli_registry.release_status_to_string rel.Sun_cli_registry.status);
   check_int "service count" 2
-    (List.length rel.Sun_cli_registry.service_names)
+    (List.length rel.Sun_cli_registry.services)
 
 let test_create_release_increments_id () =
   let r = Sun_cli_registry.create () in
@@ -175,7 +175,9 @@ let test_release_to_json () =
   check_string "environment" "production" (json |> member "environment" |> to_string);
   check_string "image_tag" "abc123" (json |> member "image_tag" |> to_string);
   check_int "service count" 1
-    (json |> member "service_names" |> to_list |> List.length)
+    (json |> member "services" |> to_list |> List.length);
+  check_string "service status" "live"
+    (json |> member "services" |> index 0 |> member "status" |> to_string)
 
 (* ── project_id_of_workspace ────────────────────────────────────────────── *)
 

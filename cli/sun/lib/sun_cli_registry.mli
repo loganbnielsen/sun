@@ -12,9 +12,19 @@ type project_id = string
 type release_id = string
 
 type release_status =
+  | Queued
+  | Building
   | Live
-  (** Stub: all releases are immediately live. A real control plane would
-      transition through Queued → Building → Live | Failed. *)
+  | Failed
+
+type service_status =
+  | Service_live
+  | Service_failed
+
+type release_service = {
+  service_name   : string;
+  service_status : service_status;
+}
 
 type project = {
   project_id : project_id;
@@ -25,13 +35,13 @@ type project = {
     one process lifetime). *)
 
 type release = {
-  release_id    : release_id;
-  project_id    : project_id;
-  environment   : string;
-  image_tag     : string;
-  service_names : string list;
-  status        : release_status;
-  created_at    : string;
+  release_id  : release_id;
+  project_id  : project_id;
+  environment : string;
+  image_tag   : string;
+  services    : release_service list;
+  status      : release_status;
+  created_at  : string;
 }
 
 type t
@@ -65,5 +75,7 @@ val project_id_of_workspace : string -> project_id
 (** Derive the project ID for a workspace name. Exposed for tests. *)
 
 val release_status_to_string : release_status -> string
+val service_status_to_string : service_status -> string
+val release_service_to_json  : release_service -> Yojson.Safe.t
 val project_to_json : project -> Yojson.Safe.t
 val release_to_json : release -> Yojson.Safe.t
