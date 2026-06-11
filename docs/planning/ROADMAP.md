@@ -669,8 +669,9 @@ embeds an inspection summary in hosted mock release responses.
 
 ## Next — Post-Dogfood Hardening
 
-Addresses the high and medium findings surfaced during Dogfood Alpha, plus the
-first public release binary.
+Addresses the findings surfaced during Dogfood Alpha and turns the tested
+non-hosted path into a safer production path. See
+`docs/planning/POST_DOGFOOD_GAMEPLAN.md` for the bird's-eye plan.
 
 ### Priority items
 

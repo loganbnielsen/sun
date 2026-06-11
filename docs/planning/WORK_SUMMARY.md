@@ -1,6 +1,32 @@
 # Work Summary — Dogfood Alpha complete (2026-06-11)
 
-## Latest: Dogfood Alpha — all tickets done
+## Latest: Post-dogfood gameplan and next tickets
+
+Dogfood Alpha and the first release binary are complete. The planning focus has
+shifted to production hardening and the next larger feature tracks. See
+`docs/planning/POST_DOGFOOD_GAMEPLAN.md`.
+
+**Current correction:** the high-severity GitOps secret leak is already fixed by
+`FEAT-019` and lives in `DONE`. The remaining secrets work is `FEAT-020`: emit
+GitOps-native secret backend references instead of placeholder Kubernetes
+Secrets.
+
+**New tickets:**
+
+| Ticket | State | Description |
+|---|---|---|
+| FEAT-020 | IN_PROGRESS | GitOps secret backend references |
+| FEAT-021 | REVIEW | Deployment plan topics and migrations |
+| FEAT-022 | REVIEW | Self-contained release artifact |
+| FEAT-023 | REVIEW | `sun logs` Grafana pointer |
+| ALPHA-001 | READY_FOR_ENGINEERING | Release-user dogfood after FEAT-020..023 |
+| ALPHA-002 | READY_FOR_ENGINEERING | Public alpha docs/release readiness audit |
+| FEAT-024 | READY_FOR_ENGINEERING | Deployment plan v2 release-review contract |
+| HARDEN-001 | READY_FOR_ENGINEERING | Post-alpha security/reliability audit |
+
+---
+
+## Previous: Dogfood Alpha — all tickets done
 
 All Dogfood Alpha tickets are complete. Sun proved the non-hosted product end-to-end.
 
@@ -20,9 +46,9 @@ deploy (`sun up`) → migrations (`sun migrate`) → rollback (`sun rollback`) �
 
 | Finding | Priority |
 |---------|----------|
-| GitOps YAML includes plain-text `stringData` secrets | High |
+| GitOps YAML includes plain-text `stringData` secrets | High — fixed by FEAT-019 |
 | Deployment plan JSON omits topics and pending migrations | Medium |
-| DOGFOOD-007: publish v0.1.0-alpha.1 release binary | Medium |
+| DOGFOOD-007: publish release binary | Done |
 | `sun logs` should point to Grafana LogQL URL for Loki | Low |
 | `sun rollback` path format differs from `sun up` | Low |
 | Fixed-tag pod restart on code change | Low |
