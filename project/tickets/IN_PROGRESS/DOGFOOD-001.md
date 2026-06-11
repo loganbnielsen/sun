@@ -4,7 +4,7 @@ type: feature
 severity: blocker
 source: product-planning-2026-06-11
 branch: DOGFOOD-001/fresh-install-workspace
-worktree: ../sun-DOGFOOD-001-fresh-install-workspace
+worktree: /home/lbendtly/Code/sun-DOGFOOD-001-fresh-install-workspace
 ---
 
 Fresh install and workspace creation dogfood.
