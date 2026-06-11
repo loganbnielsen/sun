@@ -1,0 +1,168 @@
+(** High-level service layer for kafka-eio.
+    Handles topic provisioning, schema registration, and typed message contracts. *)
+
+(** Message contract — implement this for each topic your service owns. *)
+module type MESSAGE = sig
+  type t
+  val topic_name : string
+  val schema : string  (* JSON Schema string; registered on service startup *)
+  val encode : t -> Yojson.Safe.t
+  val decode : Yojson.Safe.t -> (t, string) result
+end
+
+(** Schema compatibility checking against a live schema registry.
+    Use in tests to catch breaking schema changes before deployment. *)
+module Schema : sig
+
+  (** Check whether a MESSAGE schema is compatible with the latest registered
+      version for its topic. Returns [Ok ()] if compatible or if no version has
+      been registered yet (new topic). Returns [Error msg] if incompatible.
+
+      Does not register the schema — safe to call in CI without side effects. *)
+  val check
+    :  net:_ Eio.Net.t
+    -> clock:_ Eio.Time.clock
+    -> registry_url:string
+    -> (module MESSAGE)
+    -> (unit, string) result
+
+  (** Check a list of MESSAGE schemas, failing fast on the first incompatible one.
+      Use in test_schemas.ml for each worker or service that owns topics. *)
+  val check_all
+    :  net:_ Eio.Net.t
+    -> clock:_ Eio.Time.clock
+    -> registry_url:string
+    -> (module MESSAGE) list
+    -> (unit, string) result
+
+end
+
+(** Opaque handle to a provisioned, schema-registered topic.
+    Obtained via [register]. Carries the schema ID for wire-format encoding. *)
+type 'a topic
+
+type config = {
+  brokers             : string list;
+  schema_registry_url : string;       (** e.g. "http://localhost:8081" *)
+  admin_url           : string;       (** Redpanda admin API, e.g. "http://localhost:9644" *)
+  linger_ms           : int;          (** produce batch window in ms; 50 is a good default *)
+  partitions          : int;          (** partition count for auto-provisioned topics *)
+  security            : Kafka_security.t;
+  (** Transport security for broker connections. Use [Kafka_security.default] for local dev.
+      Production: set [KAFKA_SECURITY_PROTOCOL=sasl_ssl] and supply SASL credentials via env. *)
+}
+
+val config_of_env : unit -> config
+(** Build a [config] from environment variables with sensible local-dev defaults.
+    - [KAFKA_BROKERS]           — comma-separated broker addresses (default: ["localhost:9092"])
+    - [SCHEMA_REGISTRY_URL]     — schema registry HTTP URL (default: ["http://localhost:8081"])
+    - [REDPANDA_ADMIN_URL]      — Redpanda admin API URL   (default: ["http://localhost:9644"])
+    - [KAFKA_SECURITY_PROTOCOL] — ["plaintext" | "ssl" | "sasl_plaintext" | "sasl_ssl"] (default: ["plaintext"])
+    - [KAFKA_SSL_CA_LOCATION]   — path to CA cert bundle (optional)
+    - [KAFKA_SASL_MECHANISM]    — e.g. ["SCRAM-SHA-256"] (optional)
+    - [KAFKA_SASL_USERNAME] / [KAFKA_SASL_PASSWORD] — SASL credentials (optional)
+    [linger_ms = 50], [partitions = 1]. *)
+
+type t
+
+(** [create cfg ~sw] creates a service handle with an underlying producer.
+    Does not provision topics or register schemas — call [register] for that. *)
+val create
+  :  config
+  -> sw:Eio.Switch.t
+  -> (t, string) result
+
+(** [register svc ~net ~clock (module M)] provisions M's topic via the Redpanda
+    admin HTTP API and registers its JSON schema with the schema registry.
+    Returns a typed topic handle for use with [publish] and [consume]. *)
+val register
+  :  t
+  -> net:_ Eio.Net.t
+  -> clock:_ Eio.Time.clock
+  -> (module MESSAGE with type t = 'a)
+  -> ('a topic, string) result
+
+(** [publish svc topic ?trace_ctx msg] encodes [msg] in Confluent wire format and
+    produces it to the broker. When [trace_ctx] is provided it is serialised as a
+    W3C [traceparent] Kafka message header, propagating the trace to consumers.
+    Returns a promise that resolves on broker acknowledgement. *)
+val publish
+  :  t
+  -> 'a topic
+  -> ?trace_ctx:Obs_trace.t
+  -> 'a
+  -> (unit, Kafka_error.t) result Eio.Promise.t
+
+(** [consume svc topic ~group_id ~sw ?on_ready ?on_decode_error ~handler]
+    subscribes to the topic and calls [handler] for each successfully decoded message.
+    [ack ()] commits the offset after processing.
+
+    [trace_ctx] in the handler is the parsed [traceparent] header from the incoming
+    Kafka message, or [None] if the message carries no trace header. Pass it as
+    [?parent:trace_ctx] to [Obs.with_span] to link the consumer span to the
+    upstream producer trace.
+
+    [on_ready] is called exactly once when the broker assigns partitions to this
+    consumer. Use it to signal readiness to a test or health-check instead of
+    sleeping for a fixed rebalance timeout.
+
+    [on_decode_error] is called when a message cannot be decoded (bad wire format,
+    failed JSON parse, or failed MESSAGE.decode). Default: log the error, ack the
+    message, and continue consuming.
+
+    Returns when [handler] returns [Error]. *)
+val consume
+  :  t
+  -> 'a topic
+  -> group_id:string
+  -> sw:Eio.Switch.t
+  -> ?on_ready:(unit -> unit)
+  -> ?on_decode_error:(string -> ack:(unit -> unit) -> Kafka_consumer.handler_result)
+  -> ?ot:Obs.t
+  -> handler:('a -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+  -> unit
+  -> (unit, Kafka_error.t) result
+
+(** How [consume_partitioned] should handle transient handler failures.
+
+    - [In_memory retry] (default) — exponential back-off sleep inside the
+      partition fiber with the given [retry_policy].  Simple, zero infra.
+      Vulnerable to rebalance preempting the sleep window.
+
+    - [Retry_topics { max_attempts }] — on failure the raw message bytes are
+      published to [<topic>-retry] with [X-Sun-Attempt] / [X-Sun-Retry-At]
+      headers, and the original offset is immediately committed.  A background
+      retry consumer (group [<group_id>-sun-retry]) subscribes to [<topic>-retry],
+      waits until [X-Sun-Retry-At], then re-runs the handler.  After
+      [max_attempts] total failures the message is routed to [<topic>-dlq].
+      Both topics are auto-provisioned on startup. *)
+type retry_strategy =
+  | In_memory    of Kafka_consumer.retry_policy
+  | Retry_topics of { max_attempts : int }
+
+val default_retry_strategy : retry_strategy
+(** [In_memory Kafka_consumer.default_retry] — in-process exponential backoff,
+    indefinite retries.  Suitable for transient failures in low-traffic topics. *)
+
+(** [consume_partitioned svc topic ~group_id ~sw ~clock ...] is like [consume]
+    but routes each message to a dedicated per-partition fiber.  A partition's
+    in-memory retry sleep blocks only that partition; other partitions continue
+    unaffected.  During the sleep the partition is paused at the librdkafka
+    level so no messages accumulate in its stream buffer.
+
+    [retry_strategy] selects the failure-handling mode; see [retry_strategy].
+    Pass [on_retry] to emit metrics on each retry event regardless of mode. *)
+val consume_partitioned
+  :  t
+  -> 'a topic
+  -> group_id:string
+  -> sw:Eio.Switch.t
+  -> clock:_ Eio.Time.clock
+  -> ?on_ready:(unit -> unit)
+  -> ?on_decode_error:(string -> ack:(unit -> unit) -> Kafka_consumer.handler_result)
+  -> ?retry_strategy:retry_strategy
+  -> ?on_retry:(partition:int32 -> attempt:int -> delay_s:float -> unit)
+  -> ?ot:Obs.t
+  -> handler:('a -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+  -> unit
+  -> (unit, Kafka_error.t) result

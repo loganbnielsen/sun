@@ -1,0 +1,4 @@
+(test
+ (name test_loki)
+ (modules test_loki)
+ (libraries obs_eio obs_eio_loki eio eio_main alcotest yojson))

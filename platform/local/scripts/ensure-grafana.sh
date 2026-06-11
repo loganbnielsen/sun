@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+NETWORK=sun-obs
+LOKI_URL=http://loki:3100
+GRAFANA_PORT=3000
+
+# ------------------------------------------------------------------ #
+# Shared Docker network                                               #
+# ------------------------------------------------------------------ #
+
+if ! docker network inspect "$NETWORK" > /dev/null 2>&1; then
+  echo "Creating Docker network: $NETWORK"
+  docker network create "$NETWORK"
+fi
+
+# Connect Loki to the shared network if it's running but not yet on it.
+if docker ps --format '{{.Names}}' | grep -q '^loki$'; then
+  if ! docker network inspect "$NETWORK" \
+       --format '{{range .Containers}}{{.Name}} {{end}}' \
+       | grep -qw loki; then
+    echo "Connecting loki to $NETWORK"
+    docker network connect "$NETWORK" loki
+  fi
+else
+  echo "WARNING: Loki container is not running — run ensure-loki.sh first" >&2
+fi
+
+# ------------------------------------------------------------------ #
+# Grafana                                                             #
+# ------------------------------------------------------------------ #
+
+if docker ps --format '{{.Names}}' | grep -q '^grafana$'; then
+  echo "Grafana already running at http://localhost:${GRAFANA_PORT}"
+else
+  if docker ps -a --format '{{.Names}}' | grep -q '^grafana$'; then
+    echo "Restarting stopped Grafana container..."
+    docker start grafana
+  else
+    echo "Starting Grafana..."
+    docker run -d \
+      --name grafana \
+      --network "$NETWORK" \
+      -p "${GRAFANA_PORT}:3000" \
+      -e GF_AUTH_ANONYMOUS_ENABLED=true \
+      -e GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+      -e GF_AUTH_DISABLE_LOGIN_FORM=true \
+      grafana/grafana:latest
+  fi
+
+  echo -n "Waiting for Grafana to be ready"
+  for i in $(seq 1 30); do
+    if curl -sf "http://localhost:${GRAFANA_PORT}/api/health" > /dev/null 2>&1; then
+      echo " ready"
+      break
+    fi
+    sleep 1
+    echo -n "."
+  done
+  echo ""
+fi
+
+# ------------------------------------------------------------------ #
+# Provision Loki datasource (idempotent)                              #
+# ------------------------------------------------------------------ #
+
+EXISTING=$(curl -sf "http://localhost:${GRAFANA_PORT}/api/datasources/name/Loki" \
+             -H "Content-Type: application/json" 2>/dev/null || echo "")
+
+if [ -z "$EXISTING" ]; then
+  echo "Provisioning Loki datasource -> $LOKI_URL"
+  curl -sf -X POST \
+    "http://localhost:${GRAFANA_PORT}/api/datasources" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"name\":      \"Loki\",
+      \"type\":      \"loki\",
+      \"url\":       \"${LOKI_URL}\",
+      \"access\":    \"proxy\",
+      \"isDefault\": true
+    }" > /dev/null
+  echo "Loki datasource provisioned"
+else
+  echo "Loki datasource already provisioned"
+fi
+
+echo ""
+echo "  Grafana  -> http://localhost:${GRAFANA_PORT}"
+echo "  Explore  -> http://localhost:${GRAFANA_PORT}/explore"
+echo "  Query    -> {service=\"<your-service>\"}"
+echo ""

@@ -1,0 +1,12 @@
+**/_build/
+.sun/
+.dogfood-bin/
+*.install
+.merlin
+*.byte
+*.native
+*.log
+*.csexp
+*.csexp.old
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

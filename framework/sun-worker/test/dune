@@ -1,0 +1,4 @@
+(tests
+ (names test_worker)
+ (libraries sun_worker eio eio_main alcotest obs_eio obs_eio_prometheus
+            kafka_eio_service kafka_eio_consumer))

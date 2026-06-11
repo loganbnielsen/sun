@@ -1,0 +1,3 @@
+(executable
+ (name main)
+ (libraries venus_logistics_fulfillment_worker sun_worker kafka_eio_service eio_main))

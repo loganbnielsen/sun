@@ -1,0 +1,9 @@
+(test
+ (name test_kafka_service)
+ (modules test_kafka_service)
+ (libraries kafka_eio_service kafka_eio_core alcotest yojson))
+
+(test
+ (name test_kafka_service_integration)
+ (modules test_kafka_service_integration)
+ (libraries kafka_eio_service kafka_eio_producer kafka_eio_core alcotest eio_main unix))

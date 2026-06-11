@@ -1,0 +1,119 @@
+---
+description: Run a developer experience audit of Sun. Verifies that a startup engineer can start a project, develop locally, and deploy to the cloud using only Sun's documented commands — without DevOps knowledge. Produces a dated report in project/audits/ and materialises open findings as ticket files in project/tickets/READY_FOR_ENGINEERING/.
+---
+
+# /ux-audit — Developer Experience Audit
+
+Works through every stage of `docs/audits/UX_AUDIT.md` as if you are a startup engineer encountering Sun for the first time. Each stage has two gates: a **docs gate** (does the guide exist and is it accurate?) and a **reproduction gate** (do the commands actually work?). Writes a completed report to `project/audits/<YYYY-MM-DD>_ux_audit.md` and materialises each open finding as a ticket in `project/tickets/READY_FOR_ENGINEERING/`.
+
+The core question for every check: *would a startup engineer need knowledge outside this repo to get past this step?* If yes, that is a finding.
+
+Also check whether the experience teaches and preserves Sun's mission: autonomous domain teams, typed event contracts, generated infrastructure, explicit auth, day-2 operations through Sun commands, and AI-agent-friendly structure.
+
+## Ticket directory structure
+
+```
+project/tickets/
+  BACKLOG/                  ← captured but not yet ready to act on
+  READY_FOR_ENGINEERING/    ← actionable; this is where new findings land
+  IN_PROGRESS/              ← worktree exists, work underway
+  REVIEW/                   ← work submitted; awaiting /review-worktree
+  READY_TO_MERGE/           ← review passed; human merges
+  BLOCKED_BY_PERFORMANCE/   ← perf regression; needs fix or sign-off
+  DONE/                     ← merged
+```
+
+## Steps
+
+### 1. Read the template
+Read `docs/audits/UX_AUDIT.md` in full before starting.
+
+### 2. Check previous findings
+Read the most recent `project/audits/*_ux_audit.md` report. Note which findings were already open — verify whether they are now resolved before logging them again.
+
+Check all `project/tickets/` subdirectories for existing EXP-* ticket files. A finding already tracked anywhere in `project/tickets/` (regardless of directory) should not be re-materialised. If a finding exists in `DONE/`, mark it resolved in the report.
+
+### 3. Work through each stage
+
+**Stage 1 — Installation:**
+- Check `README.md` for a single-command install path
+- Check whether the install method works without a language toolchain already installed
+- Note any prerequisites listed and whether they are reasonable for a startup engineer
+
+**Stage 2 — Project Creation:**
+- Read `README.md` for `sun new workspace` instructions
+- Read `cli/sun/bin/cmd_new.ml` — count the generated files, verify library names are workspace-namespaced
+- Check whether the generated README explains the project layout clearly enough without prior Sun knowledge
+
+**Stage 3 — Local Development:**
+- Check `README.md` or a linked guide for `sun dev up` and `sun dev run` instructions
+- Check whether `sun dev run` exists as a command
+- Verify the guide explains how to observe the message flow end-to-end (Grafana URL, what to query)
+
+**Stage 4 — Cloud Setup:**
+- Check `README.md` or a linked guide for `sun cloud init` instructions
+- Check whether `sun cloud init` exists as a command
+- Check `platform/infra/` — verify Terraform modules exist for at least one cloud provider
+
+**Stage 5 — First Deploy:**
+- Check `README.md` or a linked guide for `sun deploy` instructions with all required flags
+- Verify `sun deploy` exists and works end-to-end
+- Check whether the command prints the deployed service URL on completion
+
+**Stage 6 — Shipping a Change:**
+- Check whether the guide describes the change → deploy cycle in Sun commands only
+- Check whether `sun rollback` exists
+
+**Stage 7 — Day-2 Operations:**
+- Check `README.md` for `sun logs`, `sun migrate`, `sun status` instructions
+- Check whether `sun logs <service>` exists as a command
+- Verify `sun new svc` / `sun new worker` / `sun new fn` are documented
+
+**Stage 8 — Adding a Domain Event Flow:**
+- Check whether the docs show `sun new event <domain>/<name>` and a worker consuming that contract
+- Verify the generated event lives under `events/<domain>/`
+- Verify consumers import event contract modules rather than producer service modules
+- Verify schema compatibility is checked by a documented Sun command or generated test path
+- Verify the new workflow does not require hand-editing Kafka or Kubernetes manifests
+
+**Stage 9 — AI-Agent-Assisted Change:**
+- Inspect generated workspace docs and templates for predictable edit points
+- Verify service handlers, worker handlers, event contracts, migrations, and entrypoints are easy to locate
+- Check whether framework-owned concerns are separated from business logic
+- If reproducing the stage, make a narrow business change and verify it compiles using documented Sun commands only
+
+### 4. Write the report
+
+Create `project/audits/<YYYY-MM-DD>_ux_audit.md` with:
+- A header showing the date
+- Each stage with `[x]` / `[ ]` for the docs gate and reproduction gate separately
+- A Findings section with one entry per gap using the format from `docs/audits/UX_AUDIT.md`
+- A summary table
+
+Use finding IDs prefixed `EXP-` continuing from the highest ID across all existing `project/tickets/` files and previous reports.
+
+### 5. Materialise tickets
+
+For each finding with `Status: Open` in the report:
+
+1. Search all `project/tickets/` subdirectories for `<id>.md`. If found anywhere, skip.
+2. If not found, create `project/tickets/READY_FOR_ENGINEERING/<id>.md`:
+
+```markdown
+---
+id: <EXP-NNN>
+type: ux-finding
+severity: <blocker|high|medium|low>
+source: project/audits/<YYYY-MM-DD>_ux_audit.md
+---
+
+<one-line title>
+
+**Description:** <from finding>
+
+**Impact:** <from finding>
+
+**Remediation:** <from finding>
+```
+
+Do not set `branch:` or `worktree:` — those are written by `/start` when work begins.

@@ -1,0 +1,10 @@
+(library
+ (name sun_storage)
+ (wrapped false)
+ (modules Storage_error Db Migration Table)
+ (libraries
+   uri
+   caqti
+   caqti-eio
+   caqti-eio.unix
+   caqti-driver-postgresql))

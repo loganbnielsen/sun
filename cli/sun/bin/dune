@@ -1,0 +1,22 @@
+(executable
+ (name main)
+ (libraries
+  cmdliner
+  sun_cli
+  sun_storage
+  caqti-eio
+  unix
+  threads.posix
+  eio_main
+  yojson)
+ (modules
+  main
+  cmd_dev
+  cmd_up
+  cmd_deploy
+  cmd_status
+  cmd_logs
+  cmd_migrate
+  cmd_rollback
+  cmd_secret
+  cmd_cloud))

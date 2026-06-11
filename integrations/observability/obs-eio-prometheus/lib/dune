@@ -1,0 +1,5 @@
+(library
+ (name obs_eio_prometheus)
+ (wrapped false)
+ (modules Obs_prometheus)
+ (libraries obs_eio eio unix))

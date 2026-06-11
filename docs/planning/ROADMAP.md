@@ -1,0 +1,566 @@
+# Sun — Roadmap
+
+## Vision
+
+Sun is not a web framework, a Kafka wrapper, or a Kubernetes deployment tool.
+
+Sun is a production platform for startups built around autonomous domain teams and typed event contracts.
+
+The framework pieces exist to make the intended architecture the path of least resistance:
+
+- Teams own domains
+- Domains communicate through typed events, never shared code
+- Infrastructure is derived from code structure, not written by hand
+- Operational concerns are standardized across every service
+- A small engineering organization can run production systems without dedicated platform engineers
+
+Sun removes the need to know Terraform, Helm, or Kubernetes to ship a production service. It does not remove the need to make sound engineering decisions.
+
+Every roadmap item should strengthen one of these goals. A feature that increases flexibility but weakens architectural consistency is usually the wrong tradeoff.
+
+---
+
+Sun is built in layers, each one making the platform more complete. The Kafka layer is the proof-of-concept. Each subsequent phase adds a primitive that a team would otherwise have to build and operate themselves.
+
+---
+
+## ~~Immediate — Kafka Layer Hardening~~ ✓ done
+
+### ~~Schema CI enforcement~~ ✓ done
+### ~~Fix silent message drop in consume~~ ✓ done
+### ~~Consumer integration e2e~~ ✓ done
+
+FFI boundary fix is in (`caml_release_runtime_system` / `caml_acquire_runtime_system`
+around all blocking C calls). All 26 Kafka tests pass against a live Redpanda broker.
+
+---
+
+## ~~Now — Observability Backends~~ ✓ done
+
+The `obs-eio` core API is built and tested (18/18 unit tests). The `backend` record
+type (`emit_span`, `emit_metric`) is the integration point for all concrete backends.
+Backends are push-based and work from any process (`-worker`, `-svc`, `-fn`) — no HTTP
+server layer required.
+
+### ~~obs-eio-loki~~ ✓ done
+
+Logfmt lines pushed to Loki's HTTP push API with W3C `trace_id` / `span_id` as Loki 3.x
+structured metadata (indexed, filterable, separate from log line text). 8/8 tests pass
+including two live round-trip tests against real Loki.
+
+**Key design choices made:**
+- Log lines use **logfmt** format (`level=info msg=... span=... key=val`) — readable inline,
+  parseable with `| logfmt` in LogQL
+- `trace_id` / `span_id` go in **Loki structured metadata** (third value-tuple element),
+  not embedded in the line — keeps them indexed and clickable in Grafana Explore
+- Stream labels: `service` always + whitelisted `label_names` from `Obs.t` context
+- Unreachable Loki logs to stderr, never raises
+
+**Local infrastructure:** `platform/local/scripts/ensure-loki.sh` + `ensure-grafana.sh`
+(Grafana pre-wired with Loki datasource at `http://localhost:3000`)
+
+### ~~obs-eio-prometheus~~ ✓ done
+
+Prometheus metrics exposed via in-process state, scrapeable at a configurable endpoint
+or pushable to Pushgateway.
+
+**Package:** `integrations/observability/obs-eio-prometheus/`
+**Deliverables:**
+- `Obs_prometheus.create : unit -> Obs.backend * (unit -> string)` — backend + renderer ✓
+- Counter/gauge/histogram families with correct Prometheus text exposition format ✓
+- 10/10 unit tests pass — counter accumulation, gauge last-write-wins, histogram bucket
+  sorting, label escaping, concurrent emit safety ✓
+- `push` deferred to Phase 2 (`-fn`) — spec in obs-eio-prometheus.md ✓
+
+**Key design choices:**
+- `Mutex` (not `Eio.Mutex`) protects the registry — safe across Eio domains, no switch needed
+- `emit_span` is a no-op — spans go to Loki
+- Default histogram buckets: `[0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.0; 2.5; 5.0; 10.0]`
+- Renderer snapshots under the lock then formats without holding it
+- `metric_event` carries `help` string (added to obs-eio core) so backends can emit `# HELP` lines
+
+---
+
+## Backlog — Kafka Layer
+
+The Kafka layer is otherwise functionally complete. Remaining gaps before production-ready:
+
+### Schema CI enforcement (historical)
+
+**The problem:** Schema compatibility is enforced at service startup when `Kafka_service.register` is called. A developer can commit a breaking schema change and only discover it when the pod restarts in staging or production.
+
+**The fix:** Extract schema checking into a standalone `Kafka_service.Schema.check` function that takes only a `net` handle and a `MESSAGE` module — no producer, no broker. The convention in a Sun workspace: every `-worker` that owns a topic has a `test/test_schemas.ml` that calls this for each of its `MESSAGE` modules. These run as part of `dune test` with only the schema registry up.
+
+```
+make schema-check  →  ensure registry running, dune test **/test_schemas*
+```
+
+**Deliverables:**
+- `Kafka_service.Schema.check : net -> (module MESSAGE) -> (unit, string) result`
+- `Kafka_service.Schema.check_all : net -> (module MESSAGE) list -> (unit, string) result`
+- Convention doc: where `test_schemas.ml` lives and what it contains
+- Makefile target
+
+### Fix silent message drop in consume
+
+**The problem:** In `Kafka_service.consume`, decode errors are `eprintf`'d and returned as `Ok ()`. Bad messages disappear with no record and no way to retry.
+
+**The fix:** Surface decode errors to the caller. The handler should receive a typed result so it can decide whether to skip, retry, or dead-letter the message.
+
+---
+
+## ~~Phase 1 — HTTP Service Layer (`-svc`)~~ ✓ done
+
+Adds the REST service primitive. A `-svc` is a long-running HTTP server that handles requests, wired into the Sun observability and deployment stack.
+
+**Module type:**
+
+```ocaml
+module type HANDLER = sig
+  val routes : Sun.Route.t list
+end
+```
+
+**Route definition:**
+
+```ocaml
+let routes = [
+  Sun.Route.post "/payments/charge"          ~auth:(`Jwt ["write:payments"]) handle_charge;
+  Sun.Route.post "/payments/internal/charge" ~auth:`Api_key                  handle_internal_charge;
+  Sun.Route.get  "/health"                   ~auth:`Public                   handle_health;
+]
+```
+
+Auth is always declared explicitly on each route. Sun does not infer auth strategy from path conventions. The `/payments/internal/` convention is a human-readable signal, not a framework trigger.
+
+**Auth strategies:**
+- `` `Public `` — no auth, open to the internet
+- `` `Api_key `` — internal service-to-service, validated against a key from k8s secrets
+- `` `Jwt of string list `` — public-facing, JWT bearer token with required scopes
+
+**Entrypoint:** `Sun.Service.Make(H)` functor — takes your `HANDLER` module and produces a runnable HTTP server with health check, metrics endpoint, and graceful shutdown wired in.
+
+**Deliverables:** ✓ all complete
+- `Auth` — `` `Public ``, `` `Api_key `` (env/file), `` `Jwt of jwt_config `` with v1 unsafe guard ✓
+- `Route` — `get/post/put/patch/delete` constructors, `:name` param capture, trailing-slash distinction ✓
+- `Request` / `Response` — typed record API with `param_exn`, `query_param`, `header` helpers ✓
+- `Service.HANDLER` + `Service.Make` functor — cohttp-eio 6.2.1 backend, `?stop` graceful shutdown, drain timeout ✓
+- Built-in `/healthz` + `/metrics` (configurable auth) ✓
+- 32/32 tests: routing, auth, service integration ✓
+
+**Package:** `framework/sun-svc/`
+
+---
+
+## ~~Now — Phase 2 — Function Layer (`-fn`)~~ ✓ done
+
+Adds the function primitive. In v1, functions are triggered exclusively by cron schedules and deployed as Kubernetes CronJobs. The abstraction is the function — the trigger is configuration.
+
+The schedule is not the defining characteristic of a `-fn`. The defining characteristic is `val run : unit -> (unit, string) result`: a unit of business logic that executes and exits. Future trigger modes (Kafka topic, HTTP path, event bridge) would add entries to `sun.toml` without touching the `FN` module type or the `run` implementation.
+
+**Module type:**
+
+```ocaml
+module type FN = sig
+  val schedule : string                         (* cron expression — v1 trigger *)
+  val run : unit -> (unit, string) result
+end
+```
+
+**Entrypoint:** `Sun.Fn.Make(F)` functor — produces an executable that runs `F.run ()` once and exits. Sun generates the k8s `CronJob` manifest from the schedule and container image.
+
+**Deliverables:**
+- `Sun.Fn.FN` module type
+- `Sun.Fn.Make` functor
+- k8s `CronJob` manifest generation from `schedule`
+- Wire `Obs_prometheus.push` here — `-fn` processes are ephemeral so Prometheus cannot
+  scrape them; `Sun.Fn.Make` should call `push` at the end of `F.run ()` before exit.
+  The `push` implementation lives in `obs-eio-prometheus` and is already specced but
+  intentionally deferred to this phase. See `integrations/observability/obs-eio-prometheus/obs-eio-prometheus.md`.
+
+---
+
+## ~~Phase 3 — Observability~~ ✓ done (auto-metrics for `-svc` and `-fn`)
+
+Adds structured logging and metrics to all three primitives (`-svc`, `-worker`, `-fn`) with zero instrumentation code required beyond initialization.
+
+**Logging:** Structured JSON to stdout, ingested by Loki via the k8s log collector. Log lines include service name, domain, trace ID, and any fields the developer adds. No log configuration required — Sun's `Make` functors wire this on startup.
+
+**Metrics:** Prometheus metrics exposed at `/metrics` automatically. Sun provides baseline metrics for all primitives:
+- `-svc`: request count, latency histogram, error rate per route
+- `-worker`: messages consumed, processing latency, error rate, consumer lag
+- `-fn`: invocation count, duration, last run status
+
+**Dashboards:** Grafana dashboard templates for each primitive, deployable as k8s `ConfigMap` resources via Helm or Argo CD.
+
+**Deliverables:**
+- ~~Auto-wiring in `Sun.Service.Make`~~ ✓ `sun_svc_requests_total{method,route,status_class}` + `sun_svc_request_duration_seconds{method,route}`; pass `?ot:Obs.t` to wire in
+- ~~Auto-wiring in `Sun.Fn.Make`~~ ✓ `sun_fn_invocations_total{status}` + `sun_fn_duration_seconds` (done in Phase 2)
+- ~~`Sun.Worker.Make`~~ ✓ `sun_worker_messages_total{status}` + `sun_worker_message_duration_seconds`; pass `?ot:Obs.t` to wire in
+- `Sun.Log` / `Sun.Metrics` — convenience wrappers; deferred to Phase 5 CLI (just use `Obs.register_counter/histogram` directly for now)
+- Grafana dashboard templates — deferred to Phase 6 (k8s deploy layer)
+- Loki + Prometheus + Grafana k8s manifests — deferred to Phase 6
+
+---
+
+## ~~Phase 4 — Storage (PostgreSQL)~~ ✓ done
+
+Adds a PostgreSQL integration aligned with Sun's error model and Eio concurrency. PostgreSQL is Sun's opinionated default storage layer — not an abstracted interface over multiple backends. The choice is deliberate: `caqti` provides first-class Postgres support with Eio-compatible async drivers; local dev is `docker run postgres` with no AWS credentials or emulators required; and the cloud-agnostic deployment story (AWS EKS, GCP GKE) is preserved.
+
+All operations return `(_, Sun.Storage.error) result`. No exceptions at public API boundaries.
+
+**Migrations are a first-class deliverable.** Sun ships with a built-in migration runner — ordered SQL files applied at startup or via `sun migrate`. Developers do not reach for an external tool to add a column.
+
+**Key design decisions:**
+- No generic repository abstraction over multiple backends — Sun is opinionated, Postgres is the answer, not a pluggable option
+- `caqti` + `caqti-driver-postgresql` as the Eio-compatible driver layer
+- `Sun.Storage.Table.Make(Schema)` functor produces a typed table client where the compiler enforces column types and query shape
+- Connection pool managed by the `Make` functor; callers never touch raw connections
+- Migrations live in `db/migrations/` as numbered SQL files (`0001_init.sql`, `0002_add_index.sql`); Sun applies them in order and tracks applied versions in a `sun_schema_migrations` table
+- Local dev: `docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:16`
+
+**Deliverables:**
+- `Sun.Storage.Postgres` — `get`, `insert`, `update`, `delete`, `query`, `transaction`
+- `Sun.Storage.Table.Make(Schema)` functor for typed table access
+- `Sun.Storage.Migration` — migration runner (`apply`, `status`, `rollback`)
+- `sun migrate` CLI command (wired in Phase 5)
+- `platform/local/scripts/ensure-postgres.sh` for local dev
+- Unit tests against a real Postgres instance; gated on `POSTGRES_URL` env var (same pattern as Kafka and Loki integration tests)
+
+---
+
+## Phase 5 — CLI and Scaffolding
+
+The `sun` CLI is the developer-facing entry point to the framework. Its job is to make Sun's opinions the path of least resistance — not just scaffold files, but get a developer from zero to a real running cluster in minutes.
+
+**Acceptance test:** A developer who has never seen the codebase should be able to run the following and have services running in a real cluster in ten minutes:
+
+```bash
+sun new workspace acme
+cd acme
+sun dev up              # provision local k3d cluster + deploy infra into it
+sun up                  # build images, synthesize manifests, deploy services
+sun status              # show running pods and endpoints
+```
+
+---
+
+### Implementation
+
+**Package:** `cli/sun/` — binary at `_build/default/cli/sun/bin/main.exe`
+
+**Stack:** `cmdliner` 2.x for argument parsing. Templates are OCaml string literals embedded directly in the binary — no external template files, no runtime file resolution. Self-contained and relocatable.
+
+**Local cluster:** k3d v5.6.0 + Helm v3.21.0. k3d chosen over minikube: starts in ~10s, works on WSL2 without a hypervisor, includes a built-in image registry that `sun up` pushes to directly.
+
+---
+
+### ~~Step 1~~ ✓ — `sun new workspace/svc/worker/fn/event`
+
+All five scaffold commands fully implemented and verified. `sun new workspace acme` generates 17 files that pass `dune build` on the first shot with no manual edits. See `docs/planning/WORK_SUMMARY.md` §16 for the full scaffold contract.
+
+---
+
+### ~~Step 2~~ ✓ — `sun dev up/down/status`
+
+Implemented in `cli/sun/bin/cmd_dev.ml`. k3d cluster lifecycle, Helm chart installs (Redpanda, PostgreSQL, Loki, kube-prometheus-stack), port-forward manager (PID files in `.sun/`), endpoint summary table.
+
+**Testing status:** k3d v5.6.0 and Helm v3.21.0 are now installed. End-to-end test pending (Step 2a below).
+
+---
+
+### ~~Step 7~~ ✓ — `sun migrate`
+
+Implemented in `cli/sun/bin/cmd_migrate.ml`. Thin Eio + caqti wrapper over `Sun.Storage.Migration`. Verified end-to-end against live postgres. See `docs/planning/WORK_SUMMARY.md` §16.
+
+---
+
+### ~~Step 2a~~ ✓ — Validate `sun dev up` end-to-end
+
+Validated against a live cluster. Two issues found and fixed during the run:
+
+1. **Redpanda `resources.cpu.cores=1` rejected** — Helm parsed `1` as `int64`; chart expects `float64` or string. Fixed: pass `1.5`.
+2. **Redpanda requires cert-manager CRDs** for TLS. Fixed: `--set tls.enabled=false` for dev.
+3. **Service name corrections** — actual names from `kubectl get svc`: `loki` (not `loki-stack`), `loki-grafana` (not `loki-stack-grafana`).
+4. **Prometheus chart** — using `prometheus-community/prometheus` (lighter) instead of `kube-prometheus-stack`. Pushgateway included.
+5. **WSL2 k3d** — no special flags needed; cluster creation worked cleanly.
+
+All five endpoints verified: kafka `localhost:9092`, postgres `localhost:5432`, loki `localhost:3100`, grafana `localhost:3000`, pushgateway `localhost:9091`.
+
+---
+
+### ~~Step 3~~ ✓ — `sun up`
+
+Builds Docker images for all services in the workspace, generates k8s manifests, validates them, and deploys to the cluster.
+
+```bash
+sun up                          # build + deploy all services
+sun up app/payments/charge_svc  # build + deploy one service
+sun up --dry-run                # print YAML to stdout, do not apply
+```
+
+#### v1 design (template-based, validated)
+
+`sun up` v1 uses embedded YAML string templates rather than the full typed `Sun_cli.Manifest` AST. This is not a throwaway: the templates define the exact manifest shape that the typed AST will produce in Phase 6. Templates are validated against the live API server with `kubectl apply --dry-run=server` before any live apply, keeping them disciplined.
+
+The typed `Sun_cli.Manifest` AST and `sun.toml` merge logic are deferred to Phase 6, when the CI integration requires programmatic manipulation of the manifest graph.
+
+#### Service discovery
+
+`sun up` scans `app/<domain>/<name>/` and infers the primitive type from the directory suffix:
+
+| Suffix | k8s resources generated |
+|--------|------------------------|
+| `_svc` | `Namespace` + `Deployment` + `Service` (NodePort) + `ServiceAccount` + `ConfigMap` |
+| `_worker` | `Namespace` + `Deployment` + `ServiceAccount` + `ConfigMap` |
+| `_fn` | `Namespace` + `CronJob` + `ServiceAccount` + `ConfigMap` |
+
+Schedule for `_fn` is read from the `FN.schedule` value in `lib/<name>_fn.ml` via regex — no TOML parser needed.
+
+#### Naming conventions (locked)
+
+| Concern | Convention |
+|---------|-----------|
+| Namespace | `<workspace>-<domain>` (e.g. `acme-payments`, `acme-comms`) |
+| Image name | `localhost:5000/<workspace>/<name>:<git-sha>` |
+| Image tag | Short git SHA from `git rev-parse --short HEAD`; overridable with `--tag` |
+| Workspace name | Top-level directory name (e.g. `acme` if run from `acme/`) |
+
+#### In-cluster env vars (critical, verified against live cluster)
+
+Pods communicate via k8s service DNS, not host port-forwards. The generated `ConfigMap` injects cluster-internal addresses. These are exact service names verified by `kubectl get svc` against a running `sun dev up` cluster:
+
+```
+KAFKA_BROKERS       = redpanda.redpanda.svc.cluster.local:9093
+SCHEMA_REGISTRY_URL = http://redpanda.redpanda.svc.cluster.local:8081
+POSTGRES_URL        = postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev
+LOKI_URL            = http://loki.monitoring.svc.cluster.local:3100
+PUSHGATEWAY_URL     = http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091
+```
+
+Host port-forward mapping (for local `dune exec` dev against the same cluster):
+
+```
+localhost:9092   → redpanda:9093     (kafka)
+localhost:8081   → redpanda:8081     (schema registry)
+localhost:5432   → postgresql:5432   (postgres)
+localhost:3100   → loki:3100         (loki)
+localhost:3000   → loki-grafana:80   (grafana)
+localhost:9091   → prometheus-prometheus-pushgateway:9091
+```
+
+These addresses are deterministic from the Helm release names in `sun dev up`. Hardcoded in v1 — no dynamic discovery needed.
+
+**Helm release names** (set by `sun dev up`, determines all DNS names above):
+
+| Component | Release name | Namespace |
+|-----------|-------------|-----------|
+| Kafka | `redpanda` | `redpanda` |
+| PostgreSQL | `postgresql` | `postgresql` |
+| Loki + Grafana | `loki` | `monitoring` |
+| Prometheus | `prometheus` | `monitoring` |
+
+#### `-svc` manifest details
+
+- `Deployment`: 1 replica, image from build step, `containerPort: 8080`
+- `livenessProbe`: GET `/healthz` port 8080, `initialDelaySeconds: 5`, `periodSeconds: 10`
+- `readinessProbe`: same as liveness
+- Resources: `requests: {cpu: 100m, memory: 128Mi}`, `limits: {cpu: 250m, memory: 256Mi}`
+- `Service`: type `NodePort`, port 80 → 8080; k3d exposes NodePort on the host automatically
+
+#### `-worker` manifest details
+
+- `Deployment`: 1 replica, no ports, no liveness probe (Kafka poll loop is the health signal)
+- Resources: same defaults as `-svc`
+
+#### `-fn` manifest details
+
+- `CronJob`: schedule extracted from source, `restartPolicy: OnFailure`, `backoffLimit: 3`
+- Resources: same defaults
+
+#### sun.toml (v1: skipped)
+
+In v1, `sun.toml` files are present (generated by scaffold) but not parsed by `sun up`. All values are defaults. Phase 6 adds the `Sun_cli.Toml` parser and deep-merge into the manifest AST.
+
+#### Pipeline
+
+1. **Discover** — find all `app/<domain>/<name>-{svc,worker,fn}/` dirs with a `Dockerfile`
+2. **Build** — `docker build -t localhost:5000/<workspace>/<name>:<sha> <dir>` for each service
+3. **Push** — `docker push localhost:5000/<workspace>/<name>:<sha>`
+4. **Render** — fill YAML templates with image tag, namespace, env var ConfigMap
+5. **Validate** — `kubectl apply -f - --dry-run=server` (halt on any error)
+6. **Apply** — `kubectl apply -f -` (live); report created/updated/unchanged per resource
+
+`--dry-run` skips steps 5 and 6 and prints YAML to stdout instead.
+
+---
+
+### ~~Step 4~~ ✓ — `sun status`
+
+Shows what's running. Minimal implementation: `kubectl get pods -A` filtered to the workspace's namespaces, with NodePort endpoints annotated.
+
+```bash
+sun status              # all domains in the current workspace
+sun status payments     # payments domain only
+```
+
+**Output:**
+```
+NAMESPACE        NAME              STATUS    READY   AGE
+acme-payments    charge-svc        Running   1/1     3m
+acme-comms       notify-worker     Running   1/1     3m
+```
+
+Implementation: parse workspace name from the current directory, derive namespace labels, call `kubectl get pods -n <ns>` for each domain. No dynamic pod-watching needed for v1.
+
+---
+
+### ~~Step 3b~~ ✓ — Logistics/fulfillment extension (acceptance test)
+
+After `sun dev up` + `sun up` are working, validate the full loop against a real multi-domain extension:
+
+1. `sun new event billing/payment_confirmed` — new cross-domain event in venus
+2. `sun new worker logistics/fulfillment` — new worker in new domain
+3. Wire `billing_events` library dep into worker dune, implement handler
+4. `sun up` — build both new images, deploy to cluster
+5. Observe logs in Grafana (`{service=~"venus-.*"} | logfmt`), confirm trace spans cross the domain boundary
+6. Verify `sun_worker_messages_total` appears in Prometheus for the logistics domain
+
+This is the real acceptance test: a new domain stood up in a running cluster with observability from the first message, without touching a Helm chart or writing a Kubernetes manifest.
+
+---
+
+### Deliverables status
+
+| Deliverable | Status |
+|---|---|
+| `cli/sun/` package skeleton + `cmdliner` wiring | ✓ done |
+| `sun new workspace <name>` — 17-file scaffold, compiles first try | ✓ done |
+| `sun new svc/worker/fn/event` | ✓ done |
+| `sun dev up/down/status` — k3d + Helm orchestration | ✓ done, validated |
+| `sun migrate` / `sun migrate status` | ✓ done, verified |
+| `sun up` — template-based v1 with dry-run validation | ✓ done |
+| `sun status` | ✓ done |
+| `Sun_cli_manifest` — typed k8s manifest rendering shared by `sun up` and `sun deploy` | ✓ done |
+| `Sun_cli_toml` — `sun.toml` parser (scale, env, deploy, labels sections) | ✓ done |
+| `Sun_cli_deployment_plan` / `Sun_cli_env_target` / `Sun_cli_executor` | ✓ done (Phase 6) |
+
+---
+
+## ~~Phase 6 — Production Deployment Pipeline~~ ✓ done
+
+Phase 5 built the synthesis pipeline and proved it against a local k3d cluster. Phase 6 connected that same pipeline to CI, production cloud clusters, and GitOps tooling.
+
+### What Phase 6 delivered
+
+- `Sun_cli_deployment_plan` — typed deployment plan (workspace, env_config, service_spec, topics, migrations) ✓
+- `Sun_cli_env_target` — `Local_k3d`, `Customer_k8s_direct`, `Customer_k8s_gitops`, `Sun_hosted`; `validate` ✓
+- `Sun_cli_executor` — `local`, `direct`, `gitops` executors ✓
+- `sun deploy --image-tag --dry-run --emit-to` flags ✓
+- `sun deploy --emit-plan-to FILE` — plan JSON serialization (experimental schema) ✓
+- `sun.toml` parsing — all supported fields are read from real user files ✓
+- `platform/infra/aws/` and `platform/infra/gcp/` Terraform modules ✓
+- `platform/infra/base/` cluster-agnostic Helm bootstrapping ✓
+- Argo CD `Application` manifest + GitOps emit mode ✓
+- `docs/deployment/self-hosted-substrate-contract.md` — what Sun generates vs what the user brings ✓
+- `docs/deployment/escape-hatches.md` — four-level escape hatch hierarchy ✓
+
+### Deployment modes
+
+**Local (`sun up`)** — builds Docker images and deploys to the local k3d cluster provisioned by `sun dev up`. Intended for development and smoke-testing.
+
+**Customer-cloud direct (`sun deploy`)** — CI builds images, pushes them to a production registry, then `sun deploy --image-tag $SHA --registry $REGISTRY` synthesizes manifests and applies them directly to a customer-managed Kubernetes cluster.
+
+```bash
+sun deploy --image-tag <sha>            # deploy with a specific image tag
+sun deploy --image-tag <sha> --dry-run  # emit YAML only, for PR diff review
+```
+
+**Customer-cloud GitOps (`sun deploy --emit-to`)** — `sun deploy --emit-to <dir>` writes synthesized YAML to a directory instead of applying it. CI pushes that directory to a separate GitOps repo; Argo CD reconciles the cluster. The workspace repo never contains committed manifests.
+
+```bash
+sun deploy --emit-to /tmp/manifests --image-tag $SHA --registry $REGISTRY
+# → CI pushes /tmp/manifests/* to the GitOps repo
+# → Argo CD detects the change and applies it
+```
+
+**Sun-hosted executor** — experimental mock boundary only; see Phase 7.
+
+### `sun.toml` supported fields
+
+All fields are optional. Anything omitted uses Sun's opinionated default.
+
+```toml
+[infra.scale]
+replicas = 2
+cpu      = "500m"
+memory   = "512Mi"
+
+[infra.env]
+config = { LOG_LEVEL = "debug" }   # extra ConfigMap entries
+secrets = ["DATABASE_URL", "API_TOKEN"]
+
+[infra.deploy]
+rollout_strategy = "Recreate"      # or "RollingUpdate" (default)
+ingress_host     = "api.example.com"
+ingress_path     = "/v1"
+
+[infra.labels]
+extra_labels = { team = "payments", cost-center = "billing" }
+
+[infra.rollout]
+strategy = "blue-green"            # or "canary" with steps
+```
+
+`[infra.rollout]` canary/blue-green and `[infra.env].secrets` are implemented.
+`[infra.kafka]` extra topics remain future work.
+
+### `platform/infra/` — Cloud cluster provisioning
+
+Terraform modules for bootstrapping the cluster itself. Run once per environment by the platform team, not on every deploy.
+
+- `platform/infra/aws/` — EKS cluster, VPC, RDS Postgres, ECR, Route53
+- `platform/infra/gcp/` — GKE Autopilot cluster, VPC, Cloud SQL, Artifact Registry, Cloud DNS
+- `platform/infra/base/` — cluster-agnostic: Argo CD, kube-prometheus-stack, Loki, Redpanda, cert-manager, ingress-nginx
+
+After `terraform apply`, the cluster looks identical to `sun dev up` — same infra components, same Helm charts, same Sun-generated manifests.
+
+---
+
+## ~~Phase 7 — Progressive Delivery, CI Scaffold, Sun-Hosted Executor~~ ✓ done (core deliverables)
+
+Phase 7 covered the work remaining after the Phase 6 deployment pipeline.
+
+### ~~Argo Rollouts — progressive delivery (FEAT-011)~~ ✓ done
+
+`sun.toml` `[infra.rollout]` section implemented. `Sun_cli_manifest` synthesizes an Argo
+`Rollout` resource instead of a plain `Deployment` when `progressive_delivery` is set.
+Canary (weighted steps, pause/auto-promote) and blue-green (active + preview services,
+manual promotion) both supported. Teams opt in by adding a few lines to `sun.toml`.
+
+### ~~CI workflow scaffold (FEAT-012)~~ ✓ done
+
+`sun new workspace` now generates `.github/workflows/sun-ci.yml` with build, test,
+image build/push, deployment plan export, and GitOps manifest emit steps. Secret
+and registry placeholders are explicit.
+
+### ~~Sun-hosted executor spike (FEAT-010)~~ ✓ done
+
+`Sun_cli_hosted_executor` implemented: `submit_mock`, `image_refs_of_plan`, typed release
+response, and the full request/response model. `Sun_cli_hosted_model` covers accounts,
+projects, runtimes, environments, billing guardrails, and release targets. DEC-001..DEC-007
+resolved. Full-stack hosted path unblocked for FEAT-015 (diagnostics) and FEAT-017 (URLs).
+
+### ~~Hosted release inspection and diagnostics (FEAT-015)~~ ✓ done
+
+`Sun_cli_release_inspection` defines the Sun-native release inspection surface:
+deployment-plan summary, image refs, affected services, rollout status, health
+status, error reasons, rendered manifest facts, reconciliation events,
+Kubernetes event summaries, and raw failure details. `Sun_cli_hosted_executor`
+embeds an inspection summary in hosted mock release responses.
+
+### Remaining Phase 7 work
+
+| Ticket | Description | Blocked on |
+|--------|-------------|------------|
+| FEAT-017 | Hosted default URLs and custom-domain flow | DEC-005 |

@@ -1,0 +1,5 @@
+(library
+ (name obs_eio_loki)
+ (wrapped false)
+ (modules Obs_loki)
+ (libraries obs_eio eio unix))

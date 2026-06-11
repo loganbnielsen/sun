@@ -1,0 +1,31 @@
+(* Inject pool and observability handle via functor so there's no mutable state.
+   Worker.Make requires module Message, group_id, and handle inside the functor. *)
+module Make (Config : sig
+  val pool : Db.pool option
+  val ot   : Obs.t
+end) = struct
+
+  module Message = Charged
+
+  let group_id = "pluto-comms-notify-worker"
+
+  let handle (msg : Message.t) ~ack ~trace_ctx:_ =
+    ack ();
+    Obs.log_t Config.ot Obs.Info
+      ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
+               ("amount_cents", string_of_int msg.amount_cents)]
+      "charge event received";
+    (match Config.pool with
+     | None -> ()
+     | Some pool ->
+       (match Notification.insert pool
+               ~charge_id:msg.id ~customer_id:msg.customer_id
+               ~amount_cents:msg.amount_cents ~currency:msg.currency with
+        | Ok ()   -> ()
+        | Error e ->
+          Obs.log_t Config.ot Obs.Error
+            ~fields:[("error", Storage_error.to_string e)]
+            "db insert failed"));
+    Ok ()
+
+end

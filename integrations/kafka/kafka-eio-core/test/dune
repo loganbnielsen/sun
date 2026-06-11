@@ -1,0 +1,7 @@
+(test
+ (name test_kafka_error)
+ (libraries kafka_eio_core alcotest))
+
+(test
+ (name ffi_smoke)
+ (libraries kafka_eio_core))

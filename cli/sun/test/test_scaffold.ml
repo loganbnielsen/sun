@@ -1,0 +1,241 @@
+(* Tests for Sun workspace scaffold (cmd_new.ml / sun new workspace).
+   Calls new_workspace in a temp directory and asserts that the expected
+   files are created with the correct content.  No build or cluster needed. *)
+
+(* ── helpers ──────────────────────────────────────────────────────────────── *)
+
+let check_bool  = Alcotest.(check bool)
+
+let contains haystack needle =
+  let hl = String.length haystack and nl = String.length needle in
+  if nl = 0 then true
+  else if nl > hl then false
+  else begin
+    let found = ref false in
+    for i = 0 to hl - nl do
+      if not !found && String.sub haystack i nl = needle then found := true
+    done;
+    !found
+  end
+
+let assert_contains label haystack needle =
+  check_bool (Printf.sprintf "%s: contains %S" label needle) true
+    (contains haystack needle)
+
+let read_file path =
+  let ic = open_in path in
+  let s  = In_channel.input_all ic in
+  close_in ic; s
+
+(* Run [f] inside a fresh temp directory, then restore cwd and delete the tree. *)
+let in_temp_dir f =
+  let orig_cwd = Sys.getcwd () in
+  let tmpdir   = Filename.temp_file "sun-scaffold-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Sys.chdir tmpdir;
+  Fun.protect
+    ~finally:(fun () ->
+      Sys.chdir orig_cwd;
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    f
+
+(* ── scaffold tests ───────────────────────────────────────────────────────── *)
+
+(* Verify that sun-ci.yml is generated *)
+let test_ci_workflow_created () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let path = "testapp/.github/workflows/sun-ci.yml" in
+  check_bool "sun-ci.yml created" true (Sys.file_exists path)
+
+(* Verify that the existing deploy.yml is still generated *)
+let test_deploy_workflow_created () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let path = "testapp/.github/workflows/deploy.yml" in
+  check_bool "deploy.yml created" true (Sys.file_exists path)
+
+(* Verify that sun-ci.yml contains 'sun deploy' *)
+let test_ci_contains_sun_deploy () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "sun deploy"
+
+(* Verify that sun-ci.yml contains '--emit-plan-to' (FEAT-008 integration) *)
+let test_ci_contains_emit_plan_to () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "--emit-plan-to"
+
+(* Verify that sun-ci.yml contains '--emit-to' (GitOps mode) *)
+let test_ci_contains_emit_to () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "--emit-to"
+
+(* Verify that sun-ci.yml contains 'dune build' and 'dune runtest' *)
+let test_ci_contains_dune_commands () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "dune build";
+  assert_contains "sun-ci.yml" content "dune runtest"
+
+(* Verify no KUBECONFIG in the test/build job — cluster creds must stay out *)
+let test_ci_no_kubeconfig_in_build_job () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  (* KUBECONFIG must not appear as a required secret or env var *)
+  check_bool "no KUBECONFIG in sun-ci.yml" false
+    (contains content "KUBECONFIG_B64")
+
+(* Verify that registry credentials are referenced as secrets (placeholders) *)
+let test_ci_registry_secrets () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "secrets.REGISTRY";
+  assert_contains "sun-ci.yml" content "secrets.REGISTRY_USER";
+  assert_contains "sun-ci.yml" content "secrets.REGISTRY_PASSWORD"
+
+(* Verify that other expected workspace files are still present *)
+let test_existing_files_still_generated () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let expected = [
+    "testapp/.ocamlformat";
+    "testapp/dune-project";
+    "testapp/README.md";
+    "testapp/vendor/framework";
+    "testapp/vendor/integrations";
+    "testapp/events/payments/charged.ml";
+    "testapp/events/payments/dune";
+    "testapp/lib/notification.ml";
+    "testapp/app/payments/charge_svc/bin/main.ml";
+    "testapp/app/payments/charge_svc/sun.toml";
+    "testapp/app/comms/notify_worker/bin/main.ml";
+    "testapp/app/comms/notify_worker/sun.toml";
+    "testapp/db/migrations/0001_notifications.sql";
+  ] in
+  List.iter (fun path ->
+    check_bool (Printf.sprintf "%s exists" path) true (Sys.file_exists path)
+  ) expected;
+  (* quick count: at least 21 files *)
+  let count = ref 0 in
+  let rec walk dir =
+    Array.iter (fun entry ->
+      let full = Filename.concat dir entry in
+      if full = "testapp/vendor" then ()
+      else if Sys.is_directory full then walk full
+      else incr count
+    ) (Sys.readdir dir)
+  in
+  walk "testapp";
+  check_bool "at least 21 files generated" true (!count >= 21)
+
+let test_workspace_has_dune_project () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/dune-project" in
+  assert_contains "dune-project" content "(lang dune 3.0)"
+
+let test_dockerfile_paths_are_workspace_relative () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/app/payments/charge_svc/Dockerfile" in
+  assert_contains "Dockerfile" content "COPY _build/default/app/payments/charge_svc/bin/main.exe";
+  check_bool "Dockerfile does not include nested workspace path" false
+    (contains content "_build/default/testapp/app/payments/charge_svc")
+
+let test_readme_migrate_hint_substituted () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/README.md" in
+  assert_contains "README" content "sun migrate --table testapp_migrations";
+  check_bool "README has no template placeholder" false (contains content "{{name}}")
+
+let test_sun_sources_linked () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  check_bool "framework source linked" true
+    (Sys.file_exists "testapp/vendor/framework/sun-svc/lib/dune");
+  check_bool "integrations source linked" true
+    (Sys.file_exists "testapp/vendor/integrations/kafka/kafka-eio-service/lib/dune")
+
+let test_charge_svc_publishes_kafka_event () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let handler = read_file "testapp/app/payments/charge_svc/lib/handler.ml" in
+  let main_ml = read_file "testapp/app/payments/charge_svc/bin/main.ml" in
+  assert_contains "handler" handler "publish_charged event";
+  check_bool "handler does not insert notification directly" false
+    (contains handler "Notification.insert");
+  assert_contains "main" main_ml "Kafka_service.register";
+  assert_contains "main" main_ml "Kafka_service.publish"
+
+(* Verify that the generic worker template calls ack() after side effects,
+   not before them.  The Printf.printf call is the stub side effect; ack ()
+   must appear later in the file. *)
+let test_worker_ack_after_side_effect () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_worker "comms/notify";
+  let lib = read_file "app/comms/notify_worker/lib/notify_worker.ml" in
+  assert_contains "worker lib" lib "ack ()";
+  assert_contains "worker lib" lib "Printf.printf";
+  (* ack () must not precede the Printf.printf side effect *)
+  let ack_pos =
+    let i = ref (-1) in
+    (try
+      let needle = "ack ()" in
+      let hl = String.length lib and nl = String.length needle in
+      for j = 0 to hl - nl do
+        if !i = -1 && String.sub lib j nl = needle then i := j
+      done
+    with _ -> ());
+    !i
+  in
+  let printf_pos =
+    let i = ref (-1) in
+    (try
+      let needle = "Printf.printf" in
+      let hl = String.length lib and nl = String.length needle in
+      for j = 0 to hl - nl do
+        if !i = -1 && String.sub lib j nl = needle then i := j
+      done
+    with _ -> ());
+    !i
+  in
+  check_bool "Printf.printf appears before ack ()" true
+    (printf_pos >= 0 && ack_pos > printf_pos)
+
+(* ── entry point ─────────────────────────────────────────────────────────── *)
+
+let () =
+  Alcotest.run "scaffold"
+    [ "ci_workflow", [
+        Alcotest.test_case "sun-ci.yml created"           `Quick test_ci_workflow_created
+      ; Alcotest.test_case "deploy.yml still created"     `Quick test_deploy_workflow_created
+      ; Alcotest.test_case "contains sun deploy"          `Quick test_ci_contains_sun_deploy
+      ; Alcotest.test_case "--emit-plan-to present"       `Quick test_ci_contains_emit_plan_to
+      ; Alcotest.test_case "--emit-to present"            `Quick test_ci_contains_emit_to
+      ; Alcotest.test_case "dune build + runtest"         `Quick test_ci_contains_dune_commands
+      ; Alcotest.test_case "no KUBECONFIG_B64 in workflow" `Quick test_ci_no_kubeconfig_in_build_job
+      ; Alcotest.test_case "registry secret placeholders" `Quick test_ci_registry_secrets
+      ]
+    ; "existing_files", [
+        Alcotest.test_case "all prior files still present" `Quick test_existing_files_still_generated
+      ; Alcotest.test_case "dune-project generated"        `Quick test_workspace_has_dune_project
+      ; Alcotest.test_case "Dockerfile paths relative"      `Quick test_dockerfile_paths_are_workspace_relative
+      ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted
+      ; Alcotest.test_case "Sun sources linked"             `Quick test_sun_sources_linked
+      ; Alcotest.test_case "charge_svc publishes event"     `Quick test_charge_svc_publishes_kafka_event
+      ]
+    ; "worker_ack_order", [
+        Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect
+      ]
+    ]

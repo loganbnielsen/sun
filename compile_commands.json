@@ -1,0 +1,1 @@
+[{"directory":"_build/default/integrations/kafka/kafka-eio-core/lib","file":"kafka_stubs.c","arguments":["gcc","-O2","-fno-strict-aliasing","-fwrapv","-fPIC","-pthread","-D_FILE_OFFSET_BITS=64","-Wall","-fdiagnostics-color=always","-g","-I","/home/lbendtly/.opam/default/lib/ocaml","-o","kafka_stubs.o","-c","kafka_stubs.c"]}]

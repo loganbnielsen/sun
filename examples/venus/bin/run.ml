@@ -1,0 +1,290 @@
+(** Venus — Sun reference workspace
+    ─────────────────────────────────────────────────────────────────────────
+    Two autonomous domain teams collaborating through typed Kafka events:
+
+      HTTP client
+          │  POST /charges  { amount_cents, customer_id, currency }
+          ▼
+      payments / charge-svc  (sun-svc)
+          │  Loki span: "receive_charge"
+          │  Prometheus: sun_svc_requests_total, sun_svc_request_duration_seconds
+          │  publishes Charged event with W3C traceparent header
+          ▼
+      Kafka  venus-payments-charges
+          │
+          ▼
+      comms / notify-worker  (sun-worker)
+          │  Loki span: "record_notification"  (linked to charge-svc span via trace)
+          │  Prometheus: sun_worker_messages_total, sun_worker_message_duration_seconds
+          │  records notification in PostgreSQL  (sun-storage)
+          ▼
+      Loki · Prometheus · PostgreSQL
+
+    Run (from repo root):
+      bash platform/local/scripts/ensure-broker.sh
+      bash platform/local/scripts/ensure-postgres.sh       # optional
+      bash platform/local/scripts/ensure-loki.sh           # optional — stdout fallback
+      bash platform/local/scripts/ensure-grafana.sh        # optional
+
+      KAFKA_BROKERS=localhost:9092 \
+      POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
+      LOKI_URL=http://localhost:3100 \
+        dune exec examples/venus/bin/run.exe
+*)
+
+(* ── Config ─────────────────────────────────────────────────────────────── *)
+
+let loki_url        = Sys.getenv_opt "LOKI_URL"
+let pushgateway_url = Sys.getenv_opt "PUSHGATEWAY_URL"
+let postgres_url    = Sys.getenv_opt "POSTGRES_URL"
+
+let kafka_config : Kafka_service.config =
+  { (Kafka_service.config_of_env ()) with linger_ms = 5 }
+
+(* ── Helpers ─────────────────────────────────────────────────────────────── *)
+
+let sep = String.make 60 '-'
+let say fmt = Printf.ksprintf (fun s -> Printf.printf "\n[venus] %s\n%!" s) fmt
+let new_corr_id () = Printf.sprintf "c-%06x" (Random.int 0xFFFFFF)
+let new_charge_id () = Printf.sprintf "ch_%08x%08x" (Random.bits ()) (Random.bits ())
+
+let http_post env ~sw ~port ~path ?(headers=[]) ~body () =
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
+  let flow  = Eio.Net.connect ~sw env#net addr in
+  let extra = List.map (fun (k,v) -> Printf.sprintf "%s: %s\r\n" k v) headers
+              |> String.concat "" in
+  let req =
+    Printf.sprintf
+      "POST %s HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\
+       content-type: application/json\r\ncontent-length: %d\r\n%s\r\n%s"
+      path (String.length body) extra body
+  in
+  Eio.Flow.copy_string req flow;
+  Eio.Flow.shutdown flow `Send;
+  let buf = Eio.Buf_read.of_flow flow ~max_size:65536 in
+  let resp = Eio.Buf_read.take_all buf in
+  match String.split_on_char ' ' resp with
+  | _ :: code :: _ -> (try int_of_string (String.trim code) with _ -> 0)
+  | _              -> 0
+
+(* ── Main ───────────────────────────────────────────────────────────────── *)
+
+let () =
+  Random.self_init ();
+  Printf.printf "\n%s\n" sep;
+  Printf.printf "  Venus — Sun Reference Workspace\n";
+  Printf.printf "%s\n" sep;
+  Printf.printf "  Teams:           payments (charge-svc)  ·  comms (notify-worker)\n";
+  Printf.printf "  Kafka brokers:   %s\n" (String.concat "," kafka_config.brokers);
+  Printf.printf "  Schema registry: %s\n" kafka_config.schema_registry_url;
+  Printf.printf "  Loki:            %s\n" (Option.value ~default:"(stdout fallback)" loki_url);
+  Printf.printf "  Pushgateway:     %s\n" (Option.value ~default:"(disabled)" pushgateway_url);
+  Printf.printf "  Postgres:        %s\n%!" (Option.value ~default:"(disabled)" postgres_url);
+
+  Eio_main.run @@ fun env ->
+
+  (* ── Observability ─────────────────────────────────────────────────────── *)
+  let prom_backend, render = Obs_prometheus.create () in
+  let log_backend =
+    match loki_url with
+    | None ->
+      Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!";
+      Obs.stdout
+    | Some url ->
+      Printf.printf "\n  Logs -> Loki at %s\n%!" url;
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
+  let backend   = Obs.compose log_backend prom_backend in
+  let svc_ot    =
+    let base = Obs.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend in
+    Obs.with_context base [("team", "payments")]
+  in
+  let worker_ot =
+    let base = Obs.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend in
+    Obs.with_context base [("team", "comms")]
+  in
+
+  Eio.Switch.run @@ fun sw ->
+
+  (* ── Storage (comms team) ───────────────────────────────────────────────── *)
+  let db_pool = match postgres_url with
+    | None ->
+      Printf.printf "\n  Note: POSTGRES_URL not set — notifications will not be persisted.\n%!";
+      None
+    | Some url ->
+      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+       | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+       | Ok pool ->
+         (match Migration.apply pool ~dir:"examples/venus/db/migrations"
+                  ~table:"venus_schema_migrations" with
+          | Error e -> failwith ("migrations: " ^ Storage_error.to_string e)
+          | Ok ()   ->
+            Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";
+            Some pool))
+  in
+
+  (* ── Kafka (shared infrastructure) ─────────────────────────────────────── *)
+  say "registering topic %S ..." Charged.topic_name;
+  let svc =
+    match Kafka_service.create kafka_config ~sw with
+    | Ok s    -> s
+    | Error e -> failwith ("kafka create: " ^ e)
+  in
+  let topic =
+    match Kafka_service.register svc ~net:env#net ~clock:env#clock
+            (module Charged) with
+    | Ok t    -> t
+    | Error e -> failwith ("kafka register: " ^ e)
+  in
+  say "topic ready.";
+
+  (* ── comms / notify-worker ──────────────────────────────────────────────── *)
+  let charges_count = 3 in
+  let worker_ready_p, worker_ready_r = Eio.Promise.create () in
+  let worker_done_p,  worker_done_r  = Eio.Promise.create () in
+
+  let module W = Notify_worker.Make(struct
+    let pool = db_pool
+    let ot   = worker_ot
+  end) in
+
+  Eio.Fiber.fork ~sw (fun () ->
+    (try
+      let module WR = Worker.Make(W) in
+      WR.run ~env ~config:kafka_config ~ot:worker_ot
+        ~on_ready:(fun () ->
+          Printf.printf "[notify-worker] partition assigned — ready\n%!";
+          (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
+        ~max_messages:charges_count
+        ()
+    with Failure msg ->
+      Printf.eprintf "[notify-worker] error: %s\n%!" msg);
+    (try Eio.Promise.resolve worker_done_r () with _ -> ())
+  );
+
+  (* ── payments / charge-svc ──────────────────────────────────────────────── *)
+  let handle_charge req =
+    let corr_id  = Option.value (Request.header req "x-correlation-id")
+                     ~default:(new_corr_id ()) in
+    let body_j   = (try Yojson.Safe.from_string req.Request.body
+                    with _ -> `Assoc []) in
+    let s k = match body_j with
+      | `Assoc fs -> (match List.assoc_opt k fs with Some (`String s) -> s | _ -> "")
+      | _ -> "" in
+    let i k = match body_j with
+      | `Assoc fs -> (match List.assoc_opt k fs with Some (`Int n) -> n | _ -> 0)
+      | _ -> 0 in
+    let charge_id = new_charge_id () in
+    let msg = Charged.{
+      charge_id;
+      amount_cents   = i "amount_cents";
+      customer_id    = s "customer_id";
+      currency       = (let c = s "currency" in if c = "" then "USD" else c);
+      correlation_id = corr_id;
+    } in
+    let span_ot = Obs.with_context svc_ot [("correlation_id", corr_id)] in
+    let trace_ctx = Obs.with_span span_ot "receive_charge" (fun span ->
+      Obs.log span Info
+        ~fields:[("charge_id",    msg.charge_id);
+                 ("customer_id",  msg.customer_id);
+                 ("amount_cents", string_of_int msg.amount_cents);
+                 ("currency",     msg.currency)]
+        "charge received";
+      Obs.current_trace_ctx span
+    ) in
+    Printf.printf "[charge-svc]    received   charge=%-20s  customer=%-10s  %5d %s\n%!"
+      msg.charge_id msg.customer_id msg.amount_cents msg.currency;
+    (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
+     | Ok ()    -> ()
+     | Error ke ->
+       Printf.eprintf "[charge-svc]    publish error: %s\n%!" (Kafka_error.to_string ke));
+    Response.json ~status:202
+      (Printf.sprintf {|{"charge_id":%S,"accepted":true}|} charge_id)
+  in
+
+  let svc_port_p, svc_port_r = Eio.Promise.create () in
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    Service.run [ Route.post "/charges" ~auth:`Public handle_charge ]
+      ~env ~port:0 ~ot:svc_ot
+      ~on_listen:(fun p ->
+        Printf.printf "[charge-svc]    listening on port %d\n%!" p;
+        Eio.Promise.resolve svc_port_r p)
+      ();
+    `Stop_daemon
+  );
+  let port = Eio.Promise.await svc_port_p in
+
+  (* ── Wait for notify-worker partition assignment ─────────────────────────── *)
+  say "waiting for worker partition assignment (up to 15s) ...";
+  (match Eio.Time.with_timeout env#clock 15.0 (fun () ->
+     Ok (Eio.Promise.await worker_ready_p)) with
+   | Error `Timeout -> failwith "timed out waiting for worker partition assignment"
+   | Ok () -> ());
+
+  (* ── Send 3 charges ─────────────────────────────────────────────────────── *)
+  Printf.printf "\n%s\n%!" sep;
+  let charges = [
+    ("cust-001", 4999,  "USD");
+    ("cust-002", 12000, "EUR");
+    ("cust-001", 799,   "GBP");
+  ] in
+  List.iter (fun (customer_id, amount_cents, currency) ->
+    let corr_id = new_corr_id () in
+    let body = Printf.sprintf
+      {|{"amount_cents":%d,"customer_id":%S,"currency":%S}|}
+      amount_cents customer_id currency in
+    let status = http_post env ~sw ~port ~path:"/charges"
+                   ~headers:[("x-correlation-id", corr_id)]
+                   ~body () in
+    Printf.printf "[client]        POST /charges customer=%-10s  %5d %s  -> HTTP %d  corr=%s\n%!"
+      customer_id amount_cents currency status corr_id
+  ) charges;
+  Printf.printf "%s\n%!" sep;
+
+  (* ── Wait for notify-worker ─────────────────────────────────────────────── *)
+  say "waiting for notify-worker to process all %d events (up to 20s) ..." charges_count;
+  (match Eio.Time.with_timeout env#clock 20.0 (fun () ->
+     Ok (Eio.Promise.await worker_done_p)) with
+   | Error `Timeout ->
+     Printf.eprintf "[venus] timed out waiting for worker\n%!"
+   | Ok () -> ());
+  say "all %d events processed." charges_count;
+
+  (* ── PostgreSQL: show what the comms team recorded ─────────────────────── *)
+  (match db_pool with
+   | None -> ()
+   | Some pool ->
+     Printf.printf "\n%s\n" sep;
+     Printf.printf "  Notifications in PostgreSQL  (comms team)\n";
+     Printf.printf "%s\n" sep;
+     (match Notification.list pool () with
+      | Error e ->
+        Printf.eprintf "  db query error: %s\n%!" (Storage_error.to_string e)
+      | Ok rows ->
+        List.iter (fun (r : Notification.t) ->
+          Printf.printf "  %-20s  %-10s  %5d %s\n"
+            r.charge_id r.customer_id r.amount_cents r.currency
+        ) rows;
+        Printf.printf "%s\n%!" sep));
+
+  (* ── Prometheus snapshot ────────────────────────────────────────────────── *)
+  Printf.printf "\n%s\n" sep;
+  Printf.printf "  Prometheus metrics snapshot\n";
+  Printf.printf "%s\n" sep;
+  Printf.printf "%s\n%!" (render ());
+
+  (match pushgateway_url with
+   | None -> ()
+   | Some url ->
+     (match Obs_prometheus.push ~net:env#net ~clock:env#clock
+              ~url ~job:"venus" render with
+      | Ok ()   -> say "metrics pushed to %s" url
+      | Error e -> Printf.eprintf "[venus] push failed: %s\n%!" e));
+
+  Printf.printf "\n%s\n" sep;
+  Printf.printf "  Done.\n";
+  Printf.printf "  Grafana:  http://localhost:3000\n";
+  Printf.printf "    Logs:    Explore > Loki > {service=~\".*\"} | logfmt\n";
+  Printf.printf "    Metrics: Explore > Prometheus > sun_svc_requests_total\n";
+  Printf.printf "%s\n%!" sep
