@@ -44,7 +44,22 @@ let http_post ~net ~clock ~url ~body =
         | _ :: code :: _ ->
           (match int_of_string_opt code with
            | Some n when n >= 200 && n < 300 -> Ok ()
-           | Some n -> Error (Printf.sprintf "Loki returned HTTP %d" n)
+           | Some n ->
+             (* Drain headers to reach the body, then read up to 512 bytes. *)
+             let body =
+               try
+                 let rec skip_headers () =
+                   let line = Eio.Buf_read.line buf in
+                   if line = "" || line = "\r" then () else skip_headers ()
+                 in
+                 skip_headers ();
+                 (* take_while avoids End_of_file on bodies shorter than 512 bytes. *)
+                 let s = Eio.Buf_read.take_while (fun _ -> true) buf in
+                 String.sub s 0 (min (String.length s) 512)
+               with _ -> ""
+             in
+             let detail = if body = "" then "" else ": " ^ String.trim body in
+             Error (Printf.sprintf "Loki returned HTTP %d%s" n detail)
            | None   -> Error ("unexpected Loki response: " ^ status_line))
         | _ -> Error ("unexpected Loki response: " ^ status_line)))
   with
@@ -65,8 +80,7 @@ let jobj pairs =
   ^ "}"
 
 (* Logfmt for log line bodies.
-   Values containing spaces, = or control chars are quoted.
-   trace_id/span_id are NOT included here -- they go in structured metadata. *)
+   Values containing spaces, = or control chars are quoted. *)
 let logfmt_val s =
   let needs_quotes = String.exists
     (fun c -> c = ' ' || c = '=' || c = '"' || c = '\n' || c = '\r') s in
@@ -76,11 +90,12 @@ let logfmt pairs =
   String.concat " "
     (List.map (fun (k, v) -> k ^ "=" ^ logfmt_val v) pairs)
 
-(* Structured metadata JSON object — attached as the third element of
-   each value tuple.  Loki 3.x indexes these as filterable fields
-   separate from the log line text. *)
-let meta_json trace_id span_id =
-  Printf.sprintf {|{"trace_id":%s,"span_id":%s}|} (jstr trace_id) (jstr span_id)
+(* Logfmt fields for trace context, included in the log line body.
+   Structured metadata (Loki 3.x 3-element tuples) is incompatible with
+   Loki 2.x (the loki-stack Helm chart); including trace_id/span_id in
+   the line body keeps them searchable on both versions. *)
+let trace_fields trace_id span_id =
+  [("trace_id", trace_id); ("span_id", span_id)]
 
 (* ------------------------------------------------------------------ *)
 (* Log entry reconstruction                                            *)
@@ -115,15 +130,15 @@ let span_id_hex id        = Printf.sprintf "%016Lx" id
 let unix_ns_string () =
   Printf.sprintf "%Ld" (Int64.of_float (Unix.gettimeofday () *. 1e9))
 
-(* Each value is (timestamp_ns, log_line, structured_metadata_json).
-   Loki 3.x accepts a third element in each tuple for structured metadata. *)
+(* Each value is a 2-element tuple [timestamp_ns, log_line], compatible
+   with Loki 2.x (loki-stack Helm chart) and Loki 3.x. *)
 let loki_push_body ~stream_labels ~values =
   let stream = jobj stream_labels in
   let vals =
     "[" ^
     String.concat ","
-      (List.map (fun (ts, line, meta) ->
-         "[" ^ jstr ts ^ "," ^ jstr line ^ "," ^ meta ^ "]") values)
+      (List.map (fun (ts, line) ->
+         "[" ^ jstr ts ^ "," ^ jstr line ^ "]") values)
     ^ "]"
   in
   Printf.sprintf {|{"streams":[{"stream":%s,"values":%s}]}|} stream vals
@@ -143,14 +158,16 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
     let ts       = unix_ns_string () in
     let trace_id = trace_id_hex e.trace_ctx.Obs_trace.trace_id in
     let span_id  = span_id_hex  e.trace_ctx.Obs_trace.span_id  in
+    let trace    = trace_fields trace_id span_id in
     let entries  = split_log_entries e.fields in
-    let meta = meta_json trace_id span_id in
     let values =
       if entries = [] then
         (* Span had no Obs.log calls — emit a single span-completion line. *)
         let status = match e.status with `Ok -> "ok" | `Error s -> "error:" ^ s in
-        let line = logfmt [("level", "info"); ("span", e.name); ("status", status)] in
-        [ (ts, line, meta) ]
+        let line = logfmt
+          ([("level", "info"); ("span", e.name); ("status", status)] @ trace)
+        in
+        [ (ts, line) ]
       else
         List.map (fun entry ->
           let level = Option.value ~default:"info"
@@ -160,11 +177,10 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
           let extra =
             List.filter (fun (k, _) -> k <> "log.level" && k <> "log.msg") entry
           in
-          (* trace_id and span_id go in structured metadata, not the line. *)
           let line = logfmt
-            ([ ("level", level); ("msg", msg); ("span", e.name) ] @ extra)
+            ([ ("level", level); ("msg", msg); ("span", e.name) ] @ extra @ trace)
           in
-          (ts, line, meta)
+          (ts, line)
         ) entries
     in
     let body = loki_push_body ~stream_labels ~values in
