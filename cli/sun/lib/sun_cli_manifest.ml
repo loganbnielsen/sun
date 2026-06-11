@@ -1,5 +1,17 @@
 (* YAML manifest rendering and apply logic shared by sun up and sun deploy. *)
 
+(* ── Secret backend type ─────────────────────────────────────────────────── *)
+
+type secret_backend =
+  | Kubernetes_live         (** Emit a Kubernetes Secret with real values (live deploy / sun up). *)
+  | Kubernetes_placeholder  (** Emit a redacted Kubernetes Secret with empty stringData (GitOps). *)
+  | External_secrets of {
+      store_ref        : string;  (* e.g. "aws-secrets-manager" *)
+      store_kind       : string;  (* e.g. "ClusterSecretStore" *)
+      key_prefix       : string;  (* e.g. "myworkspace/" *)
+      refresh_interval : string;  (* e.g. "1h" *)
+    }
+
 (* ── Service model ───────────────────────────────────────────────────────── *)
 
 type primitive = Svc | Worker | Fn
@@ -168,6 +180,35 @@ metadata:
 type: Opaque
 %sstringData:
 %s|} name ns comment (render_env_block secrets)
+
+(* Emits an ExternalSecret resource (External Secrets Operator v1beta1).
+   The ESO controller will materialise a Kubernetes Secret named "<name>-secrets"
+   in the same namespace, which workload pods reference via envFrom secretRef.
+   secret_keys must be the full list of all keys (default_secrets keys + spec.secrets keys). *)
+let external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval ~secret_keys ns name =
+  let remote_refs =
+    String.concat "\n" (List.map (fun key ->
+      f {|  - secretKey: %s
+    remoteRef:
+      key: %s%s|} key key_prefix key
+    ) secret_keys)
+  in
+  f {|---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: %s-secrets
+  namespace: %s
+spec:
+  refreshInterval: %s
+  secretStoreRef:
+    name: %s
+    kind: %s
+  target:
+    name: %s-secrets
+    creationPolicy: Owner
+  data:
+%s|} name ns refresh_interval store_ref store_kind name remote_refs
 
 let render_secret_key_refs secret_keys =
   match secret_keys with

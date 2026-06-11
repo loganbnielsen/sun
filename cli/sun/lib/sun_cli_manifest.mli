@@ -1,3 +1,13 @@
+type secret_backend =
+  | Kubernetes_live         (** Emit a Kubernetes Secret with real values (live deploy / sun up). *)
+  | Kubernetes_placeholder  (** Emit a redacted Kubernetes Secret with empty stringData (GitOps). *)
+  | External_secrets of {
+      store_ref        : string;
+      store_kind       : string;
+      key_prefix       : string;
+      refresh_interval : string;
+    }
+
 type primitive = Svc | Worker | Fn
 
 type service = {
@@ -13,6 +23,7 @@ val discover_services : filter_path:string option -> service list
 val extract_schedule  : dir:string -> name:string -> string
 
 val default_cluster_env : (string * string) list
+val default_secrets     : (string * string) list
 val runtime_secret_name : string
 val config_hash : (string * string) list -> string
 
@@ -21,6 +32,7 @@ val namespace_doc      : string -> string
 val service_account_doc : string -> string -> string
 val configmap_doc      : ?extra_env:(string * string) list -> string -> string -> string
 val secret_doc         : ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
+val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> string -> string -> string
 val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> ports:bool -> probes:bool -> replicas:int -> cpu:string -> memory:string -> string -> string -> string -> string
 
 (** [rollout_doc] renders an Argo Rollout resource instead of a Deployment.

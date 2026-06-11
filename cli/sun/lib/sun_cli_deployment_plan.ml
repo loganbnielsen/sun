@@ -245,7 +245,7 @@ let of_services ~workspace ~env services =
     Argo [Rollout] resource instead of a standard [Deployment].  Blue-green also
     emits two Service resources ([<name>-active] and [<name>-preview]) instead of
     the single ClusterIP [Service] used by the default path. *)
-let render_spec ?(image = "") ?(redact_secrets = false) spec =
+let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) spec =
   let ns               = spec.namespace in
   let name             = spec.k8s_name in
   let img              = if image = "" then spec.image else image in
@@ -261,14 +261,28 @@ let render_spec ?(image = "") ?(redact_secrets = false) spec =
   Sun_cli_manifest.(
     let ns_yaml = namespace_doc ns in
     let workload_yaml =
-      (* Strip values: Secret stringData keys are emitted with empty values so
-         operators can fill them in at apply time via `sun secret set`.
-         Real values must never appear in rendered manifests. *)
-      let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
+      (* Build the secret resource document depending on backend:
+         - Kubernetes_live (default): emit a Secret with real values (sun up / live deploy).
+         - Kubernetes_placeholder: emit a Secret with empty stringData (GitOps fill-in).
+         - External_secrets _: emit an ExternalSecret CRD so ESO materialises the Secret. *)
+      let secret_resource = match secret_backend with
+        | Kubernetes_live ->
+          let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
+          secret_doc ~extra_secrets ns name
+        | Kubernetes_placeholder ->
+          let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
+          secret_doc ~extra_secrets ~redact:true ns name
+        | External_secrets { store_ref; store_kind; key_prefix; refresh_interval } ->
+          let all_keys =
+            List.map fst default_secrets @ List.map fst spec.secrets
+          in
+          external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval
+            ~secret_keys:all_keys ns name
+      in
       let common = [
         service_account_doc ns name;
         configmap_doc ~extra_env:spec.config ns name;
-        secret_doc ~extra_secrets ~redact:redact_secrets ns name;
+        secret_resource;
         network_policy_doc ns name;
       ] in
       let resources = match spec.primitive, spec.progressive_delivery with
