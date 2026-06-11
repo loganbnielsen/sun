@@ -151,9 +151,10 @@ let deployment_mode_of_target = function
     [name] is the logical environment name (e.g., ["local"], ["production"]). *)
 let to_env_config ~name t : Sun_cli_deployment_plan.env_config = {
   name;
-  mode        = deployment_mode_of_target t.target;
-  registry    = t.registry;
-  image_tag   = t.image_tag;
-  region      = t.region;
-  base_domain = t.base_domain;
+  mode           = deployment_mode_of_target t.target;
+  registry       = t.registry;
+  image_tag      = t.image_tag;
+  region         = t.region;
+  base_domain    = t.base_domain;
+  secret_backend = "kubernetes-placeholder";
 }

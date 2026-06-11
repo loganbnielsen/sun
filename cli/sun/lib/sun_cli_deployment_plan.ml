@@ -1,12 +1,13 @@
 type deployment_mode = Local | Customer_cloud | Sun_hosted
 
 type env_config = {
-  name        : string;
-  mode        : deployment_mode;
-  registry    : string;
-  image_tag   : string;
-  region      : string option;
-  base_domain : string option;
+  name           : string;
+  mode           : deployment_mode;
+  registry       : string;
+  image_tag      : string;
+  region         : string option;
+  base_domain    : string option;
+  secret_backend : string;
 }
 
 type primitive = Svc | Worker | Fn
@@ -33,11 +34,13 @@ type service_spec = {
 }
 
 type t = {
-  workspace   : string;
-  environment : env_config;
-  services    : service_spec list;
-  topics      : string list;
-  migrations  : string list;
+  workspace        : string;
+  environment      : env_config;
+  services         : service_spec list;
+  topics           : string list;
+  migrations       : string list;
+  schema_subjects  : string list;
+  consumer_groups  : string list;
 }
 
 let mode_to_string = function
@@ -76,6 +79,23 @@ let to_json t =
     | None   -> `Null
     | Some s -> `String s
   in
+  let rollout_strategy_string s =
+    match s.progressive_delivery with
+    | Some (Sun_cli_toml.Canary _)  -> "canary"
+    | Some Sun_cli_toml.Blue_green  -> "blue_green"
+    | None ->
+      (match s.rollout_strategy with
+       | Some Sun_cli_toml.Recreate     -> "recreate"
+       | Some Sun_cli_toml.RollingUpdate
+       | None                           -> "rolling_update")
+  in
+  let ingress_json s =
+    match s.ingress_host with
+    | None      -> `Null
+    | Some host ->
+      let path = Option.value s.ingress_path ~default:"/" in
+      `Assoc [ "host", `String host; "path", `String path ]
+  in
   let service_to_json (s : service_spec) =
     `Assoc [
       "k8s_name",    `String s.k8s_name;
@@ -90,6 +110,8 @@ let to_json t =
       "replicas",    `Int    s.replicas;
       "cpu",         `String s.cpu;
       "memory",      `String s.memory;
+      "rollout_strategy",     `String (rollout_strategy_string s);
+      "ingress",              ingress_json s;
       "progressive_delivery", progressive_delivery_to_json s.progressive_delivery;
     ]
   in
@@ -98,16 +120,19 @@ let to_json t =
     "_note",       `String "experimental — schema not frozen";
     "workspace",   `String t.workspace;
     "environment", `Assoc [
-      "name",        `String env.name;
-      "mode",        `String (mode_to_string env.mode);
-      "registry",    `String env.registry;
-      "image_tag",   `String env.image_tag;
-      "region",      opt_string env.region;
-      "base_domain", opt_string env.base_domain;
+      "name",           `String env.name;
+      "mode",           `String (mode_to_string env.mode);
+      "registry",       `String env.registry;
+      "image_tag",      `String env.image_tag;
+      "region",         opt_string env.region;
+      "base_domain",    opt_string env.base_domain;
+      "secret_backend", `String env.secret_backend;
     ];
-    "services",    `List (List.map service_to_json t.services);
-    "topics",      `List (List.map (fun s -> `String s) t.topics);
-    "migrations",  `List (List.map (fun s -> `String s) t.migrations);
+    "services",         `List (List.map service_to_json t.services);
+    "topics",           `List (List.map (fun s -> `String s) t.topics);
+    "migrations",       `List (List.map (fun s -> `String s) t.migrations);
+    "schema_subjects",  `List (List.map (fun s -> `String s) t.schema_subjects);
+    "consumer_groups",  `List (List.map (fun s -> `String s) t.consumer_groups);
   ]
 
 let pp_summary fmt t =
@@ -132,7 +157,60 @@ let pp_summary fmt t =
    | [] -> ()
    | ms ->
      Format.fprintf fmt "@\n";
-     Format.fprintf fmt "migrations:   %s@\n" (String.concat ", " ms))
+     Format.fprintf fmt "migrations:   %s@\n" (String.concat ", " ms));
+  (match t.schema_subjects with
+   | [] -> ()
+   | ss ->
+     Format.fprintf fmt "@\n";
+     Format.fprintf fmt "schema subjects:  %s@\n" (String.concat ", " ss));
+  (match t.consumer_groups with
+   | [] -> ()
+   | cgs ->
+     Format.fprintf fmt "@\n";
+     Format.fprintf fmt "consumer groups:  %s@\n" (String.concat ", " cgs))
+
+(** Scan [events/<domain>/] subdirectories for [*.ml] files and derive schema
+    subject names as ["<domain>.<EventName>"].  Also handles top-level
+    [events/<event>.ml] files (no domain prefix).  Returns a sorted,
+    deduplicated list. *)
+let discover_schema_subjects () =
+  let events_dir = "events" in
+  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
+  else begin
+    let subjects = ref [] in
+    (try
+      Array.iter (fun entry ->
+        let path = Filename.concat events_dir entry in
+        if Sys.is_directory path && entry.[0] <> '.' then begin
+          (* events/<domain>/<event>.ml *)
+          (try
+            Array.iter (fun fname ->
+              if Filename.check_suffix fname ".ml" then begin
+                let stem = Filename.chop_suffix fname ".ml" in
+                let capitalized = String.capitalize_ascii stem in
+                subjects := (entry ^ "." ^ capitalized) :: !subjects
+              end
+            ) (Sys.readdir path)
+          with _ -> ())
+        end else if Filename.check_suffix entry ".ml" then begin
+          (* events/<event>.ml (top-level, no domain) *)
+          let stem = Filename.chop_suffix entry ".ml" in
+          subjects := stem :: !subjects
+        end
+      ) (Sys.readdir events_dir)
+    with _ -> ());
+    List.sort_uniq String.compare !subjects
+  end
+
+(** Derive consumer group identifiers for all Worker service specs.
+    Convention: ["<workspace>.<domain>.<worker_name>"]. *)
+let derive_consumer_groups workspace services =
+  List.filter_map (fun (s : service_spec) ->
+    match s.primitive with
+    | Worker -> Some (Printf.sprintf "%s.%s.%s" workspace s.domain s.source_name)
+    | _      -> None
+  ) services
+  |> List.sort_uniq String.compare
 
 (** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations.
     Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
@@ -240,11 +318,14 @@ let of_services ~workspace ~env services =
     ; progressive_delivery  = toml.Sun_cli_toml.progressive_delivery
     }
   in
+  let resolved_services = List.map to_spec services in
   { workspace
-  ; environment = env
-  ; services    = List.map to_spec services
-  ; topics      = discover_topics ()
-  ; migrations  = discover_migrations ()
+  ; environment    = env
+  ; services       = resolved_services
+  ; topics         = discover_topics ()
+  ; migrations     = discover_migrations ()
+  ; schema_subjects = discover_schema_subjects ()
+  ; consumer_groups = derive_consumer_groups workspace resolved_services
   }
 
 (** Render a (namespace_yaml, workload_yaml) pair from a resolved [service_spec].

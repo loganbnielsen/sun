@@ -45,6 +45,7 @@ let hosted_plan ?progressive_delivery () =
     image_tag = "abc123";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
+    secret_backend = "kubernetes-placeholder";
   } in
   { Sun_cli_deployment_plan.workspace = "pluto";
     environment = env;
@@ -54,6 +55,8 @@ let hosted_plan ?progressive_delivery () =
     ];
     topics = [ "charged" ];
     migrations = [ "0001_notifications.sql" ];
+    schema_subjects = [];
+    consumer_groups = [];
   }
 
 let image_refs : Sun_cli_release_inspection.image_ref list =
