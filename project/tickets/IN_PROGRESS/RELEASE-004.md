@@ -3,6 +3,8 @@ id: RELEASE-004
 type: release
 severity: high
 source: release-run-27380645597
+branch: RELEASE-004/release-action-hotfix
+worktree: /home/lbendtly/Code/sun-RELEASE-004-release-action-hotfix
 ---
 
 Fix the release action pin and publish the next alpha.
