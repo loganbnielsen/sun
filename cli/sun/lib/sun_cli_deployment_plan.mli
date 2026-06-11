@@ -40,6 +40,15 @@ type t = {
   migrations  : string list;
 }
 
+val discover_topics : unit -> string list
+(** Scan [events/*.ml] in the current directory for ['let topic_name = "..."']
+    declarations and return the topic names, sorted and deduplicated.
+    Returns [[]] when the [events/] directory does not exist. *)
+
+val discover_migrations : unit -> string list
+(** Scan [db/migrations/*.sql] in the current directory and return filenames
+    sorted by name.  Returns [[]] when [db/migrations/] does not exist. *)
+
 val to_json : t -> Yojson.Safe.t
 (** Serialize a deployment plan to JSON (experimental format — schema not frozen).
     Config values are included; secret keys are included but secret values are omitted. *)
