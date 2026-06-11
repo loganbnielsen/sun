@@ -7,14 +7,14 @@ source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
 
 Smoke-test the published alpha release artifact as a clean release user.
 
-**Depends on:** RELEASE-001.
+**Depends on:** RELEASE-004.
 
 **Problem:** A release asset can exist while still depending on contributor
 state, stale documentation, or an accidental source checkout. After publishing
 the post-hardening alpha, an engineer needs to verify the public path from a
 clean directory and record any mismatch.
 
-**Goal:** Prove that `v0.1.0-alpha.5` works without cloning the Sun repository
+**Goal:** Prove that `v0.1.0-alpha.6` works without cloning the Sun repository
 or setting `SUN_HOME`.
 
 **Remediation:**
@@ -23,10 +23,10 @@ or setting `SUN_HOME`.
 2. Download and unpack the published tarball:
 
    ```bash
-   curl -fL -o sun-v0.1.0-alpha.5-linux-x86_64.tar.gz \
-     https://github.com/loganbnielsen/sun/releases/download/v0.1.0-alpha.5/sun-v0.1.0-alpha.5-linux-x86_64.tar.gz
-   tar xzf sun-v0.1.0-alpha.5-linux-x86_64.tar.gz
-   export PATH="$PWD/sun-v0.1.0-alpha.5-linux-x86_64/bin:$PATH"
+   curl -fL -o sun-v0.1.0-alpha.6-linux-x86_64.tar.gz \
+     https://github.com/loganbnielsen/sun/releases/download/v0.1.0-alpha.6/sun-v0.1.0-alpha.6-linux-x86_64.tar.gz
+   tar xzf sun-v0.1.0-alpha.6-linux-x86_64.tar.gz
+   export PATH="$PWD/sun-v0.1.0-alpha.6-linux-x86_64/bin:$PATH"
    ```
 
 3. Verify the binary and scaffold path:
