@@ -57,3 +57,7 @@ binary and the self-contained `sun-v0.1.0-alpha.5-linux-x86_64.tar.gz` bundle.
 
 ## Review — returned for revision
 - `dune-project:4` — `dune build` fails: package `sun` has no user-defined stanzas attached; Dune suggests adding `(allow_empty)` if intentional.
+
+## Revision
+- Add the minimal Dune package configuration needed for the repository-wide
+  review build to pass.
