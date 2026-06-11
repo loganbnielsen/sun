@@ -166,8 +166,8 @@ data:
    The Secret is named "<name>-secrets" (per-service) so each service owns its secret.
    In GitOps mode (~redact:true) all values are stripped to "" so nothing sensitive
    appears in committed manifests; operators must populate values before applying. *)
-let secret_doc ?(extra_secrets = []) ?(redact = false) ns name =
-  let secrets = default_secrets @ extra_secrets in
+let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact = false) ns name =
+  let secrets = base_secrets @ extra_secrets in
   let secrets = if redact then List.map (fun (k, _) -> (k, "")) secrets else secrets in
   let comment = if redact then
     "# Populate these values before applying.\n\

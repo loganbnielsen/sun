@@ -148,6 +148,12 @@ let git_sha () =
   let s = run_cmd_to_string "git rev-parse --short HEAD" in
   if s = "" then "dev" else s
 
+let current_kube_context () =
+  run_cmd_to_string "kubectl config current-context"
+
+let is_known_local_dev_context () =
+  current_kube_context () = "k3d-sun-local"
+
 let find_repo_root () =
   let rec go dir =
     if Sys.file_exists (Filename.concat dir "dune-workspace") then dir
@@ -173,9 +179,11 @@ let run filter_path dry_run tag =
     exit 1
   end;
 
-  (* Pre-flight: POSTGRES_URL must be set in live mode so we never apply an
-     empty credential to the cluster.  Dry-run is exempt — it only prints YAML. *)
-  if not dry_run then begin
+  (* Pre-flight: POSTGRES_URL must be set before applying to non-local
+     clusters.  Local k3d stays usable without host credentials; generated
+     manifests still render an empty POSTGRES_URL rather than a hardcoded dev
+     password.  Dry-run is exempt because it only prints YAML. *)
+  if not dry_run && not (is_known_local_dev_context ()) then begin
     match Sys.getenv_opt "POSTGRES_URL" with
     | None | Some "" ->
       Printf.eprintf
