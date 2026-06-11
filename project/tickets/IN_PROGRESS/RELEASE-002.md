@@ -3,6 +3,8 @@ id: RELEASE-002
 type: verification
 severity: high
 source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
+branch: RELEASE-002/release-artifact-smoke-test
+worktree: /home/lbendtly/Code/sun-RELEASE-002-release-artifact-smoke-test
 ---
 
 Smoke-test the published alpha release artifact as a clean release user.
