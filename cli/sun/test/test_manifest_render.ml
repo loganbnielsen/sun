@@ -152,11 +152,10 @@ let test_svc_extra_config () =
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
 
 let test_svc_default_postgres_url () =
-  (* POSTGRES_URL must be in the Secret, not the ConfigMap *)
+  (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
-  assert_contains "svc default postgres url in secret" secret_block
-    {|POSTGRES_URL: "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev"|}
+  assert_contains "svc default postgres url in secret" secret_block {|POSTGRES_URL: ""|}
 
 let test_postgres_url_not_in_configmap () =
   (* POSTGRES_URL must never appear in the ConfigMap — it contains an embedded password *)
@@ -165,13 +164,20 @@ let test_postgres_url_not_in_configmap () =
   assert_absent "POSTGRES_URL absent from ConfigMap" cm_block "POSTGRES_URL"
 
 let test_postgres_url_in_secret () =
-  (* A Secret resource must be emitted and must contain POSTGRES_URL in stringData *)
+  (* A Secret resource must be emitted and must contain POSTGRES_URL in stringData with empty value *)
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
   assert_contains "Secret resource present" workload "kind: Secret";
   assert_contains "stringData section" workload "stringData:";
   let secret_block = extract_kind_block workload "kind: Secret" in
-  assert_contains "POSTGRES_URL in stringData" secret_block
-    {|POSTGRES_URL: "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev"|}
+  assert_contains "POSTGRES_URL in stringData" secret_block {|POSTGRES_URL: ""|}
+
+let test_live_secret_uses_postgres_url_env () =
+  Unix.putenv "POSTGRES_URL" "postgresql://user:pass@db.example.com:5432/app";
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let secret_block = extract_kind_block workload "kind: Secret" in
+  assert_contains "POSTGRES_URL env value in live Secret" secret_block
+    {|POSTGRES_URL: "postgresql://user:pass@db.example.com:5432/app"|};
+  Unix.putenv "POSTGRES_URL" ""
 
 let test_svc_default_redpanda_admin_url () =
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
@@ -730,6 +736,7 @@ let () =
       ; Alcotest.test_case "default postgres url"   `Quick test_svc_default_postgres_url
       ; Alcotest.test_case "POSTGRES_URL not in ConfigMap" `Quick test_postgres_url_not_in_configmap
       ; Alcotest.test_case "POSTGRES_URL in Secret"        `Quick test_postgres_url_in_secret
+      ; Alcotest.test_case "POSTGRES_URL env in live Secret" `Quick test_live_secret_uses_postgres_url_env
       ; Alcotest.test_case "default redpanda admin" `Quick test_svc_default_redpanda_admin_url
       ; Alcotest.test_case "secret refs no values"  `Quick test_svc_secret_refs_without_values
       ; Alcotest.test_case "namespace in workload"  `Quick test_svc_namespace_in_workload

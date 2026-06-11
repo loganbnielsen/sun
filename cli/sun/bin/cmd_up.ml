@@ -148,6 +148,12 @@ let git_sha () =
   let s = run_cmd_to_string "git rev-parse --short HEAD" in
   if s = "" then "dev" else s
 
+let current_kube_context () =
+  run_cmd_to_string "kubectl config current-context"
+
+let is_known_local_dev_context () =
+  current_kube_context () = "k3d-sun-local"
+
 let find_repo_root () =
   let rec go dir =
     if Sys.file_exists (Filename.concat dir "dune-workspace") then dir
@@ -171,6 +177,21 @@ let run filter_path dry_run tag =
   if services = [] then begin
     Printf.eprintf "No services found in app/ with a Dockerfile.\n";
     exit 1
+  end;
+
+  (* Pre-flight: POSTGRES_URL must be set before applying to non-local
+     clusters.  Local k3d stays usable without host credentials; generated
+     manifests still render an empty POSTGRES_URL rather than a hardcoded dev
+     password.  Dry-run is exempt because it only prints YAML. *)
+  if not dry_run && not (is_known_local_dev_context ()) then begin
+    match Sys.getenv_opt "POSTGRES_URL" with
+    | None | Some "" ->
+      Printf.eprintf
+        "error: POSTGRES_URL is not set.\n\
+         Set it in your environment before running 'sun up':\n\
+         \  export POSTGRES_URL=postgresql://user:pass@host:5432/dbname\n";
+      exit 1
+    | Some _ -> ()
   end;
 
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;

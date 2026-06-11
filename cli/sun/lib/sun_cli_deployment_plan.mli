@@ -98,6 +98,7 @@ val render_spec :
     Pass [~image] to override [spec.image] — used by [sun up] where the
     dry-run display image ([localhost:5000]) differs from the cluster image.
     Pass [~secret_backend] to control how secret manifests are emitted:
-    - [Kubernetes_live] (default): emit a Secret with real values (sun up / direct deploy);
+    - [Kubernetes_live] (default): emit a Secret with values read from the environment
+      (sun up / direct deploy);
     - [Kubernetes_placeholder]: emit a redacted Secret with empty stringData (GitOps);
     - [External_secrets _]: emit an ExternalSecret CRD for the External Secrets Operator. *)

@@ -31,7 +31,7 @@ val config_hash : (string * string) list -> string
 val namespace_doc      : string -> string
 val service_account_doc : string -> string -> string
 val configmap_doc      : ?extra_env:(string * string) list -> string -> string -> string
-val secret_doc         : ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
+val secret_doc         : ?base_secrets:(string * string) list -> ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
 val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> string -> string -> string
 val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> ports:bool -> probes:bool -> replicas:int -> cpu:string -> memory:string -> string -> string -> string -> string
 

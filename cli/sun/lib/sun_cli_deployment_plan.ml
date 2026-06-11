@@ -361,8 +361,18 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
          - External_secrets _: emit an ExternalSecret CRD so ESO materialises the Secret. *)
       let secret_resource = match secret_backend with
         | Kubernetes_live ->
-          let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
-          secret_doc ~extra_secrets ns name
+          let value_from_env key =
+            match Sys.getenv_opt key with
+            | Some value -> value
+            | None       -> ""
+          in
+          let extra_secrets =
+            List.map (fun (k, _) -> (k, value_from_env k)) spec.secrets
+          in
+          let base_secrets =
+            List.map (fun (k, _) -> (k, value_from_env k)) default_secrets
+          in
+          secret_doc ~base_secrets ~extra_secrets ns name
         | Kubernetes_placeholder ->
           let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
           secret_doc ~extra_secrets ~redact:true ns name
