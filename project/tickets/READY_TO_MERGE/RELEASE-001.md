@@ -61,3 +61,6 @@ binary and the self-contained `sun-v0.1.0-alpha.5-linux-x86_64.tar.gz` bundle.
 ## Revision
 - Add the minimal Dune package configuration needed for the repository-wide
   review build to pass.
+
+## Review — automated checks passed
+Verified eval opam env dune build passes, diff is scoped to release workflow/dune-project/perf samples, remediation/revision note are reflected, and project/tickets is untouched.
