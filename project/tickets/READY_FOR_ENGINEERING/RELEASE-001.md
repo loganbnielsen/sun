@@ -54,3 +54,6 @@ binary and the self-contained `sun-v0.1.0-alpha.5-linux-x86_64.tar.gz` bundle.
 - macOS or arm64 binaries.
 - Installer checksum enforcement.
 - Hosted product implementation.
+
+## Review — returned for revision
+- `dune-project:4` — `dune build` fails: package `sun` has no user-defined stanzas attached; Dune suggests adding `(allow_empty)` if intentional.
