@@ -141,6 +141,110 @@ let test_to_json_mode_strings () =
   check_mode Sun_cli_deployment_plan.Customer_cloud "customer_cloud";
   check_mode Sun_cli_deployment_plan.Sun_hosted     "sun_hosted"
 
+(* ── discover_topics / discover_migrations tests ────────────────────────── *)
+
+(** Run [f ()] with cwd temporarily changed to [dir]. *)
+let with_cwd dir f =
+  let orig = Sys.getcwd () in
+  Sys.chdir dir;
+  Fun.protect f ~finally:(fun () -> Sys.chdir orig)
+
+(** Create a directory (and intermediate parents) if it does not already exist. *)
+let mkdirs path =
+  let parts = String.split_on_char '/' path in
+  let _ = List.fold_left (fun acc part ->
+    let p = if acc = "" then part else acc ^ "/" ^ part in
+    (if p <> "" && not (Sys.file_exists p) then Unix.mkdir p 0o755);
+    p
+  ) "" parts in
+  ()
+
+let write_file path content =
+  let oc = open_out path in
+  output_string oc content;
+  close_out oc
+
+let test_discover_topics_finds_topic () =
+  let tmp = Filename.temp_dir "sun_test_topics" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events";
+    write_file "events/charged.ml"
+      {|let topic_name = "payments.charged"
+let () = ()
+|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "topic found" ["payments.charged"] topics
+  )
+
+let test_discover_topics_empty_when_no_dir () =
+  let tmp = Filename.temp_dir "sun_test_topics_nodir" "" in
+  with_cwd tmp (fun () ->
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "empty without events dir" [] topics
+  )
+
+let test_discover_topics_multiple_files () =
+  let tmp = Filename.temp_dir "sun_test_topics_multi" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events";
+    write_file "events/charged.ml"  {|let topic_name = "payments.charged"|};
+    write_file "events/refunded.ml" {|let topic_name = "payments.refunded"|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    (* sorted order *)
+    Alcotest.(check (list string)) "multiple topics sorted"
+      ["payments.charged"; "payments.refunded"] topics
+  )
+
+let test_discover_topics_deduplicates () =
+  let tmp = Filename.temp_dir "sun_test_topics_dedup" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events";
+    (* Same topic name declared twice across two files *)
+    write_file "events/a.ml" {|let topic_name = "dup.topic"|};
+    write_file "events/b.ml" {|let topic_name = "dup.topic"|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "deduplicates" ["dup.topic"] topics
+  )
+
+let test_discover_migrations_finds_sql () =
+  let tmp = Filename.temp_dir "sun_test_mig" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "db/migrations";
+    write_file "db/migrations/001_init.sql" "CREATE TABLE foo (id INT);";
+    let migs = Sun_cli_deployment_plan.discover_migrations () in
+    Alcotest.(check (list string)) "migration found" ["001_init.sql"] migs
+  )
+
+let test_discover_migrations_empty_when_no_dir () =
+  let tmp = Filename.temp_dir "sun_test_mig_nodir" "" in
+  with_cwd tmp (fun () ->
+    let migs = Sun_cli_deployment_plan.discover_migrations () in
+    Alcotest.(check (list string)) "empty without db/migrations dir" [] migs
+  )
+
+let test_discover_migrations_sorted () =
+  let tmp = Filename.temp_dir "sun_test_mig_sorted" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "db/migrations";
+    write_file "db/migrations/003_add_index.sql" "";
+    write_file "db/migrations/001_init.sql"      "";
+    write_file "db/migrations/002_add_col.sql"   "";
+    let migs = Sun_cli_deployment_plan.discover_migrations () in
+    Alcotest.(check (list string)) "migrations sorted"
+      ["001_init.sql"; "002_add_col.sql"; "003_add_index.sql"] migs
+  )
+
+let test_discover_migrations_ignores_non_sql () =
+  let tmp = Filename.temp_dir "sun_test_mig_nosql" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "db/migrations";
+    write_file "db/migrations/001_init.sql" "";
+    write_file "db/migrations/README.md"    "";
+    write_file "db/migrations/seed.sh"      "";
+    let migs = Sun_cli_deployment_plan.discover_migrations () in
+    Alcotest.(check (list string)) "only sql files" ["001_init.sql"] migs
+  )
+
 let () =
   Alcotest.run "deployment_plan"
     [ "k8s_name", [
@@ -166,5 +270,17 @@ let () =
       ; Alcotest.test_case "secret keys present"     `Quick test_to_json_secret_keys_present
       ; Alcotest.test_case "config values present"   `Quick test_to_json_config_values_present
       ; Alcotest.test_case "mode strings"            `Quick test_to_json_mode_strings
+      ]
+    ; "discover_topics", [
+        Alcotest.test_case "finds topic"             `Quick test_discover_topics_finds_topic
+      ; Alcotest.test_case "empty without events/"   `Quick test_discover_topics_empty_when_no_dir
+      ; Alcotest.test_case "multiple files sorted"   `Quick test_discover_topics_multiple_files
+      ; Alcotest.test_case "deduplicates"            `Quick test_discover_topics_deduplicates
+      ]
+    ; "discover_migrations", [
+        Alcotest.test_case "finds sql"               `Quick test_discover_migrations_finds_sql
+      ; Alcotest.test_case "empty without db/migrations/" `Quick test_discover_migrations_empty_when_no_dir
+      ; Alcotest.test_case "sorted by name"          `Quick test_discover_migrations_sorted
+      ; Alcotest.test_case "ignores non-sql"         `Quick test_discover_migrations_ignores_non_sql
       ]
     ]

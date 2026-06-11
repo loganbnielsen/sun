@@ -134,6 +134,51 @@ let pp_summary fmt t =
      Format.fprintf fmt "@\n";
      Format.fprintf fmt "migrations:   %s@\n" (String.concat ", " ms))
 
+(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations. *)
+let discover_topics () =
+  let events_dir = "events" in
+  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
+  else begin
+    let topics = ref [] in
+    let marker = {|let topic_name = "|} in
+    let ml = String.length marker in
+    (try
+      Array.iter (fun fname ->
+        let path = Filename.concat events_dir fname in
+        if not (Sys.is_directory path) && Filename.check_suffix fname ".ml" then begin
+          (try
+            let ic = open_in path in
+            let content = In_channel.input_all ic in
+            close_in ic;
+            let sl = String.length content in
+            for i = 0 to sl - ml - 1 do
+              if String.sub content i ml = marker then begin
+                let j = ref (i + ml) in
+                while !j < sl && content.[!j] <> '"' do incr j done;
+                let name = String.sub content (i + ml) (!j - i - ml) in
+                if name <> "" then topics := name :: !topics
+              end
+            done
+          with _ -> ())
+        end
+      ) (Sys.readdir events_dir)
+    with _ -> ());
+    List.sort_uniq String.compare (List.rev !topics)
+  end
+
+(** Scan [db/migrations/] for SQL files, sorted by filename. *)
+let discover_migrations () =
+  let mig_dir = "db/migrations" in
+  if not (Sys.file_exists mig_dir && Sys.is_directory mig_dir) then []
+  else begin
+    (try
+      let files = Sys.readdir mig_dir in
+      Array.sort String.compare files;
+      Array.to_list files
+      |> List.filter (fun f -> Filename.check_suffix f ".sql")
+    with _ -> [])
+  end
+
 let k8s_name_of name =
   String.map (fun c -> if c = '_' then '-' else c)
     (String.lowercase_ascii name)
@@ -185,8 +230,8 @@ let of_services ~workspace ~env services =
   { workspace
   ; environment = env
   ; services    = List.map to_spec services
-  ; topics      = []
-  ; migrations  = []
+  ; topics      = discover_topics ()
+  ; migrations  = discover_migrations ()
   }
 
 (** Render a (namespace_yaml, workload_yaml) pair from a resolved [service_spec].
