@@ -3,6 +3,8 @@ id: FEAT-019
 type: audit-finding
 severity: high
 source: dogfood/2026-06-11_DOGFOOD-005_customer_cloud_contract.md
+branch: FEAT-019/gitops-secret-redaction
+worktree: /home/lbendtly/Code/sun-FEAT-019-gitops-secret-redaction
 ---
 
 GitOps YAML (`sun deploy --emit-to`) emits `kind: Secret` with plain-text values.
