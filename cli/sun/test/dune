@@ -11,6 +11,7 @@
   test_control_plane
   test_release_contract
   test_release_history
+  test_hosted_url
   test_release_inspection
   test_scaffold)
  (libraries sun_cli alcotest unix yojson str))

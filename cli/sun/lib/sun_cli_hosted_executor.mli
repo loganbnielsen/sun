@@ -18,6 +18,8 @@ type service_summary = {
   namespace    : string;
   primitive    : string;
   image        : string;
+  default_url  : string option;
+  (** Sun-managed default URL; [Some] for [-svc] workloads, [None] otherwise. *)
 }
 
 type release = {

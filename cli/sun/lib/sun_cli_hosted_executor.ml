@@ -11,6 +11,7 @@ type service_summary = {
   namespace    : string;
   primitive    : string;
   image        : string;
+  default_url  : string option;
 }
 
 type release = {
@@ -73,6 +74,17 @@ let duplicate_image_ref (image_refs : image_ref list) =
   in
   loop [] image_refs
 
+let default_url_for (s : Sun_cli_deployment_plan.service_spec)
+    (plan : Sun_cli_deployment_plan.t) =
+  match s.primitive, plan.environment.base_domain with
+  | Sun_cli_deployment_plan.Svc, Some base_domain ->
+    Some (Sun_cli_hosted_url.generate_default_url
+            ~service_name:s.k8s_name
+            ~workspace:plan.workspace
+            ~environment_name:plan.environment.name
+            ~base_domain)
+  | _ -> None
+
 let service_summaries plan (image_refs : image_ref list) =
   let rec loop acc = function
     | [] -> Ok (List.rev acc)
@@ -86,6 +98,7 @@ let service_summaries plan (image_refs : image_ref list) =
           namespace = s.namespace;
           primitive = primitive_to_string s.primitive;
           image = ref.image;
+          default_url = default_url_for s plan;
         } in
         loop (summary :: acc) rest
   in
@@ -108,7 +121,9 @@ let inspection_services plan (image_refs : image_ref list) =
         Error (Printf.sprintf "missing hosted image ref for service %s" s.k8s_name)
       | Some ref ->
         let service =
-          Sun_cli_release_inspection.affected_service ~image:ref.image s
+          Sun_cli_release_inspection.affected_service
+            ?default_url:(default_url_for s plan)
+            ~image:ref.image s
         in
         loop (service :: acc) rest
   in
@@ -159,12 +174,18 @@ let submit_mock request =
 
 let release_to_json release =
   let service_to_json s =
-    `Assoc [
+    let fields = [
       "service_name", `String s.service_name;
       "namespace", `String s.namespace;
       "primitive", `String s.primitive;
       "image", `String s.image;
-    ]
+    ] in
+    let fields =
+      match s.default_url with
+      | None -> fields
+      | Some url -> fields @ [ "default_url", `String url ]
+    in
+    `Assoc fields
   in
   `Assoc [
     "_note", `String "experimental hosted executor mock; no control plane submission occurred";
