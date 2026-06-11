@@ -69,7 +69,7 @@ Grafana         localhost:3000   (admin / admin)
 Prometheus      localhost:9090
 ```
 
-These port-forwards are managed by Sun in the background (PIDs recorded in `.sun/`). `sun dev down` tears everything down.
+These port-forwards are managed by Sun in the background (PIDs recorded in `~/.local/share/sun/`). `sun dev down` tears everything down. Running `sun dev up` again clears any stale port-forwards first, so repeat runs are safe.
 
 ---
 
