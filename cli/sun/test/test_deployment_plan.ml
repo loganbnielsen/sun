@@ -206,6 +206,31 @@ let test_discover_topics_deduplicates () =
     Alcotest.(check (list string)) "deduplicates" ["dup.topic"] topics
   )
 
+let test_discover_topics_subdirectory () =
+  let tmp = Filename.temp_dir "sun_test_topics_subdir" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events/payments";
+    write_file "events/payments/charged.ml"
+      {|let topic_name = "payments.charged"
+let () = ()
+|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "subdirectory topic found" ["payments.charged"] topics
+  )
+
+let test_discover_topics_mixed_levels () =
+  let tmp = Filename.temp_dir "sun_test_topics_mixed" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events/payments";
+    mkdirs "events/orders";
+    write_file "events/top_level.ml"          {|let topic_name = "top.event"|};
+    write_file "events/payments/charged.ml"   {|let topic_name = "payments.charged"|};
+    write_file "events/orders/placed.ml"      {|let topic_name = "orders.placed"|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "mixed top-level and subdir topics"
+      ["orders.placed"; "payments.charged"; "top.event"] topics
+  )
+
 let test_discover_migrations_finds_sql () =
   let tmp = Filename.temp_dir "sun_test_mig" "" in
   with_cwd tmp (fun () ->
@@ -276,6 +301,8 @@ let () =
       ; Alcotest.test_case "empty without events/"   `Quick test_discover_topics_empty_when_no_dir
       ; Alcotest.test_case "multiple files sorted"   `Quick test_discover_topics_multiple_files
       ; Alcotest.test_case "deduplicates"            `Quick test_discover_topics_deduplicates
+      ; Alcotest.test_case "subdirectory discovery"  `Quick test_discover_topics_subdirectory
+      ; Alcotest.test_case "mixed top-level and subdir" `Quick test_discover_topics_mixed_levels
       ]
     ; "discover_migrations", [
         Alcotest.test_case "finds sql"               `Quick test_discover_migrations_finds_sql
