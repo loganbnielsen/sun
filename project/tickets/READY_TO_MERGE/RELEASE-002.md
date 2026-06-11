@@ -92,3 +92,6 @@ or setting `SUN_HOME`.
 ## Revision
 - Create a follow-up ticket for the stale port-forward workaround and update
   the smoke-test report to reference it.
+
+## Review — automated checks passed
+Verified build passes, branch diff only adds the dogfood report, project/tickets is untouched, and the report now references UX-002 for the stale port-forward workaround.
