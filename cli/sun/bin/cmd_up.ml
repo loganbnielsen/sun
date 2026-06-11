@@ -166,6 +166,7 @@ let run filter_path dry_run tag =
   let sha       = match tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
   let repo_root = find_repo_root () in
+  let pf_failed = ref false in
 
   if services = [] then begin
     Printf.eprintf "No services found in app/ with a Dockerfile.\n";
@@ -238,18 +239,23 @@ let run filter_path dry_run tag =
            if wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name <> 0 then
              raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s" spec.namespace spec.k8s_name))
          | Sun_cli_deployment_plan.Fn -> ());
-        Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc ->
            let local_port = 8080 in
            if not (port_forward_running ~service:spec.k8s_name spec.k8s_name) then
              start_port_forward ~name:spec.k8s_name ~namespace:spec.namespace
                ~service:spec.k8s_name ~local_port ~remote_port:80;
-           if check_port_forward_liveness ~name:spec.k8s_name ~local_port then
+           let pf_alive = check_port_forward_liveness ~name:spec.k8s_name ~local_port in
+           Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
+           if pf_alive then
              Printf.printf "  →  http://localhost:%d  (port-forward running in background)\n\n%!" local_port
-           else
+           else begin
+             pf_failed := true;
              Printf.printf "\n%!"
-         | _ -> Printf.printf "\n%!")
+           end
+         | _ ->
+           Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
+           Printf.printf "\n%!")
       end
 
     ) plan.Sun_cli_deployment_plan.services
@@ -259,7 +265,8 @@ let run filter_path dry_run tag =
 
   if not dry_run then begin
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
-    Printf.printf "Run 'sun status' to check pod health.\n"
+    Printf.printf "Run 'sun status' to check pod health.\n";
+    if !pf_failed then exit 1
   end
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
