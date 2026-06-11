@@ -71,15 +71,18 @@ System packages required before building:
 sudo apt-get install -y librdkafka-dev libpq-dev libpq5
 ```
 
-`vendor/framework` and `vendor/integrations` must be symlinked to a Sun source checkout.
-They are created automatically when `SUN_HOME` is set during `sun new workspace`.
-If missing (e.g. after cloning):
+`vendor/framework` and `vendor/integrations` are symlinks into the Sun source tree.
+`sun new workspace` creates them automatically.
 
-```bash
-export SUN_HOME=/path/to/sun
-ln -sf $SUN_HOME/framework vendor/framework
-ln -sf $SUN_HOME/integrations vendor/integrations
-```
+- **Release tarball install:** The bundle includes framework source — no extra steps needed.
+- **Source checkout install:** Set `SUN_HOME` once (in `~/.bashrc` or `~/.zshrc`), then
+  `sun new workspace` creates the links automatically.
+  If you cloned the repo but the symlinks are missing:
+  ```bash
+  export SUN_HOME=/path/to/sun
+  ln -sf $SUN_HOME/framework vendor/framework
+  ln -sf $SUN_HOME/integrations vendor/integrations
+  ```
 
 ## Build
 
@@ -100,7 +103,7 @@ sun dev run     # build images and run all services against local infra
 ```bash
 sun up          # build images and deploy to cluster
 sun status      # show running pods and endpoints
-sun migrate --table {{name}}_migrations   # apply database migrations (isolated table per workspace)
+sun migrate     # apply database migrations
 sun rollback    # roll back all services to previous image
 ```
 
