@@ -20,7 +20,7 @@ val config_hash : (string * string) list -> string
 val namespace_doc      : string -> string
 val service_account_doc : string -> string -> string
 val configmap_doc      : ?extra_env:(string * string) list -> string -> string -> string
-val secret_doc         : ?extra_secrets:(string * string) list -> string -> string -> string
+val secret_doc         : ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
 val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> ports:bool -> probes:bool -> replicas:int -> cpu:string -> memory:string -> string -> string -> string -> string
 
 (** [rollout_doc] renders an Argo Rollout resource instead of a Deployment.

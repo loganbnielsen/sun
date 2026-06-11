@@ -26,7 +26,7 @@ let direct ~dry_run spec =
   make_result spec
 
 let gitops ~dir spec =
-  let yaml = Sun_cli_deployment_plan.render_spec spec in
+  let yaml = Sun_cli_deployment_plan.render_spec ~redact_secrets:true spec in
   let _path = Sun_cli_manifest.emit_to_dir dir yaml
     ~ns:spec.namespace ~name:spec.k8s_name in
   make_result spec

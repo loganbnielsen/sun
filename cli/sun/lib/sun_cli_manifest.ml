@@ -149,9 +149,16 @@ data:
 
 (* Credentials are emitted as a Secret with stringData so operators can fill
    in real values without base64 encoding. Kubernetes converts to base64 on apply.
-   The Secret is named "<name>-secrets" (per-service) so each service owns its secret. *)
-let secret_doc ?(extra_secrets = []) ns name =
+   The Secret is named "<name>-secrets" (per-service) so each service owns its secret.
+   In GitOps mode (~redact:true) all values are stripped to "" so nothing sensitive
+   appears in committed manifests; operators must populate values before applying. *)
+let secret_doc ?(extra_secrets = []) ?(redact = false) ns name =
   let secrets = default_secrets @ extra_secrets in
+  let secrets = if redact then List.map (fun (k, _) -> (k, "")) secrets else secrets in
+  let comment = if redact then
+    "# Populate these values before applying.\n\
+     # Use `sun secret set <KEY> --env <env>` or your secrets manager.\n"
+  else "" in
   f {|---
 apiVersion: v1
 kind: Secret
@@ -159,8 +166,8 @@ metadata:
   name: %s-secrets
   namespace: %s
 type: Opaque
-stringData:
-%s|} name ns (render_env_block secrets)
+%sstringData:
+%s|} name ns comment (render_env_block secrets)
 
 let render_secret_key_refs secret_keys =
   match secret_keys with

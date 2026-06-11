@@ -200,7 +200,7 @@ let of_services ~workspace ~env services =
     Argo [Rollout] resource instead of a standard [Deployment].  Blue-green also
     emits two Service resources ([<name>-active] and [<name>-preview]) instead of
     the single ClusterIP [Service] used by the default path. *)
-let render_spec ?(image = "") spec =
+let render_spec ?(image = "") ?(redact_secrets = false) spec =
   let ns               = spec.namespace in
   let name             = spec.k8s_name in
   let img              = if image = "" then spec.image else image in
@@ -223,7 +223,7 @@ let render_spec ?(image = "") spec =
       let common = [
         service_account_doc ns name;
         configmap_doc ~extra_env:spec.config ns name;
-        secret_doc ~extra_secrets ns name;
+        secret_doc ~extra_secrets ~redact:redact_secrets ns name;
         network_policy_doc ns name;
       ] in
       let resources = match spec.primitive, spec.progressive_delivery with

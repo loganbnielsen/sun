@@ -66,6 +66,7 @@ val of_services :
 
 val render_spec :
   ?image:string ->
+  ?redact_secrets:bool ->
   service_spec ->
   string * string
 (** Render a [(namespace_yaml, workload_yaml)] pair from a resolved [service_spec].
