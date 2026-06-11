@@ -44,3 +44,6 @@ GitHub release action pin.
 - The release contains `sun-linux-x86_64`.
 - The release contains `sun-v0.1.0-alpha.6-linux-x86_64.tar.gz`.
 - `RELEASE-002` points its clean smoke test at `v0.1.0-alpha.6`.
+
+## Review — automated checks passed
+Verified dune build passes, release workflow pin changes softprops/action-gh-release from @v5 to @v3, checkout remains @v5, diff is limited to release.yml plus perf history, and project/tickets is untouched.
