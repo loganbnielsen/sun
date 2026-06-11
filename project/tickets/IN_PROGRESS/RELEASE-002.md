@@ -88,3 +88,7 @@ or setting `SUN_HOME`.
 
 ## Review — returned for revision
 - `project/dogfood/RELEASE_002_2026-06-11.md:95` — The report records that the first `sun up` exited nonzero and required killing a stale port-forward before rerunning; the acceptance criteria require any failure or workaround to be captured as a follow-up ticket, but lines 139-144 state that no new ticket was created.
+
+## Revision
+- Create a follow-up ticket for the stale port-forward workaround and update
+  the smoke-test report to reference it.
