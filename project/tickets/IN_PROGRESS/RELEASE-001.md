@@ -3,6 +3,8 @@ id: RELEASE-001
 type: release
 severity: high
 source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
+branch: RELEASE-001/post-hardening-alpha-release
+worktree: /home/lbendtly/Code/sun-RELEASE-001-post-hardening-alpha-release
 ---
 
 Prepare and publish the post-hardening alpha release.
