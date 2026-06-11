@@ -1,9 +1,10 @@
 type http_method = Get | Post
 
 type request = {
-  meth : http_method;
-  path : string;
-  body : Yojson.Safe.t option;
+  meth   : http_method;
+  path   : string;
+  body   : Yojson.Safe.t option;
+  params : (string * string) list;
 }
 
 type response = {
@@ -87,6 +88,36 @@ let handle_post_release registry project_id body =
     | Ok release ->
       created (Sun_cli_registry.release_to_json release)
 
+let param_int key params default =
+  match List.assoc_opt key params with
+  | Some s -> (match int_of_string_opt s with Some n -> n | None -> default)
+  | None -> default
+
+(* GET /projects/{id}/releases *)
+let handle_get_releases registry project_id params =
+  let page      = param_int "page"      params 1  in
+  let page_size = param_int "page_size" params 20 in
+  match Sun_cli_registry.list_releases_page registry
+          ~project_id ~page ~page_size () with
+  | Error _ -> not_found (Printf.sprintf "project %S not found" project_id)
+  | Ok (items, total) ->
+    ok (`Assoc [
+      "releases",  `List (List.map Sun_cli_registry.release_to_json items);
+      "total",     `Int total;
+      "page",      `Int page;
+      "page_size", `Int page_size;
+    ])
+
+(* GET /projects/{id}/releases/{release_id}/logs *)
+let handle_get_release_logs registry _project_id release_id =
+  match Sun_cli_registry.get_release_logs registry release_id with
+  | Error _ -> not_found (Printf.sprintf "release %S not found" release_id)
+  | Ok lines ->
+    ok (`Assoc [
+      "release_id", `String release_id;
+      "lines",      `List (List.map (fun s -> `String s) lines);
+    ])
+
 (* ── dispatcher ─────────────────────────────────────────────────────────── *)
 
 let handle registry req =
@@ -97,6 +128,10 @@ let handle registry req =
     handle_get_project registry id
   | Post, [ "projects"; id; "releases" ] ->
     handle_post_release registry id req.body
+  | Get, [ "projects"; id; "releases" ] ->
+    handle_get_releases registry id req.params
+  | Get, [ "projects"; id; "releases"; rid; "logs" ] ->
+    handle_get_release_logs registry id rid
   | _ ->
     not_found (Printf.sprintf "no route for %s" req.path)
 
@@ -105,12 +140,14 @@ let handle registry req =
 let post_projects ~workspace =
   { meth = Post;
     path = "/projects";
-    body = Some (`Assoc [ "workspace", `String workspace ]) }
+    body = Some (`Assoc [ "workspace", `String workspace ]);
+    params = [] }
 
 let get_project ~project_id =
   { meth = Get;
     path = Printf.sprintf "/projects/%s" project_id;
-    body = None }
+    body = None;
+    params = [] }
 
 let post_release ~project_id ~environment ~image_tag ~service_names =
   { meth = Post;
@@ -119,4 +156,20 @@ let post_release ~project_id ~environment ~image_tag ~service_names =
       "environment",   `String environment;
       "image_tag",     `String image_tag;
       "service_names", `List (List.map (fun s -> `String s) service_names);
-    ]) }
+    ]);
+    params = [] }
+
+let get_releases ~project_id ?(page = 1) ?(page_size = 20) () =
+  { meth = Get;
+    path = Printf.sprintf "/projects/%s/releases" project_id;
+    body = None;
+    params = [
+      "page",      string_of_int page;
+      "page_size", string_of_int page_size;
+    ] }
+
+let get_release_logs ~project_id ~release_id =
+  { meth = Get;
+    path = Printf.sprintf "/projects/%s/releases/%s/logs" project_id release_id;
+    body = None;
+    params = [] }
