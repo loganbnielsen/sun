@@ -4,7 +4,7 @@ type: feature
 severity: medium
 source: product-planning-2026-06-11
 branch: DOGFOOD-006/docs-reconciliation
-worktree: ../sun-DOGFOOD-006-docs-reconciliation
+worktree: /home/lbendtly/Code/sun-DOGFOOD-006-docs-reconciliation
 ---
 
 Reconcile docs from dogfood findings.
