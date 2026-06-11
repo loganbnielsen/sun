@@ -259,7 +259,13 @@ let run filter_path dry_run tag =
 
   if not dry_run then begin
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
-    Printf.printf "Run 'sun status' to check pod health.\n"
+    Printf.printf "Run 'sun status' to check pod health.\n";
+    (* Warn if unapplied migration files exist *)
+    let n = Sun_cli_workspace.pending_migration_count ~dir:(Sys.getcwd ()) in
+    if n > 0 then
+      Printf.printf
+        "\nNote: %d migration file(s) found in db/migrations/ — run 'sun migrate' to apply.\n"
+        n
   end
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)

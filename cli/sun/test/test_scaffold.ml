@@ -319,6 +319,64 @@ let test_worker_ack_after_side_effect () =
   check_bool "Printf.printf appears before ack ()" true
     (printf_pos >= 0 && ack_pos > printf_pos)
 
+(* ── pending_migration_count tests ──────────────────────────────────────── *)
+
+(* No db/migrations directory → count is 0 *)
+let test_pending_migrations_no_dir () =
+  let tmpdir = Filename.temp_file "sun-mig-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      check_bool "no mig dir → 0" true
+        (Sun_cli_workspace.pending_migration_count ~dir:tmpdir = 0))
+
+(* db/migrations exists but is empty → count is 0 *)
+let test_pending_migrations_empty_dir () =
+  let tmpdir = Filename.temp_file "sun-mig-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      ignore (Sys.command
+        (Printf.sprintf "mkdir -p %s/db/migrations"
+           (Filename.quote tmpdir)));
+      check_bool "empty dir → 0" true
+        (Sun_cli_workspace.pending_migration_count ~dir:tmpdir = 0))
+
+(* db/migrations with two .sql files → count is 2 *)
+let test_pending_migrations_counts_sql_files () =
+  let tmpdir = Filename.temp_file "sun-mig-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      ignore (Sys.command
+        (Printf.sprintf "mkdir -p %s/db/migrations"
+           (Filename.quote tmpdir)));
+      let touch name =
+        let path = Printf.sprintf "%s/db/migrations/%s" tmpdir name in
+        let oc = open_out path in close_out oc
+      in
+      touch "0001_init.sql";
+      touch "0002_add_column.sql";
+      touch "README.md";    (* non-.sql — must not be counted *)
+      check_bool "two sql files → 2" true
+        (Sun_cli_workspace.pending_migration_count ~dir:tmpdir = 2))
+
+(* workspace scaffold generates one .sql file → count is 1 *)
+let test_pending_migrations_workspace_scaffold () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  check_bool "scaffold workspace → 1 migration file" true
+    (Sun_cli_workspace.pending_migration_count ~dir:"testapp" = 1)
+
 (* ── entry point ─────────────────────────────────────────────────────────── *)
 
 let () =
@@ -348,5 +406,11 @@ let () =
         Alcotest.test_case "complete bundle layout resolves sun_home" `Quick test_bundle_layout_resolves_sun_home
       ; Alcotest.test_case "incomplete bundle is rejected"            `Quick test_incomplete_bundle_rejected
       ; Alcotest.test_case "ancestor walk finds bundle root from bin/" `Quick test_ancestor_walk_finds_bundle_root
+      ]
+    ; "pending_migrations", [
+        Alcotest.test_case "no db/migrations dir → 0"     `Quick test_pending_migrations_no_dir
+      ; Alcotest.test_case "empty db/migrations dir → 0"  `Quick test_pending_migrations_empty_dir
+      ; Alcotest.test_case "counts only .sql files"        `Quick test_pending_migrations_counts_sql_files
+      ; Alcotest.test_case "scaffold workspace → 1 migration" `Quick test_pending_migrations_workspace_scaffold
       ]
     ]

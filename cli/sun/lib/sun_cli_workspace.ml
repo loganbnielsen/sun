@@ -22,6 +22,18 @@ let read_file path =
   close_in ic;
   s
 
+(** Count .sql files in [dir]/db/migrations.  Returns 0 if the directory does
+    not exist.  Used by [sun up] to warn users about unapplied migrations. *)
+let pending_migration_count ~dir =
+  let mig_dir = Filename.concat dir "db/migrations" in
+  if Sys.file_exists mig_dir && Sys.is_directory mig_dir then
+    Array.fold_left
+      (fun acc f -> if Filename.check_suffix f ".sql" then acc + 1 else acc)
+      0
+      (Sys.readdir mig_dir)
+  else
+    0
+
 let scan ~dir =
   let kafka      = ref false in
   let postgres   = ref false in
