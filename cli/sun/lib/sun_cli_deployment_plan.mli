@@ -1,12 +1,13 @@
 type deployment_mode = Local | Customer_cloud | Sun_hosted
 
 type env_config = {
-  name        : string;
-  mode        : deployment_mode;
-  registry    : string;
-  image_tag   : string;
-  region      : string option;
-  base_domain : string option;
+  name           : string;
+  mode           : deployment_mode;
+  registry       : string;
+  image_tag      : string;
+  region         : string option;
+  base_domain    : string option;
+  secret_backend : string;
 }
 
 type primitive = Svc | Worker | Fn
@@ -33,11 +34,13 @@ type service_spec = {
 }
 
 type t = {
-  workspace   : string;
-  environment : env_config;
-  services    : service_spec list;
-  topics      : string list;
-  migrations  : string list;
+  workspace        : string;
+  environment      : env_config;
+  services         : service_spec list;
+  topics           : string list;
+  migrations       : string list;
+  schema_subjects  : string list;
+  consumer_groups  : string list;
 }
 
 val discover_topics : unit -> string list
@@ -48,6 +51,17 @@ val discover_topics : unit -> string list
 val discover_migrations : unit -> string list
 (** Scan [db/migrations/*.sql] in the current directory and return filenames
     sorted by name.  Returns [[]] when [db/migrations/] does not exist. *)
+
+val discover_schema_subjects : unit -> string list
+(** Scan [events/<domain>/*.ml] for event contract files and derive schema
+    subject names as ["<domain>.<EventName>"].  Top-level [events/<event>.ml]
+    files are returned without a domain prefix.  Returns a sorted,
+    deduplicated list.  Returns [[]] when the [events/] directory does not exist. *)
+
+val derive_consumer_groups : string -> service_spec list -> string list
+(** [derive_consumer_groups workspace services] returns a sorted, deduplicated
+    list of consumer group identifiers for all [Worker] entries in [services].
+    Convention: ["<workspace>.<domain>.<worker_name>"]. *)
 
 val to_json : t -> Yojson.Safe.t
 (** Serialize a deployment plan to JSON (experimental format — schema not frozen).

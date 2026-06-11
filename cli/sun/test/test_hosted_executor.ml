@@ -46,12 +46,15 @@ let hosted_plan ?(mode = Sun_cli_deployment_plan.Sun_hosted) () =
     image_tag = "abc123";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
+    secret_backend = "kubernetes-placeholder";
   } in
   { Sun_cli_deployment_plan.workspace = "pluto";
     environment = env;
     services = [ service (); service ~name:"notify-worker" ~primitive:Worker () ];
     topics = [];
     migrations = [];
+    schema_subjects = [];
+    consumer_groups = [];
   }
 
 let target_for plan =

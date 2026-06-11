@@ -12,12 +12,15 @@ let hosted_plan ?(workspace = "pluto") ?(environment_name = "production") () =
     image_tag = "abc123";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
+    secret_backend = "kubernetes-placeholder";
   } in
   { Sun_cli_deployment_plan.workspace;
     environment = env;
     services = [];
     topics = [];
     migrations = [];
+    schema_subjects = [];
+    consumer_groups = [];
   }
 
 let fixture () =
