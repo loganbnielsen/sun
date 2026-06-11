@@ -15,4 +15,5 @@
   Sun_cli_secret
   Sun_cli_hosted_executor
   Sun_cli_registry
+  Sun_cli_control_plane
   Sun_cli_cmd_new))

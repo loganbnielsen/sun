@@ -8,6 +8,7 @@
   test_secret
   test_hosted_executor
   test_registry
+  test_control_plane
   test_release_inspection
   test_scaffold)
  (libraries sun_cli alcotest unix yojson str))
