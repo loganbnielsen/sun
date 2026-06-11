@@ -24,15 +24,21 @@ The `sun` CLI scaffolds new services, manages the local development cluster, bui
 - Docker, kubectl
 - `librdkafka-dev`, `libpq-dev`, `libpq5` (`sudo apt-get install -y librdkafka-dev libpq-dev libpq5`)
 
-Install `sun` (Linux x86_64):
+Install `sun` (Linux x86_64) — download the self-contained release bundle:
 
 ```bash
-curl -sSL https://github.com/loganbnielsen/sun/releases/latest/download/sun-linux-x86_64 \
-  -o ~/.local/bin/sun && chmod +x ~/.local/bin/sun
+# Replace vX.Y.Z with the latest version from https://github.com/loganbnielsen/sun/releases
+curl -L https://github.com/loganbnielsen/sun/releases/latest/download/sun-vX.Y.Z-linux-x86_64.tar.gz \
+  | tar xz
+export PATH="$PWD/sun-vX.Y.Z-linux-x86_64/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
 ```
+
+The tarball includes the `sun` binary and the framework source trees (`framework/` and `integrations/`). No `SUN_HOME` or separate clone required — `sun new workspace` resolves the framework source automatically from the bundle layout.
 
 > **Build from source:** Contributors who need `sundev` or want to modify the framework should clone the repo and build:
 > ```bash
+> git clone https://github.com/loganbnielsen/sun.git ~/sun
+> export SUN_HOME=~/sun   # add to ~/.bashrc or ~/.zshrc
 > eval $(opam env)  # requires OCaml 5.4.1 + opam
 > dune build cli/
 > ln -sf "$(pwd)/_build/default/cli/sun/bin/main.exe" ~/.local/bin/sun
@@ -84,10 +90,12 @@ cd pluto
 
 > **Vendor links:** `sun new workspace` creates `vendor/framework` and `vendor/integrations` as symlinks into the Sun source tree. These links are how the generated workspace finds Sun's library source at build time — `dune build` will fail with "Library not found: sun_svc" if they are missing.
 >
-> When using the downloaded binary, set `SUN_HOME` to your Sun checkout before running `sun new workspace`:
+> When using the **release tarball** (the install path above), the framework source is bundled inside the extracted directory. `sun new workspace` finds it automatically — no `SUN_HOME` needed.
+>
+> When using a **source checkout**, set `SUN_HOME` before running `sun new workspace`:
 >
 > ```bash
-> export SUN_HOME=/path/to/sun   # clone https://github.com/loganbnielsen/sun
+> export SUN_HOME=~/sun   # set once in ~/.bashrc or ~/.zshrc
 > ```
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.

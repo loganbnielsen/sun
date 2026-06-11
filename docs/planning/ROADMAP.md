@@ -676,9 +676,9 @@ first public release binary.
 
 | Item | Priority | Description |
 |------|----------|-------------|
-| GitOps secrets — replace `stringData` with sealed/external secret refs | High | `sun deploy --emit-to` must not write plain-text secret values into GitOps YAML. Replace with Sealed Secrets or External Secrets Operator references. |
+| ~~GitOps secrets — replace `stringData` with sealed/external secret refs~~ ✓ done (FEAT-019) | High | `sun deploy --emit-to` now emits redacted `Secret` placeholders by default. Pass `--secret-backend external-secrets --secret-store-ref <name>` to emit `ExternalSecret` CRDs for the External Secrets Operator. |
 | Deployment plan completeness | Medium | `--emit-plan-to` JSON shows `"topics": []` and `"migrations": []`. Surface the actual Kafka topics and pending migration state. |
 | First release binary (DOGFOOD-007) | Medium | `git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1` + GitHub release with pre-built binaries. |
-| `sun logs` Grafana pointer | Low | When `sun logs` output is limited to stdout, emit a Grafana LogQL URL for the service so users can reach Loki-routed logs without knowing LogQL. |
+| ~~`sun logs` Grafana pointer~~ ✓ done (FEAT-023) | Low | `sun logs` now prints a copyable Grafana Explore URL with a pre-built LogQL query before streaming kubectl logs. Pass `--grafana-base-url` to override the default `http://localhost:3000`. |
 | Path format unification (`sun rollback`) | Low | `sun rollback` uses `domain/svc`; `sun up` uses `app/domain/svc`. Pick one or document both explicitly. |
 | Fixed-tag pod restart | Low | With a fixed `dev` image tag, `sun up` does not restart running pods. Consider forcing a rollout restart when the build SHA changes even if the tag does not. |

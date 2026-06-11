@@ -314,7 +314,13 @@ sun logs payments/charge_svc --tail=0
 
 `sun logs` resolves `<workspace>-<domain>` as the Kubernetes namespace automatically, so you never need to remember Sun's naming convention. Underscores in service names are mapped to hyphens (Kubernetes convention).
 
-**Note:** `sun logs` shows only stdout/stderr from the container. Application-level logs (emitted via `Obs.log_t`) are routed to Loki, not stdout, and will not appear here. For worker errors, trace IDs, and span details, use Grafana.
+Before streaming, `sun logs` prints a copyable Grafana Explore URL with a pre-built LogQL query for that service. Open the URL to see Loki-routed application logs, trace IDs, and span details. Pass `--grafana-base-url` if your Grafana is not at `http://localhost:3000`:
+
+```bash
+sun logs payments/charge_svc --grafana-base-url http://grafana.internal:3000
+```
+
+**Note:** `sun logs` streams stdout/stderr from the container pod. Application-level logs (emitted via `Obs.log_t`) are routed to Loki and appear in Grafana, not in the kubectl stream. Use the Grafana URL printed by `sun logs` to query Loki-routed logs for the same service.
 
 For historical log search — spanning multiple services, time ranges, or correlated by trace ID — open Grafana at http://localhost:3000 and use the Explore view with Loki as the data source. Query `{service=~"pluto-.*"} | logfmt` to search across all services in a workspace.
 
@@ -384,7 +390,15 @@ sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY
 # CI commits manifests/ to the GitOps repo; Argo CD applies the change
 ```
 
-> **Security:** The generated YAML includes `Secret` resources with plain-text values in `stringData`. Do not commit these files to a shared or public repository. Before committing, replace `stringData` values with references to a secrets manager (Sealed Secrets, External Secrets Operator, or equivalent).
+> **Security:** By default, the generated YAML includes redacted `Secret` placeholders — values are replaced with `REDACTED` so the file is safe to inspect but not usable as-is. To emit `ExternalSecret` CRDs for the External Secrets Operator instead (production-ready GitOps), pass `--secret-backend external-secrets`:
+>
+> ```bash
+> sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY \
+>   --secret-backend external-secrets \
+>   --secret-store-ref my-cluster-store
+> ```
+>
+> The `--secret-store-ref` flag names the `ClusterSecretStore` (or `SecretStore` with `--secret-store-kind SecretStore`) that ESO will use to resolve secret values at runtime. See the External Secrets Operator docs for store setup.
 
 ### Plan inspection — `sun deploy --emit-plan-to`
 
@@ -438,10 +452,11 @@ four-level escape-hatch hierarchy.
 - **Cloud credentials in the environment:**
   - AWS: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (or an active AWS profile)
   - GCP: `GOOGLE_APPLICATION_CREDENTIALS` pointing to a service-account key file, or `gcloud auth application-default login`
-- **`SUN_HOME`** — set to the root of the Sun monorepo if the binary is not installed inside the checkout:
+- **Terraform modules** — the release tarball bundles `platform/infra/` inside the extracted directory. If you are using a source checkout instead of the tarball, set `SUN_HOME` to the repo root:
   ```bash
   export SUN_HOME=/path/to/sun
   ```
+  This is only needed for source checkouts; the tarball bundle resolves modules automatically.
 
 ### Usage
 
