@@ -34,6 +34,7 @@ type affected_service = {
   rollout_status : rollout_status;
   health_status  : health_status;
   error_reason   : string option;
+  default_url    : string option;
 }
 
 type release_summary = {
@@ -103,7 +104,7 @@ let deployment_plan_summary (plan : Sun_cli_deployment_plan.t) =
   }
 
 let affected_service ?(rollout_status = Rollout_unknown)
-    ?(health_status = Health_unknown) ?error_reason ~image
+    ?(health_status = Health_unknown) ?error_reason ?default_url ~image
     (service : Sun_cli_deployment_plan.service_spec) =
   { service_name = service.k8s_name;
     namespace = service.namespace;
@@ -112,6 +113,7 @@ let affected_service ?(rollout_status = Rollout_unknown)
     rollout_status;
     health_status;
     error_reason;
+    default_url;
   }
 
 let release_summary ~release_id ~environment_id ~environment_name ~status ~plan
@@ -221,6 +223,11 @@ let affected_service_to_json service =
     match service.error_reason with
     | None -> fields
     | Some reason -> fields @ [ "error_reason", `String reason ]
+  in
+  let fields =
+    match service.default_url with
+    | None -> fields
+    | Some url -> fields @ [ "default_url", `String url ]
   in
   `Assoc fields
 

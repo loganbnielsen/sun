@@ -40,6 +40,9 @@ type affected_service = {
   rollout_status : rollout_status;
   health_status  : health_status;
   error_reason   : string option;
+  default_url    : string option;
+  (** Sun-managed default URL; [Some] for [-svc] workloads with a hosted
+      base domain, [None] for [-worker] and [-fn] primitives. *)
 }
 
 type release_summary = {
@@ -85,6 +88,7 @@ val affected_service :
   ?rollout_status:rollout_status ->
   ?health_status:health_status ->
   ?error_reason:string ->
+  ?default_url:string ->
   image:string ->
   Sun_cli_deployment_plan.service_spec ->
   affected_service

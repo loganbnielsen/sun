@@ -120,6 +120,53 @@ let test_mock_submit_returns_release_shape () =
   if not (contains_substring ~needle:"inspection" json) then
     Alcotest.fail "expected inspection JSON"
 
+let test_svc_has_default_url () =
+  let plan = hosted_plan () in
+  let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
+  let svc = List.find
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "svc")
+      release.services in
+  check_string "svc default_url"
+    "charge-svc.pluto.production.apps.sun.example"
+    (Option.get svc.default_url)
+
+let test_worker_has_no_default_url () =
+  let plan = hosted_plan () in
+  let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
+  let worker = List.find
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "worker")
+      release.services in
+  Alcotest.(check bool) "worker default_url absent" true
+    (Option.is_none worker.default_url)
+
+let test_default_url_in_json () =
+  let plan = hosted_plan () in
+  let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
+  let json = Sun_cli_hosted_executor.release_to_json release in
+  let open Yojson.Safe.Util in
+  let services = json |> member "services" |> to_list in
+  let svc_json = List.find
+      (fun j -> j |> member "primitive" |> to_string = "svc")
+      services in
+  check_string "default_url in json"
+    "charge-svc.pluto.production.apps.sun.example"
+    (svc_json |> member "default_url" |> to_string)
+
+let test_no_base_domain_no_url () =
+  let plan = {
+    (hosted_plan ()) with
+    environment = {
+      (hosted_plan ()).environment with
+      base_domain = None;
+    };
+  } in
+  let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
+  let svc = List.find
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "svc")
+      release.services in
+  Alcotest.(check bool) "no url without base_domain" true
+    (Option.is_none svc.default_url)
+
 let test_uses_supplied_image_refs () =
   let plan = hosted_plan () in
   let image_refs = [
@@ -184,5 +231,11 @@ let () =
         Alcotest.test_case "missing image ref" `Quick test_rejects_missing_image_ref;
         Alcotest.test_case "serialized mismatch" `Quick test_rejects_serialized_plan_mismatch;
         Alcotest.test_case "non-hosted plan" `Quick test_rejects_non_hosted_plan;
+      ];
+      "default url", [
+        Alcotest.test_case "svc has default url" `Quick test_svc_has_default_url;
+        Alcotest.test_case "worker has no url" `Quick test_worker_has_no_default_url;
+        Alcotest.test_case "default url in json" `Quick test_default_url_in_json;
+        Alcotest.test_case "no url without base_domain" `Quick test_no_base_domain_no_url;
       ];
     ]
