@@ -114,9 +114,11 @@ let default_cluster_env = [
   "PUSHGATEWAY_URL",     "http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091";
 ]
 
-(* Credentials that must never appear in ConfigMap — emitted as a Secret. *)
+(* Credentials that must never appear in ConfigMap — emitted as a Secret.
+   Values are intentionally empty; operators must supply real values via the
+   environment (POSTGRES_URL) or a secrets manager before applying. *)
 let default_secrets = [
-  "POSTGRES_URL", "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev";
+  "POSTGRES_URL", "";
 ]
 
 let runtime_secret_name = "sun-secrets"

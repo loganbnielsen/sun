@@ -152,11 +152,10 @@ let test_svc_extra_config () =
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
 
 let test_svc_default_postgres_url () =
-  (* POSTGRES_URL must be in the Secret, not the ConfigMap *)
+  (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
-  assert_contains "svc default postgres url in secret" secret_block
-    {|POSTGRES_URL: "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev"|}
+  assert_contains "svc default postgres url in secret" secret_block {|POSTGRES_URL: ""|}
 
 let test_postgres_url_not_in_configmap () =
   (* POSTGRES_URL must never appear in the ConfigMap — it contains an embedded password *)
@@ -165,13 +164,12 @@ let test_postgres_url_not_in_configmap () =
   assert_absent "POSTGRES_URL absent from ConfigMap" cm_block "POSTGRES_URL"
 
 let test_postgres_url_in_secret () =
-  (* A Secret resource must be emitted and must contain POSTGRES_URL in stringData *)
+  (* A Secret resource must be emitted and must contain POSTGRES_URL in stringData with empty value *)
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
   assert_contains "Secret resource present" workload "kind: Secret";
   assert_contains "stringData section" workload "stringData:";
   let secret_block = extract_kind_block workload "kind: Secret" in
-  assert_contains "POSTGRES_URL in stringData" secret_block
-    {|POSTGRES_URL: "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev"|}
+  assert_contains "POSTGRES_URL in stringData" secret_block {|POSTGRES_URL: ""|}
 
 let test_svc_default_redpanda_admin_url () =
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in

@@ -63,6 +63,20 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
     exit 1
   end;
 
+  (* Pre-flight: POSTGRES_URL must be set when deploying live credentials to a
+     cluster.  Skip the check for --dry-run and --emit-to: those modes either
+     only print YAML or emit redacted GitOps manifests with no real values. *)
+  if not dry_run && emit_to = None then begin
+    match Sys.getenv_opt "POSTGRES_URL" with
+    | None | Some "" ->
+      Printf.eprintf
+        "error: POSTGRES_URL is not set.\n\
+         Set it in your environment before running 'sun deploy':\n\
+         \  export POSTGRES_URL=postgresql://user:pass@host:5432/dbname\n";
+      exit 1
+    | Some _ -> ()
+  end;
+
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;
   (match emit_to with
    | Some dir -> Printf.printf "emit-to: %s\n" dir

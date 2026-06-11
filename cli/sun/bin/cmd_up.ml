@@ -173,6 +173,19 @@ let run filter_path dry_run tag =
     exit 1
   end;
 
+  (* Pre-flight: POSTGRES_URL must be set in live mode so we never apply an
+     empty credential to the cluster.  Dry-run is exempt — it only prints YAML. *)
+  if not dry_run then begin
+    match Sys.getenv_opt "POSTGRES_URL" with
+    | None | Some "" ->
+      Printf.eprintf
+        "error: POSTGRES_URL is not set.\n\
+         Set it in your environment before running 'sun up':\n\
+         \  export POSTGRES_URL=postgresql://user:pass@host:5432/dbname\n";
+      exit 1
+    | Some _ -> ()
+  end;
+
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;
   if dry_run then Printf.printf "(dry-run)\n";
   Printf.printf "\n%!";
