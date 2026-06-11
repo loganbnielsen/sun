@@ -3,6 +3,8 @@ id: DOGFOOD-009
 type: bug
 severity: high
 source: dogfood/2026-06-11_DOGFOOD-002_local_dev_lifecycle.md
+branch: DOGFOOD-009/loki-400-fix
+worktree: /home/lbendtly/Code/sun-DOGFOOD-009-loki-400-fix
 ---
 
 Investigate and fix Loki HTTP 400 from worker log shipper.

@@ -3,6 +3,8 @@ id: DOGFOOD-008
 type: bug
 severity: blocker
 source: dogfood/2026-06-11_DOGFOOD-002_local_dev_lifecycle.md
+branch: DOGFOOD-008/redpanda-advertised-listener
+worktree: /home/lbendtly/Code/sun-DOGFOOD-008-redpanda-advertised-listener
 ---
 
 Fix Redpanda advertised listener so `sun dev run` services can reach Kafka.
