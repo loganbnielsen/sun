@@ -1,4 +1,69 @@
-# Work Summary — root layout cleanup in progress
+# Work Summary — Dogfood Alpha direction set
+
+## Latest: deployment lanes and Dogfood Alpha plan
+
+The next product milestone is **Dogfood Alpha**, not deeper hosted work.
+
+**Decision:** Prove Sun's non-hosted value first: install from release, create a
+workspace, run locally, deploy to customer-owned infrastructure, and exercise
+the operations loop. Hosted Sun remains the managed version of this workflow,
+not a replacement for it.
+
+**Deployment ownership lanes recorded in `docs/planning/ROADMAP.md`:**
+
+| Lane | Summary |
+|---|---|
+| Local Dev | Developer machine; `sun dev up/run/up/status/logs` owns the local substrate loop. |
+| Managed Customer Cloud | Customer cloud account; Sun owns the standard substrate shape and lifecycle. |
+| Exported Self-Managed | Customer owns Terraform/manifests/apply/drift; Sun emits artifacts and can inspect. |
+| Sun Hosted | Sun owns substrate, builders, registry, URLs, TLS, logs, releases, billing. |
+
+**Dogfood tickets queued:**
+
+- `DOGFOOD-001` — fresh install and workspace creation (`READY_FOR_ENGINEERING`)
+- `DOGFOOD-002` — local dev lifecycle (`BACKLOG`, depends on DOGFOOD-001)
+- `DOGFOOD-003` — local cluster deploy loop (`BACKLOG`, depends on DOGFOOD-002)
+- `DOGFOOD-004` — operations loop: secrets, migrations, logs, rollback (`BACKLOG`, depends on DOGFOOD-003)
+- `DOGFOOD-005` — customer-cloud deployment contract validation (`BACKLOG`, depends on DOGFOOD-003)
+- `DOGFOOD-006` — reconcile docs from dogfood findings (`BACKLOG`, depends on DOGFOOD-001 through DOGFOOD-005)
+
+---
+
+# Previous — EXP-001 binary distribution complete; next hosted product wave queued
+
+## Latest: EXP-001 — binary distribution via GitHub Releases (complete)
+
+**What changed:**
+
+- `.github/workflows/release.yml` — GitHub Actions release workflow: triggered on `v*` tags; builds `sun-linux-x86_64` on ubuntu-22.04 with OCaml 5.4.1 + librdkafka-dev; publishes binary to GitHub Releases via `softprops/action-gh-release@v2`.
+- `README.md` — Quickstart install now shows the one-liner binary download (`curl … loganbnielsen/sun/releases/latest/download/sun-linux-x86_64`). Requirements section split into "Runtime (binary install)" and "Build from source (contributors)".
+- `docs/guides/TUTORIAL.md` — Prerequisites now shows binary install first; build-from-source moved to a callout block; vendor-links note updated to reference `SUN_HOME` as the path for downloaded-binary users.
+
+**Install path decision:** `~/.local/bin/sun` (no sudo required; matches existing conventions throughout repo).
+
+**`SUN_HOME` note:** A downloaded binary cannot walk up to find framework templates. Users must set `SUN_HOME=/path/to/sun` before running `sun new workspace`. This is documented in both README and TUTORIAL.
+
+**Ticket moves:**
+- `EXP-001` → `DONE`
+- `FEAT-017` → `READY_FOR_ENGINEERING` (all dependencies — DEC-005, FEAT-010, FEAT-016 — are DONE)
+- `CLOUD-001`, `CLOUD-002`, `CLOUD-003` created in `BACKLOG`
+
+## Next Up — hosted product wave
+
+Priority order:
+
+| Ticket | Description | State |
+|---|---|---|
+| FEAT-017 | Hosted default URLs and custom-domain flow | READY_FOR_ENGINEERING |
+| CLOUD-001 | Project registry / control-plane stub | BACKLOG |
+| CLOUD-002 | Hosted deploy API contract | BACKLOG (depends CLOUD-001) |
+| CLOUD-003 | Release history and logs model | BACKLOG (depends CLOUD-002) |
+
+Goal: after FEAT-017 + CLOUD-002, `sun cloud deploy` returns a real-looking release record with an openable Sun-managed URL.
+
+---
+
+# Previous — root layout cleanup in progress
 
 ## Latest: root layout cleanup
 

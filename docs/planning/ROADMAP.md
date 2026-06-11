@@ -24,6 +24,87 @@ Sun is built in layers, each one making the platform more complete. The Kafka la
 
 ---
 
+## Current Focus — Dogfood Alpha
+
+Sun should prove the non-hosted product before Sun Hosted becomes the primary
+engineering focus.
+
+**Goal:** A new user can install Sun, create a workspace, run it locally, and
+deploy it into customer-owned infrastructure without learning OCaml internals,
+Kubernetes object shapes, Helm chart wiring, or Terraform module structure.
+
+This milestone protects the public/FOSS promise: Sun must be useful without Sun
+Cloud. Hosted Sun can later become the managed version of a workflow that is
+already proven locally and in customer-cloud mode.
+
+### Deployment Ownership Lanes
+
+Sun has one app model and three deployment ownership lanes.
+
+| Lane | Who owns infra? | User interface | Sun responsibility |
+|---|---|---|---|
+| Local Dev | Developer machine | `sun dev up`, `sun dev run`, `sun up` | Provision local substrate, run app, expose logs/metrics |
+| Managed Customer Cloud | Customer cloud account, Sun substrate shape | high-level env/provider/tier config | Provision/update Sun's standard substrate, deploy app, operate release workflow |
+| Exported Self-Managed | Customer | generated Terraform/manifests/GitOps artifacts | Generate artifacts and inspect releases; customer owns apply/drift/ops |
+| Sun Hosted | Sun | `sun cloud deploy` | Own substrate, builders, registry, URLs, TLS, logs, release history, billing |
+
+The overlap is the app model and deployment plan, not shared Terraform editing.
+If a user edits generated Terraform, they have moved from managed customer-cloud
+to exported self-managed mode.
+
+### Product Boundary
+
+Users describe the app:
+
+- services, workers, functions
+- events and topics
+- migrations
+- secrets and environment names
+- domain/URL intent
+- rollout preference
+- region/tier at product level
+
+Sun decides the default infrastructure shape:
+
+- Kubernetes resource shapes
+- service discovery and env wiring
+- registry and image naming
+- ingress/TLS wiring
+- secret references
+- logs/metrics labels
+- release metadata
+- rollout/rollback mechanics
+
+`platform/infra/` is therefore not the primary user interface. It is an
+implementation of the substrate contract for customer-cloud and exported
+self-managed lanes, and may also inform Sun's own hosted substrate.
+
+### Dogfood Alpha Acceptance Test
+
+The Dogfood Alpha milestone is complete when a fresh environment can run:
+
+```bash
+sun new workspace acme
+cd acme
+sun dev up
+sun dev run
+sun up
+sun status
+sun logs
+sun secret set DATABASE_URL --env local --value ...
+sun migrate
+sun deploy --dry-run
+sun rollback
+```
+
+and the same workspace has a documented path to customer-owned infrastructure
+without requiring the user to hand-author Kubernetes manifests or Terraform.
+
+Hosted work is deferred until this path is boring enough that Sun Cloud can be
+described as "Sun runs the same platform for you."
+
+---
+
 ## ~~Immediate — Kafka Layer Hardening~~ ✓ done
 
 ### ~~Schema CI enforcement~~ ✓ done

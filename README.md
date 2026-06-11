@@ -162,12 +162,19 @@ From zero to a running service with HTTP, Kafka, and PostgreSQL in under five mi
 
 **Prerequisites:** k3d, Helm, Docker, kubectl, and the `sun` and `sundev` binaries on your PATH.
 
-```bash
-# Install sun (project CLI)
-ln -sf "$(pwd)/_build/default/cli/sun/bin/main.exe" ~/.local/bin/sun
+Install `sun` (Linux x86_64):
 
-# Install sundev (internal pipeline/worktree tooling)
-ln -sf "$(pwd)/_build/default/tools/sundev/bin/main.exe" ~/.local/bin/sundev
+```bash
+curl -sSL https://github.com/loganbnielsen/sun/releases/latest/download/sun-linux-x86_64 \
+  -o ~/.local/bin/sun && chmod +x ~/.local/bin/sun
+```
+
+`sundev` (internal pipeline/worktree tooling) is build-from-source only — see [Requirements](#requirements).
+
+For `sun new workspace` to find the framework templates you must also set `SUN_HOME` to your Sun checkout:
+
+```bash
+export SUN_HOME=/path/to/sun   # add to ~/.bashrc or ~/.zshrc
 ```
 
 ```bash
@@ -501,15 +508,22 @@ Each package is independently usable. A worker that only needs Kafka does not pu
 
 ## Requirements
 
-- OCaml 5.4.1, Eio 1.3, dune 3.23.1
+**Runtime (binary install):**
+
 - `librdkafka-dev`, `libpq-dev`, `libpq5` (`sudo apt-get install -y librdkafka-dev libpq-dev libpq5`)
 - Redpanda (native Linux): `rpk redpanda start --overprovisioned --smp 1 --memory 512M`
 
-## Build
+**Build from source (contributors):**
+
+- OCaml 5.4.1, Eio 1.3, dune 3.23.1 (install via opam)
+- All runtime deps above
 
 ```bash
+# Install sundev and build everything
 eval $(opam env)
 dune build
+ln -sf "$(pwd)/_build/default/cli/sun/bin/main.exe" ~/.local/bin/sun
+ln -sf "$(pwd)/_build/default/tools/sundev/bin/main.exe" ~/.local/bin/sundev
 ```
 
 ## Test

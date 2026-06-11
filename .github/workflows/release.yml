@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y librdkafka-dev libpq-dev libpq5
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.4.1
+
+      - name: Install OCaml dependencies
+        run: opam install . --deps-only -y
+
+      - name: Build sun binary
+        run: opam exec -- dune build cli/sun/bin/main.exe
+
+      - name: Stage artifact
+        run: |
+          mkdir -p dist
+          cp _build/default/cli/sun/bin/main.exe dist/sun-linux-x86_64
+          chmod +x dist/sun-linux-x86_64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/sun-linux-x86_64
+          generate_release_notes: true

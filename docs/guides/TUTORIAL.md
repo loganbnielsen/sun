@@ -20,21 +20,24 @@ The `sun` CLI scaffolds new services, manages the local development cluster, bui
 
 ## Prerequisites
 
-- OCaml 5.4.1, opam, dune 3.23.1
 - k3d v5+ and Helm v3+
-- Docker
-- kubectl
+- Docker, kubectl
 - `librdkafka-dev`, `libpq-dev`, `libpq5` (`sudo apt-get install -y librdkafka-dev libpq-dev libpq5`)
 
-Build the `sun` binary from the repo root and put it on your PATH:
+Install `sun` (Linux x86_64):
 
 ```bash
-eval $(opam env)
-dune build cli/
-ln -sf "$(pwd)/_build/default/cli/sun/bin/main.exe" ~/.local/bin/sun
+curl -sSL https://github.com/loganbnielsen/sun/releases/latest/download/sun-linux-x86_64 \
+  -o ~/.local/bin/sun && chmod +x ~/.local/bin/sun
 ```
 
-> **Important:** Use `ln -sf` (symlink), not `cp` (copy). The `sun` binary locates the Sun framework source by walking up from the binary's real path. If the binary is copied to another location, `sun new workspace` will not find the framework and the generated workspace will be missing vendor links, causing `dune build` to fail with "Library not found".
+> **Build from source:** Contributors who need `sundev` or want to modify the framework should clone the repo and build:
+> ```bash
+> eval $(opam env)  # requires OCaml 5.4.1 + opam
+> dune build cli/
+> ln -sf "$(pwd)/_build/default/cli/sun/bin/main.exe" ~/.local/bin/sun
+> ln -sf "$(pwd)/_build/default/tools/sundev/bin/main.exe" ~/.local/bin/sundev
+> ```
 
 ---
 
@@ -79,17 +82,15 @@ sun new workspace pluto
 cd pluto
 ```
 
-> **Vendor links:** `sun new workspace` creates `vendor/framework` and `vendor/integrations` as symlinks into the Sun checkout the binary was run from. These links are how the generated workspace finds Sun's library source at build time — `dune build` will fail with "Library not found: sun_svc" if they are missing.
+> **Vendor links:** `sun new workspace` creates `vendor/framework` and `vendor/integrations` as symlinks into the Sun source tree. These links are how the generated workspace finds Sun's library source at build time — `dune build` will fail with "Library not found: sun_svc" if they are missing.
 >
-> If the symlinks were not created (the CLI prints a NOTE in that case), set `SUN_HOME` to your Sun checkout and re-run the link commands:
+> When using the downloaded binary, set `SUN_HOME` to your Sun checkout before running `sun new workspace`:
 >
 > ```bash
-> export SUN_HOME=/path/to/sun
-> ln -sf $SUN_HOME/framework  pluto/vendor/framework
-> ln -sf $SUN_HOME/integrations pluto/vendor/integrations
+> export SUN_HOME=/path/to/sun   # clone https://github.com/loganbnielsen/sun
 > ```
 >
-> This situation arises when the `sun` binary was copied (not symlinked) to its location on `PATH`. Using `ln -sf` during install (see Prerequisites above) avoids it entirely.
+> The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
 This generates 21 files. Here is what was created and why:
 
