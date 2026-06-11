@@ -227,6 +227,23 @@ let test_default_secrets_preserved_with_user_secrets () =
   assert_contains "POSTGRES_URL still in Secret" secret_block "POSTGRES_URL:";
   assert_contains "STRIPE_KEY also in Secret"    secret_block "STRIPE_KEY:"
 
+(* GitOps output must carry the required secret keys but no values. This pins
+   the FEAT-019 redaction contract used by Sun_cli_executor.gitops. *)
+let test_gitops_redacts_all_secret_values () =
+  let spec = {
+    svc_spec with
+    secrets = [ "STRIPE_KEY", "sk_live_should_not_render" ];
+  } in
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
+  let secret_block = extract_kind_block workload "kind: Secret" in
+  assert_contains "redaction comment" secret_block "Populate these values before applying";
+  assert_contains "default POSTGRES_URL key retained" secret_block {|POSTGRES_URL: ""|};
+  assert_contains "user STRIPE_KEY key retained" secret_block {|STRIPE_KEY: ""|};
+  assert_absent "default postgres value redacted" secret_block
+    "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev";
+  assert_absent "user secret value redacted" secret_block "sk_live_should_not_render"
+
 (* Worker with secret_keys also emits Secret resource with those keys. *)
 let test_worker_user_secret_key_in_secret_resource () =
   let spec = { worker_spec with secrets = [ "STRIPE_KEY", "" ] } in
@@ -721,6 +738,7 @@ let () =
       ; Alcotest.test_case "user secret key ref in Deployment"  `Quick test_user_secret_key_ref_in_deployment
       ; Alcotest.test_case "multiple user secret keys in Secret" `Quick test_multiple_user_secret_keys_in_secret_resource
       ; Alcotest.test_case "default secrets preserved with user secrets" `Quick test_default_secrets_preserved_with_user_secrets
+      ; Alcotest.test_case "GitOps redacts secret values" `Quick test_gitops_redacts_all_secret_values
       ]
     ; "worker", [
         Alcotest.test_case "namespace yaml"         `Quick test_worker_namespace
