@@ -58,7 +58,7 @@ let resolve_service arg =
 
 let deployment_exists ns k8s_name =
   Sys.command
-    (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" k8s_name ns) = 0
+    (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
 
 let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) (grafana_base_url : string) : unit =
   let follow = not no_follow in
@@ -82,7 +82,7 @@ let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) 
   let follow_flag = if follow then " --follow" else "" in
   let tail_flag   = Printf.sprintf " --tail=%d" tail in
   let cmd = Printf.sprintf "kubectl logs -n %s deployment/%s%s%s"
-    ns k8s_name follow_flag tail_flag in
+    (Filename.quote ns) (Filename.quote k8s_name) follow_flag tail_flag in
   exit (Sys.command cmd)
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)

@@ -28,7 +28,7 @@ let run filter_path =
     Printf.printf "[%s] %s/%s\n%!" (prim_label svc.prim) svc.domain svc.name;
 
     let undo_cmd = Printf.sprintf
-      "kubectl rollout undo deployment/%s -n %s" k8s_name ns in
+      "kubectl rollout undo deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
     let rc = run_cmd undo_cmd in
     if rc <> 0 then begin
       Printf.eprintf "  error: kubectl rollout undo failed for %s/%s (exit %d)\n%!"
@@ -39,7 +39,7 @@ let run filter_path =
 
       (* Wait for the rolled-back revision to become healthy *)
       let status_cmd = Printf.sprintf
-        "kubectl rollout status deployment/%s -n %s" k8s_name ns in
+        "kubectl rollout status deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
       let src = run_cmd status_cmd in
       if src <> 0 then begin
         Printf.eprintf "  warning: rollout status check failed for %s/%s (exit %d)\n%!"

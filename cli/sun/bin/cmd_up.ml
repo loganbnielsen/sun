@@ -127,7 +127,7 @@ let check_port_forward_liveness ~name ~local_port =
 let wait_for_rollout ~namespace ~name =
   let cmd = Printf.sprintf
     "kubectl rollout status deployment/%s -n %s --timeout=60s"
-    name namespace
+    (Filename.quote name) (Filename.quote namespace)
   in
   run_cmd ~echo:false cmd
 
@@ -227,11 +227,11 @@ let run filter_path dry_run tag =
           raise (Deploy_failed (Printf.sprintf "dune build failed: %s" repo_dir));
         Printf.printf "  packaging %s...\n%!" push_image;
         let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
-          push_image dockerfile repo_root in
+          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote repo_root) in
         if run_cmd ~echo:false docker_cmd <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
-        if run_cmd ~echo:false (Printf.sprintf "docker push %s" push_image) <> 0 then
+        if run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
