@@ -30,12 +30,34 @@ jobs:
 
       - name: Stage artifact
         run: |
-          mkdir -p dist
-          cp _build/default/cli/sun/bin/main.exe dist/sun-linux-x86_64
-          chmod +x dist/sun-linux-x86_64
+          VERSION="${{ github.ref_name }}"
+          BUNDLE="sun-${VERSION}-linux-x86_64"
+          mkdir -p dist/${BUNDLE}/bin
+          cp _build/default/cli/sun/bin/main.exe dist/${BUNDLE}/bin/sun
+          chmod +x dist/${BUNDLE}/bin/sun
+          cp -r framework dist/${BUNDLE}/framework
+          cp -r integrations dist/${BUNDLE}/integrations
+          cd dist
+          tar czf ${BUNDLE}.tar.gz ${BUNDLE}
+          # Also keep the standalone binary for scripted installs
+          cp ${BUNDLE}/bin/sun sun-linux-x86_64
+
+      - name: Smoke test release bundle
+        run: |
+          set -e
+          VERSION="${{ github.ref_name }}"
+          BUNDLE="dist/sun-${VERSION}-linux-x86_64"
+          # Binary should start and show help without framework resolution errors
+          ${BUNDLE}/bin/sun --help > /dev/null
+          # Verify framework source exists at expected location in bundle
+          test -f ${BUNDLE}/framework/sun-svc/lib/dune
+          test -f ${BUNDLE}/integrations/kafka/kafka-eio-service/lib/dune
+          echo "Bundle structure verified"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/sun-linux-x86_64
+          files: |
+            dist/sun-linux-x86_64
+            dist/sun-*-linux-x86_64.tar.gz
           generate_release_notes: true

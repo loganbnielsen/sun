@@ -178,6 +178,112 @@ let test_charge_svc_publishes_kafka_event () =
   assert_contains "main" main_ml "Kafka_service.register";
   assert_contains "main" main_ml "Kafka_service.publish"
 
+(* ── bundle source resolution tests ──────────────────────────────────────── *)
+
+(* Verify that infer_sun_home resolves correctly when SUN_HOME points to a
+   directory with the self-contained release bundle layout:
+     <bundle>/bin/sun       ← binary lives here (represented by SUN_HOME itself)
+     <bundle>/framework/sun-svc/lib/dune
+     <bundle>/integrations/kafka/kafka-eio-service/lib/dune
+   is_sun_home checks for both sentinel files, so both must be present. *)
+let test_bundle_layout_resolves_sun_home () =
+  let tmpdir = Filename.temp_file "sun-bundle-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      (* Create the bundle directory structure *)
+      let mkdir_p path =
+        ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote path)))
+      in
+      mkdir_p (Filename.concat tmpdir "bin");
+      mkdir_p (Filename.concat tmpdir "framework/sun-svc/lib");
+      mkdir_p (Filename.concat tmpdir "integrations/kafka/kafka-eio-service/lib");
+      (* Create the two sentinel dune files that is_sun_home checks *)
+      let touch path =
+        let oc = open_out path in close_out oc
+      in
+      touch (Filename.concat tmpdir "framework/sun-svc/lib/dune");
+      touch (Filename.concat tmpdir "integrations/kafka/kafka-eio-service/lib/dune");
+      (* Point SUN_HOME at the bundle root — infer_sun_home should accept it *)
+      let result =
+        let saved = Sys.getenv_opt "SUN_HOME" in
+        Unix.putenv "SUN_HOME" tmpdir;
+        let r = Sun_cli_cmd_new.infer_sun_home () in
+        (match saved with
+         | None     -> Unix.putenv "SUN_HOME" ""   (* can't unset, but empty won't match *)
+         | Some v   -> Unix.putenv "SUN_HOME" v);
+        r
+      in
+      check_bool "bundle layout: infer_sun_home resolves to Some" true
+        (result <> None);
+      check_bool "bundle layout: resolved path matches tmpdir" true
+        (result = Some tmpdir))
+
+(* Verify that a directory missing the kafka-eio-service sentinel is rejected.
+   This guards against accidentally accepting a partial bundle. *)
+let test_incomplete_bundle_rejected () =
+  let tmpdir = Filename.temp_file "sun-bundle-partial-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      let mkdir_p path =
+        ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote path)))
+      in
+      (* Only create the framework sentinel, not the integrations one *)
+      mkdir_p (Filename.concat tmpdir "framework/sun-svc/lib");
+      let touch path = let oc = open_out path in close_out oc in
+      touch (Filename.concat tmpdir "framework/sun-svc/lib/dune");
+      (* SUN_HOME pointing here should be rejected — integrations sentinel missing *)
+      let result =
+        let saved = Sys.getenv_opt "SUN_HOME" in
+        Unix.putenv "SUN_HOME" tmpdir;
+        let r = Sun_cli_cmd_new.infer_sun_home () in
+        (match saved with
+         | None   -> Unix.putenv "SUN_HOME" ""
+         | Some v -> Unix.putenv "SUN_HOME" v);
+        r
+      in
+      check_bool "incomplete bundle: infer_sun_home returns None" true
+        (result = None))
+
+(* Verify that find_ancestor + is_sun_home resolve the bundle root when starting
+   from a simulated bin/ subdirectory — this is the primary runtime path used
+   when a user downloads the release bundle and runs the binary directly.
+   SUN_HOME is deliberately NOT set during this test. *)
+let test_ancestor_walk_finds_bundle_root () =
+  let tmpdir = Filename.temp_file "sun-ancestor-walk-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Fun.protect
+    ~finally:(fun () ->
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    (fun () ->
+      let mkdir_p path =
+        ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote path)))
+      in
+      let touch path = let oc = open_out path in close_out oc in
+      (* Create the bundle layout: tmpdir/bin/, tmpdir/framework/..., tmpdir/integrations/... *)
+      mkdir_p (Filename.concat tmpdir "bin");
+      mkdir_p (Filename.concat tmpdir "framework/sun-svc/lib");
+      mkdir_p (Filename.concat tmpdir "integrations/kafka/kafka-eio-service/lib");
+      touch (Filename.concat tmpdir "framework/sun-svc/lib/dune");
+      touch (Filename.concat tmpdir "integrations/kafka/kafka-eio-service/lib/dune");
+      (* is_sun_home should accept the bundle root *)
+      check_bool "is_sun_home returns true for valid bundle root" true
+        (Sun_cli_cmd_new.is_sun_home tmpdir);
+      (* find_ancestor starting from the bin/ subdirectory should walk up to tmpdir *)
+      let bin_dir = Filename.concat tmpdir "bin" in
+      let result  = Sun_cli_cmd_new.find_ancestor Sun_cli_cmd_new.is_sun_home bin_dir in
+      check_bool "find_ancestor: returns Some" true (result <> None);
+      check_bool "find_ancestor: resolved path matches bundle root" true
+        (result = Some tmpdir))
+
 (* Verify that the generic worker template calls ack() after side effects,
    not before them.  The Printf.printf call is the stub side effect; ack ()
    must appear later in the file. *)
@@ -237,5 +343,10 @@ let () =
       ]
     ; "worker_ack_order", [
         Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect
+      ]
+    ; "bundle_resolution", [
+        Alcotest.test_case "complete bundle layout resolves sun_home" `Quick test_bundle_layout_resolves_sun_home
+      ; Alcotest.test_case "incomplete bundle is rejected"            `Quick test_incomplete_bundle_rejected
+      ; Alcotest.test_case "ancestor walk finds bundle root from bin/" `Quick test_ancestor_walk_finds_bundle_root
       ]
     ]

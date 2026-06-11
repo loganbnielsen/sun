@@ -162,14 +162,18 @@ From zero to a running service with HTTP, Kafka, and PostgreSQL in under five mi
 
 **Prerequisites:** k3d, Helm, Docker, kubectl, and the `sun` and `sundev` binaries on your PATH.
 
-Install `sun` (Linux x86_64):
+Install `sun` (Linux x86_64) — download the self-contained release bundle:
 
 ```bash
-curl -sSL https://github.com/loganbnielsen/sun/releases/latest/download/sun-linux-x86_64 \
-  -o ~/.local/bin/sun && chmod +x ~/.local/bin/sun
+# Replace vX.Y.Z with the latest version from https://github.com/loganbnielsen/sun/releases
+curl -L https://github.com/loganbnielsen/sun/releases/latest/download/sun-vX.Y.Z-linux-x86_64.tar.gz \
+  | tar xz
+export PATH="$PWD/sun-vX.Y.Z-linux-x86_64/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc
 ```
 
-Clone the Sun repo and set `SUN_HOME` — required for `sun new workspace` to link the framework source into generated workspaces:
+The tarball includes the `sun` binary and the framework source trees (`framework/` and `integrations/`). No `SUN_HOME` or separate clone required — `sun new workspace` resolves the framework source automatically from the bundle layout.
+
+**Contributors / building from source:** Clone the repo and set `SUN_HOME` instead:
 
 ```bash
 git clone https://github.com/loganbnielsen/sun.git ~/sun
