@@ -134,7 +134,9 @@ let pp_summary fmt t =
      Format.fprintf fmt "@\n";
      Format.fprintf fmt "migrations:   %s@\n" (String.concat ", " ms))
 
-(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations. *)
+(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations.
+    Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
+    so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
 let discover_topics () =
   let events_dir = "events" in
   if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
@@ -142,25 +144,36 @@ let discover_topics () =
     let topics = ref [] in
     let marker = {|let topic_name = "|} in
     let ml = String.length marker in
+    let scan_file path =
+      try
+        let ic = open_in path in
+        let content = In_channel.input_all ic in
+        close_in ic;
+        let sl = String.length content in
+        for i = 0 to sl - ml - 1 do
+          if String.sub content i ml = marker then begin
+            let j = ref (i + ml) in
+            while !j < sl && content.[!j] <> '"' do incr j done;
+            let name = String.sub content (i + ml) (!j - i - ml) in
+            if name <> "" then topics := name :: !topics
+          end
+        done
+      with _ -> ()
+    in
     (try
       Array.iter (fun fname ->
         let path = Filename.concat events_dir fname in
-        if not (Sys.is_directory path) && Filename.check_suffix fname ".ml" then begin
+        if Sys.is_directory path then begin
+          (* One level deep: scan events/<subdir>/*.ml *)
           (try
-            let ic = open_in path in
-            let content = In_channel.input_all ic in
-            close_in ic;
-            let sl = String.length content in
-            for i = 0 to sl - ml - 1 do
-              if String.sub content i ml = marker then begin
-                let j = ref (i + ml) in
-                while !j < sl && content.[!j] <> '"' do incr j done;
-                let name = String.sub content (i + ml) (!j - i - ml) in
-                if name <> "" then topics := name :: !topics
-              end
-            done
+            Array.iter (fun child ->
+              let child_path = Filename.concat path child in
+              if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
+                scan_file child_path
+            ) (Sys.readdir path)
           with _ -> ())
-        end
+        end else if Filename.check_suffix fname ".ml" then
+          scan_file path
       ) (Sys.readdir events_dir)
     with _ -> ());
     List.sort_uniq String.compare (List.rev !topics)
