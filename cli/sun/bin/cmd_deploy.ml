@@ -16,7 +16,44 @@ let git_sha () =
   (try Sys.remove tmp with _ -> ());
   if s = "" then "dev" else s
 
-let run filter_path dry_run emit_to emit_plan_to image_tag registry =
+let parse_secret_backend backend_str store_ref store_kind key_prefix refresh_interval emit_to =
+  match backend_str with
+  | "kubernetes-placeholder" | "" -> Sun_cli_manifest.Kubernetes_placeholder
+  | "external-secrets" ->
+    (match emit_to with
+     | None ->
+       Printf.eprintf "warning: --secret-backend external-secrets is only meaningful \
+                       with --emit-to; ignoring.\n";
+       Sun_cli_manifest.Kubernetes_placeholder
+     | Some _ ->
+       let sref = match store_ref with
+         | Some r -> r
+         | None ->
+           Printf.eprintf "error: --secret-store-ref is required when \
+                           --secret-backend=external-secrets\n";
+           exit 1
+       in
+       Sun_cli_manifest.External_secrets {
+         store_ref        = sref;
+         store_kind       = Option.value store_kind ~default:"ClusterSecretStore";
+         key_prefix       = Option.value key_prefix ~default:"";
+         refresh_interval = Option.value refresh_interval ~default:"1h";
+       })
+  | other ->
+    Printf.eprintf "error: unknown --secret-backend value %S \
+                    (expected: kubernetes-placeholder | external-secrets)\n" other;
+    exit 1
+
+let secret_backend_to_string = function
+  | Sun_cli_manifest.Kubernetes_live        -> "kubernetes-live"
+  | Sun_cli_manifest.Kubernetes_placeholder -> "kubernetes-placeholder"
+  | Sun_cli_manifest.External_secrets _     -> "external-secrets"
+
+let run filter_path dry_run emit_to emit_plan_to image_tag registry
+        secret_backend_str store_ref store_kind key_prefix refresh_interval =
+  let secret_backend =
+    parse_secret_backend secret_backend_str store_ref store_kind key_prefix refresh_interval emit_to
+  in
   let workspace = workspace_name () in
   let sha       = match image_tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
@@ -58,7 +95,14 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry =
   (match emit_plan_to with
    | None -> ()
    | Some path ->
-     let json_str = Yojson.Safe.pretty_to_string (Sun_cli_deployment_plan.to_json plan) in
+     let base_json = Sun_cli_deployment_plan.to_json plan in
+     (* Augment with secret_backend field *)
+     let json_with_backend = match base_json with
+       | `Assoc fields ->
+         `Assoc (fields @ [ "secret_backend", `String (secret_backend_to_string secret_backend) ])
+       | other -> other
+     in
+     let json_str = Yojson.Safe.pretty_to_string json_with_backend in
      if path = "-" then begin
        print_string json_str;
        print_char '\n'
@@ -81,7 +125,7 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry =
 
       (match emit_to with
        | Some dir ->
-         let r = Sun_cli_executor.gitops ~dir spec in
+         let r = Sun_cli_executor.gitops ~dir ~secret_backend spec in
          let path = Filename.concat dir
            (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
          Printf.printf "  ✓  %s\n%!" path
@@ -141,6 +185,38 @@ let registry_arg =
                123456789.dkr.ecr.us-east-1.amazonaws.com. \
                Omit for local k3d cluster (uses sun-registry:5000).")
 
+let secret_backend_arg =
+  Arg.(value & opt string "kubernetes-placeholder" &
+       info ["secret-backend"] ~docv:"BACKEND"
+         ~doc:"Secret backend for GitOps output. \
+               'kubernetes-placeholder' (default) emits a redacted Kubernetes Secret; \
+               'external-secrets' emits an ExternalSecret CRD for the External Secrets Operator. \
+               Only meaningful with --emit-to.")
+
+let secret_store_ref_arg =
+  Arg.(value & opt (some string) None &
+       info ["secret-store-ref"] ~docv:"NAME"
+         ~doc:"Name of the SecretStore or ClusterSecretStore to reference. \
+               Required when --secret-backend=external-secrets.")
+
+let secret_store_kind_arg =
+  Arg.(value & opt (some string) None &
+       info ["secret-store-kind"] ~docv:"KIND"
+         ~doc:"Kind of the secret store reference (default: ClusterSecretStore). \
+               Use 'SecretStore' for a namespace-scoped store.")
+
+let key_prefix_arg =
+  Arg.(value & opt (some string) None &
+       info ["key-prefix"] ~docv:"PREFIX"
+         ~doc:"Prefix to prepend to each secret key when looking up in the external store \
+               (default: \"\"). Example: 'myworkspace/' produces keys like 'myworkspace/POSTGRES_URL'.")
+
+let refresh_interval_arg =
+  Arg.(value & opt (some string) None &
+       info ["refresh-interval"] ~docv:"INTERVAL"
+         ~doc:"How often ESO should sync the secret from the external store (default: 1h). \
+               Examples: '1h', '30m', '5m'.")
+
 let cmd =
   Cmd.v
     (Cmd.info "deploy"
@@ -148,4 +224,6 @@ let cmd =
              Like 'sun up' but skips the build step — images must already \
              be in the registry.")
     Term.(const run $ path_arg $ dry_run_flag $ emit_to_arg
-          $ emit_plan_to_arg $ image_tag_arg $ registry_arg)
+          $ emit_plan_to_arg $ image_tag_arg $ registry_arg
+          $ secret_backend_arg $ secret_store_ref_arg $ secret_store_kind_arg
+          $ key_prefix_arg $ refresh_interval_arg)

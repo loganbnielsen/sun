@@ -24,8 +24,14 @@ val direct : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
     context [kubectl] is pointing at.  The distinction is purely in how the
     surrounding command constructs the env target and plan. *)
 
-val gitops : dir:string -> Sun_cli_deployment_plan.service_spec -> result
+val gitops :
+  dir:string ->
+  ?secret_backend:Sun_cli_manifest.secret_backend ->
+  Sun_cli_deployment_plan.service_spec ->
+  result
 (** Write manifests to [dir/<namespace>-<name>.yaml] for GitOps workflows.
     The directory is created if it does not already exist.
+    When [~secret_backend] is [External_secrets _], an ExternalSecret CRD is
+    emitted instead of a placeholder Kubernetes Secret.
     Returns [result] with [namespace] and [name] from the spec and
     [image] from the spec. *)

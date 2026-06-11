@@ -25,8 +25,8 @@ let direct ~dry_run spec =
   Sun_cli_manifest.apply yaml ~dry_run;
   make_result spec
 
-let gitops ~dir spec =
-  let yaml = Sun_cli_deployment_plan.render_spec ~redact_secrets:true spec in
+let gitops ~dir ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) spec =
+  let yaml = Sun_cli_deployment_plan.render_spec ~secret_backend spec in
   let _path = Sun_cli_manifest.emit_to_dir dir yaml
     ~ns:spec.namespace ~name:spec.k8s_name in
   make_result spec

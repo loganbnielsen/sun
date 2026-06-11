@@ -66,11 +66,15 @@ val of_services :
 
 val render_spec :
   ?image:string ->
-  ?redact_secrets:bool ->
+  ?secret_backend:Sun_cli_manifest.secret_backend ->
   service_spec ->
   string * string
 (** Render a [(namespace_yaml, workload_yaml)] pair from a resolved [service_spec].
     All deployment identity fields (namespace, k8s name, image, primitive,
     config, secrets, schedule, replicas, cpu, memory) come from the spec.
     Pass [~image] to override [spec.image] — used by [sun up] where the
-    dry-run display image ([localhost:5000]) differs from the cluster image. *)
+    dry-run display image ([localhost:5000]) differs from the cluster image.
+    Pass [~secret_backend] to control how secret manifests are emitted:
+    - [Kubernetes_live] (default): emit a Secret with real values (sun up / direct deploy);
+    - [Kubernetes_placeholder]: emit a redacted Secret with empty stringData (GitOps);
+    - [External_secrets _]: emit an ExternalSecret CRD for the External Secrets Operator. *)

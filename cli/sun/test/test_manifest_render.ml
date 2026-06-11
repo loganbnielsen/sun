@@ -620,6 +620,85 @@ steps = [10, 120]
   Sys.remove path;
   check_bool "invalid canary weight raises" true raised
 
+(* ── ExternalSecret backend tests ────────────────────────────────────────── *)
+
+(* Helper: build an ESO backend value *)
+let eso_backend =
+  Sun_cli_manifest.External_secrets {
+    store_ref        = "aws-secrets-manager";
+    store_kind       = "ClusterSecretStore";
+    key_prefix       = "myapp/";
+    refresh_interval = "1h";
+  }
+
+(* external_secret_doc should emit ExternalSecret kind and remoteRef fields,
+   and must NOT contain stringData. *)
+let test_external_secret_doc_no_stringdata () =
+  let doc = Sun_cli_manifest.external_secret_doc
+    ~store_ref:"aws-secrets-manager"
+    ~store_kind:"ClusterSecretStore"
+    ~key_prefix:"myapp/"
+    ~refresh_interval:"1h"
+    ~secret_keys:["POSTGRES_URL"; "STRIPE_KEY"]
+    "myapp-payments" "charge-svc"
+  in
+  assert_contains "kind ExternalSecret"    doc "kind: ExternalSecret";
+  assert_contains "remoteRef present"      doc "remoteRef:";
+  assert_contains "ESO apiVersion"         doc "apiVersion: external-secrets.io/v1beta1";
+  assert_absent   "no stringData"          doc "stringData"
+
+(* All provided secret keys must appear as secretKey entries *)
+let test_external_secret_doc_keys_present () =
+  let doc = Sun_cli_manifest.external_secret_doc
+    ~store_ref:"aws-secrets-manager"
+    ~store_kind:"ClusterSecretStore"
+    ~key_prefix:""
+    ~refresh_interval:"1h"
+    ~secret_keys:["POSTGRES_URL"; "STRIPE_KEY"; "SENDGRID_API_KEY"]
+    "myapp-payments" "charge-svc"
+  in
+  assert_contains "POSTGRES_URL secretKey"    doc "secretKey: POSTGRES_URL";
+  assert_contains "STRIPE_KEY secretKey"      doc "secretKey: STRIPE_KEY";
+  assert_contains "SENDGRID_API_KEY secretKey" doc "secretKey: SENDGRID_API_KEY"
+
+(* The target.name must be "<name>-secrets" *)
+let test_external_secret_doc_target_name () =
+  let doc = Sun_cli_manifest.external_secret_doc
+    ~store_ref:"my-store"
+    ~store_kind:"ClusterSecretStore"
+    ~key_prefix:""
+    ~refresh_interval:"1h"
+    ~secret_keys:["POSTGRES_URL"]
+    "myapp-payments" "charge-svc"
+  in
+  assert_contains "target name is charge-svc-secrets" doc "name: charge-svc-secrets"
+
+(* render_spec with External_secrets backend must emit ExternalSecret, not Secret *)
+let test_render_spec_eso_backend_no_k8s_secret () =
+  let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  assert_contains "ExternalSecret present" workload "kind: ExternalSecret";
+  assert_absent   "no plain Secret kind"  workload "kind: Secret"
+
+(* render_spec with ESO backend must include all keys (default + user) in data: *)
+let test_render_spec_eso_backend_all_keys () =
+  let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  assert_contains "POSTGRES_URL in ESO data" workload "secretKey: POSTGRES_URL";
+  assert_contains "STRIPE_KEY in ESO data"   workload "secretKey: STRIPE_KEY"
+
+(* render_spec with ESO backend must NOT contain stringData *)
+let test_render_spec_eso_backend_no_stringdata () =
+  let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  assert_absent "no stringData in ESO output" workload "stringData"
+
+(* Kubernetes_placeholder backend (default) still emits a regular Secret *)
+let test_render_spec_k8s_placeholder_default () =
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  assert_contains "kind Secret present" workload "kind: Secret";
+  assert_absent   "no ExternalSecret"   workload "kind: ExternalSecret"
+
 let () =
   Alcotest.run "manifest_render"
     [ "svc", [
@@ -688,5 +767,14 @@ let () =
       ; Alcotest.test_case "invalid progressive strategy"  `Quick test_toml_invalid_progressive_strategy
       ; Alcotest.test_case "canary requires steps"         `Quick test_toml_canary_requires_steps
       ; Alcotest.test_case "canary rejects bad weight"     `Quick test_toml_canary_rejects_bad_weight
+      ]
+    ; "external_secrets", [
+        Alcotest.test_case "external_secret_doc: no stringData"   `Quick test_external_secret_doc_no_stringdata
+      ; Alcotest.test_case "external_secret_doc: keys present"    `Quick test_external_secret_doc_keys_present
+      ; Alcotest.test_case "external_secret_doc: target name"     `Quick test_external_secret_doc_target_name
+      ; Alcotest.test_case "render_spec ESO: no k8s Secret"       `Quick test_render_spec_eso_backend_no_k8s_secret
+      ; Alcotest.test_case "render_spec ESO: all keys in data"    `Quick test_render_spec_eso_backend_all_keys
+      ; Alcotest.test_case "render_spec ESO: no stringData"       `Quick test_render_spec_eso_backend_no_stringdata
+      ; Alcotest.test_case "render_spec default: k8s placeholder" `Quick test_render_spec_k8s_placeholder_default
       ]
     ]
