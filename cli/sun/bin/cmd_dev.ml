@@ -23,12 +23,22 @@ let require_tools () =
 
 (* ── State file ─────────────────────────────────────────────────────────── *)
 
-let state_dir  = ".sun"
+let state_dir =
+  (* Use an absolute path so all sun dev up/down calls share state regardless
+     of cwd.  Relative ".sun" meant cross-session port-forwards couldn't be
+     cleaned up if the user ran from a different directory. *)
+  match Sys.getenv_opt "XDG_DATA_HOME" with
+  | Some d -> Filename.concat d "sun"
+  | None ->
+    match Sys.getenv_opt "HOME" with
+    | Some h -> Filename.concat h ".local/share/sun"
+    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
+
 let cluster_name = "sun-local"
 let registry_port = 5000
 
 let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" state_dir))
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
 
 let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
@@ -109,6 +119,10 @@ let helm_install release chart ~namespace ?(values = []) () =
 let dev_up () =
   require_tools ();
   ensure_state_dir ();
+  (* Kill any stale port-forwards from previous sessions before starting fresh
+     ones.  Without this, re-running dev up after a crash or cross-directory
+     down would silently fail to bind ports while reporting success. *)
+  stop_port_forwards ();
 
   (* 1. Cluster *)
   Printf.printf "\n[1/4] Provisioning cluster...\n%!";
@@ -350,16 +364,32 @@ let dev_run workspace_dir filter_path =
   ) services;
   Printf.printf "\n%!";
 
+  (* Build all services first with a single dune invocation so that parallel
+     dune exec calls below don't fight over the _build/.lock file. *)
+  Printf.printf "  Building...\n%!";
+  let build_targets = List.map (fun (svc : Sun_cli_manifest.service) ->
+    svc.dir ^ "/bin/main.exe"
+  ) services in
+  let opam_eval = "eval $(opam env 2>/dev/null) 2>/dev/null; " in
+  let build_cmd = Printf.sprintf "%sdune build %s"
+    opam_eval
+    (String.concat " " (List.map Filename.quote build_targets))
+  in
+  let build_rc = Sys.command build_cmd in
+  if build_rc <> 0 then begin
+    Printf.eprintf "error: dune build failed (exit %d)\n" build_rc;
+    exit 1
+  end;
+  Printf.printf "  Build done.\n\n%!";
+
   let env = build_env () in
 
-  (* Spawn each service, capturing stdout+stderr via a pipe *)
+  (* Spawn each service by running the pre-built executable from _build/default/.
+     This avoids concurrent dune exec calls fighting over the build lock. *)
   let children = List.filter_map (fun (svc : Sun_cli_manifest.service) ->
     let label = svc.domain ^ "/" ^ svc.name in
-    let exe_path = svc.dir ^ "/bin/main.exe" in
-    (* We run:  sh -c "eval $(opam env) && dune exec <exe_path>"
-       Pipe stdout+stderr together so both get the label prefix. *)
-    let opam_eval = "eval $(opam env 2>/dev/null) 2>/dev/null; " in
-    let cmd_str = Printf.sprintf "%sdune exec %s" opam_eval (Filename.quote exe_path) in
+    let exe_path = "_build/default/" ^ svc.dir ^ "/bin/main.exe" in
+    let cmd_str = Filename.quote exe_path in
     (* Create a pipe: child writes to pipe_write, we read from pipe_read *)
     let (pipe_read, pipe_write) = Unix.pipe () in
     (try
