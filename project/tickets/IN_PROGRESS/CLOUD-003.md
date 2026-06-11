@@ -3,6 +3,8 @@ id: CLOUD-003
 type: feature
 severity: medium
 source: product-planning-2026-06-10
+branch: CLOUD-003/release-history
+worktree: ../sun-CLOUD-003-release-history
 ---
 
 Add release history and log model for hosted deploys.
