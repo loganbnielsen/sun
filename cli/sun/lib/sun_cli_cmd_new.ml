@@ -63,6 +63,24 @@ let tpl_readme = {tpl|# {{Name}}
 
 A Sun workspace with two services: `charge_svc` (HTTP) and `notify_worker` (Kafka consumer).
 
+## Prerequisites
+
+System packages required before building:
+
+```bash
+sudo apt-get install -y librdkafka-dev libpq-dev libpq5
+```
+
+`vendor/framework` and `vendor/integrations` must be symlinked to a Sun source checkout.
+They are created automatically when `SUN_HOME` is set during `sun new workspace`.
+If missing (e.g. after cloning):
+
+```bash
+export SUN_HOME=/path/to/sun
+ln -sf $SUN_HOME/framework vendor/framework
+ln -sf $SUN_HOME/integrations vendor/integrations
+```
+
 ## Build
 
 ```bash
@@ -73,18 +91,17 @@ dune build
 ## Run locally
 
 ```bash
-sun dev up   # start local cluster + Kafka + supporting infra
-sun dev run  # build images and run all services against local infra
+sun dev up      # provision local k3d cluster + Kafka + supporting infra (~5 min first run)
+sun dev run     # build images and run all services against local infra
 ```
 
-## CLI commands
+## Deploy to cluster
 
 ```bash
-sun dev up        # start local cluster + Kafka + supporting infra
-sun dev run       # build images and run all services against local infra
-sun up            # build images and deploy to cluster
-sun status        # show running pods and endpoints
+sun up          # build images and deploy to cluster
+sun status      # show running pods and endpoints
 sun migrate --table {{name}}_migrations   # apply database migrations (isolated table per workspace)
+sun rollback    # roll back all services to previous image
 ```
 
 ## Project layout
@@ -94,6 +111,7 @@ events/payments/          ← Charged event contract (payments team owns)
 app/payments/charge_svc/  ← HTTP service (publishes Charged on POST /charges)
 app/comms/notify_worker/  ← Kafka consumer (subscribes to Charged)
 db/migrations/            ← SQL migration files
+vendor/                   ← symlinks to Sun framework source (not committed)
 ```
 |tpl}
 
@@ -897,6 +915,7 @@ let new_workspace name =
 Done. 21 files generated.
 
   cd %s
+  eval $(opam env) && dune build   # verify the scaffold compiles
   sun dev up           # provision local k3d cluster + infra (first time ~5 min)
   sun up               # build images, push, deploy  (~1 min after first run)
   sun migrate --table %s_migrations   # apply DB migrations (isolated per workspace)

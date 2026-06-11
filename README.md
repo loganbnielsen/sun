@@ -169,13 +169,14 @@ curl -sSL https://github.com/loganbnielsen/sun/releases/latest/download/sun-linu
   -o ~/.local/bin/sun && chmod +x ~/.local/bin/sun
 ```
 
-`sundev` (internal pipeline/worktree tooling) is build-from-source only — see [Requirements](#requirements).
-
-For `sun new workspace` to find the framework templates you must also set `SUN_HOME` to your Sun checkout:
+Clone the Sun repo and set `SUN_HOME` — required for `sun new workspace` to link the framework source into generated workspaces:
 
 ```bash
-export SUN_HOME=/path/to/sun   # add to ~/.bashrc or ~/.zshrc
+git clone https://github.com/loganbnielsen/sun.git ~/sun
+export SUN_HOME=~/sun   # add to ~/.bashrc or ~/.zshrc
 ```
+
+`sundev` (internal pipeline/worktree tooling) is build-from-source only — see [Requirements](#requirements).
 
 ```bash
 # 1. Provision the local cluster (Redpanda, PostgreSQL, Loki, Prometheus, Grafana)
