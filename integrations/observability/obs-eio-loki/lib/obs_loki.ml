@@ -53,8 +53,9 @@ let http_post ~net ~clock ~url ~body =
                    if line = "" || line = "\r" then () else skip_headers ()
                  in
                  skip_headers ();
-                 (* Read up to 512 bytes of response body for diagnostics. *)
-                 Eio.Buf_read.take 512 buf
+                 (* take_while avoids End_of_file on bodies shorter than 512 bytes. *)
+                 let s = Eio.Buf_read.take_while (fun _ -> true) buf in
+                 String.sub s 0 (min (String.length s) 512)
                with _ -> ""
              in
              let detail = if body = "" then "" else ": " ^ String.trim body in
@@ -79,8 +80,7 @@ let jobj pairs =
   ^ "}"
 
 (* Logfmt for log line bodies.
-   Values containing spaces, = or control chars are quoted.
-   trace_id/span_id are NOT included here -- they go in structured metadata. *)
+   Values containing spaces, = or control chars are quoted. *)
 let logfmt_val s =
   let needs_quotes = String.exists
     (fun c -> c = ' ' || c = '=' || c = '"' || c = '\n' || c = '\r') s in
