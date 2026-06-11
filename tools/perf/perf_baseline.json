@@ -795,6 +795,17 @@
           "date": "2026-06-11",
           "commit": "42838d5",
           "duration_s": 1.064
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "c9f2e32",
+          "duration_s": 1.020
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "c9f2e32",
+          "duration_s": 1.019,
+          "baseline": true
         }
       ]
     },
