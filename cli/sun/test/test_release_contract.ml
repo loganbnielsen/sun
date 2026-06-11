@@ -105,6 +105,7 @@ let test_missing_body_returns_400 () =
     Sun_cli_control_plane.meth = Post;
     path = "/projects/proj-pluto/releases";
     body = None;
+    params = [];
   } in
   check_int "http 400" 400 (Sun_cli_control_plane.handle r req).status
 

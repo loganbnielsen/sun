@@ -29,7 +29,7 @@ let test_post_projects_idempotent () =
 
 let test_post_projects_missing_body () =
   let r = registry () in
-  let req = { Sun_cli_control_plane.meth = Post; path = "/projects"; body = None } in
+  let req = { Sun_cli_control_plane.meth = Post; path = "/projects"; body = None; params = [] } in
   let resp = Sun_cli_control_plane.handle r req in
   check_int "status 400" 400 resp.status
 
@@ -117,6 +117,7 @@ let test_post_release_missing_body () =
     Sun_cli_control_plane.meth = Post;
     path = "/projects/proj-pluto/releases";
     body = None;
+    params = [];
   } in
   let resp = Sun_cli_control_plane.handle r req in
   check_int "status 400" 400 resp.status
@@ -125,7 +126,7 @@ let test_post_release_missing_body () =
 
 let test_unknown_route () =
   let r = registry () in
-  let req = { Sun_cli_control_plane.meth = Get; path = "/unknown"; body = None } in
+  let req = { Sun_cli_control_plane.meth = Get; path = "/unknown"; body = None; params = [] } in
   let resp = Sun_cli_control_plane.handle r req in
   check_int "status 404" 404 resp.status
 

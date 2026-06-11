@@ -1,6 +1,6 @@
 (** Hosted control-plane HTTP API surface — stub handlers.
 
-    Defines the request/response contract for the three registry endpoints.
+    Defines the request/response contract for the registry endpoints.
     Handlers are pure functions: they take a registry and a parsed request
     and return a typed response. No TCP server, no I/O.
 
@@ -8,14 +8,17 @@
     {ul
     {- [POST /projects]  — create a project for the given workspace}
     {- [GET  /projects/{id}] — fetch project metadata + release IDs}
-    {- [POST /projects/{id}/releases] — record a new release}} *)
+    {- [POST /projects/{id}/releases] — record a new release}
+    {- [GET  /projects/{id}/releases] — paginated release list}
+    {- [GET  /projects/{id}/releases/{rid}/logs] — deploy log lines}} *)
 
 type http_method = Get | Post
 
 type request = {
-  meth : http_method;
-  path : string;
-  body : Yojson.Safe.t option;
+  meth   : http_method;
+  path   : string;
+  body   : Yojson.Safe.t option;
+  params : (string * string) list;
 }
 
 type response = {
@@ -36,4 +39,14 @@ val post_release  :
   environment:string ->
   image_tag:string ->
   service_names:string list ->
+  request
+val get_releases :
+  project_id:string ->
+  ?page:int ->
+  ?page_size:int ->
+  unit ->
+  request
+val get_release_logs :
+  project_id:string ->
+  release_id:string ->
   request

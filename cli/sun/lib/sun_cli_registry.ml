@@ -33,12 +33,14 @@ type t = {
   projects : (project_id, project) Hashtbl.t;
   releases : (release_id, release) Hashtbl.t;
   counters : (project_id, int) Hashtbl.t;
+  logs     : (release_id, string list) Hashtbl.t;
 }
 
 let create () = {
   projects = Hashtbl.create 8;
   releases = Hashtbl.create 16;
   counters = Hashtbl.create 8;
+  logs     = Hashtbl.create 16;
 }
 
 let project_id_of_workspace workspace =
@@ -79,6 +81,12 @@ let next_release_id t ~project_id =
   Hashtbl.replace t.counters project_id n;
   Printf.sprintf "rel-%s-%d" project_id n
 
+let append_log_line t release_id line =
+  let existing = match Hashtbl.find_opt t.logs release_id with
+    | Some ls -> ls | None -> []
+  in
+  Hashtbl.replace t.logs release_id (existing @ [line])
+
 let create_release t ~project_id ~environment ~image_tag ~service_names =
   match get_project t project_id with
   | Error msg -> Error msg
@@ -99,6 +107,15 @@ let create_release t ~project_id ~environment ~image_tag ~service_names =
       created_at;
     } in
     Hashtbl.replace t.releases release_id release;
+    append_log_line t release_id
+      (Printf.sprintf "[deploy] release %s started: env=%s tag=%s"
+        release_id environment image_tag);
+    List.iter (fun svc ->
+      append_log_line t release_id
+        (Printf.sprintf "[deploy] service %s deployed" svc))
+      service_names;
+    append_log_line t release_id
+      (Printf.sprintf "[deploy] release %s complete: status=live" release_id);
     Ok release
 
 let list_releases t ~project_id =
@@ -112,10 +129,33 @@ let list_releases t ~project_id =
     in
     Ok (List.sort (fun a b -> String.compare a.release_id b.release_id) all)
 
+let list_releases_page t ~project_id ?(page = 1) ?(page_size = 20) () =
+  match list_releases t ~project_id with
+  | Error msg -> Error msg
+  | Ok all ->
+    let total = List.length all in
+    let offset = (page - 1) * page_size in
+    let page_items =
+      if offset >= total then []
+      else
+        let tail = List.filteri (fun i _ -> i >= offset) all in
+        List.filteri (fun i _ -> i < page_size) tail
+    in
+    Ok (page_items, total)
+
 let get_release t release_id =
   match Hashtbl.find_opt t.releases release_id with
   | Some r -> Ok r
   | None -> Error (Printf.sprintf "release %S not found" release_id)
+
+let get_release_logs t release_id =
+  match get_release t release_id with
+  | Error msg -> Error msg
+  | Ok _ ->
+    let lines = match Hashtbl.find_opt t.logs release_id with
+      | Some ls -> ls | None -> []
+    in
+    Ok lines
 
 let release_status_to_string = function
   | Queued   -> "queued"

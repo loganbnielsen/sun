@@ -69,7 +69,22 @@ val create_release :
 val list_releases : t -> project_id:project_id -> (release list, string) result
 (** List releases for [project_id] in creation order. *)
 
+val list_releases_page :
+  t ->
+  project_id:project_id ->
+  ?page:int ->
+  ?page_size:int ->
+  unit ->
+  (release list * int, string) result
+(** Paginated release list. [page] is 1-based (default 1). Returns [(items, total)]. *)
+
 val get_release : t -> release_id -> (release, string) result
+
+val append_log_line : t -> release_id -> string -> unit
+(** Append a log line to a release's in-memory log buffer. *)
+
+val get_release_logs : t -> release_id -> (string list, string) result
+(** Return all log lines for a release. Error if the release does not exist. *)
 
 val project_id_of_workspace : string -> project_id
 (** Derive the project ID for a workspace name. Exposed for tests. *)
