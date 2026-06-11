@@ -1,8 +1,37 @@
-# Work Summary — Dogfood Alpha direction set
+# Work Summary — Dogfood Alpha complete (2026-06-11)
 
-## Latest: deployment lanes and Dogfood Alpha plan
+## Latest: Dogfood Alpha — all tickets done
 
-The next product milestone is **Dogfood Alpha**, not deeper hosted work.
+All Dogfood Alpha tickets are complete. Sun proved the non-hosted product end-to-end.
+
+**Tickets completed:** DOGFOOD-001 through DOGFOOD-006, DOGFOOD-008, DOGFOOD-009.
+Full reports in `project/dogfood/`.
+
+**What passed:** fresh install → workspace creation → local dev (`sun dev up`) → cluster
+deploy (`sun up`) → migrations (`sun migrate`) → rollback (`sun rollback`) → ops loop
+(secrets, logs, status) → customer-cloud contract (`sun deploy --emit-to`).
+
+**Key fixes landed:**
+- Kafka external advertised listener (DOGFOOD-008): worker pods now reachable from `sun dev run`
+- Loki 2.x compatibility (DOGFOOD-009): `take_while` replaces `take 512` to avoid End_of_file on short HTTP bodies; Loki 2.x `[ts, line]` value tuple used instead of Loki 3.x 3-element tuple
+- Docs reconciled (DOGFOOD-006): README + TUTORIAL updated with `sun logs` caveat, `sun secret set` restart caveat, GitOps secrets warning, correct PID file path
+
+**Follow-up items (not blockers, captured in ROADMAP "Next" section):**
+
+| Finding | Priority |
+|---------|----------|
+| GitOps YAML includes plain-text `stringData` secrets | High |
+| Deployment plan JSON omits topics and pending migrations | Medium |
+| DOGFOOD-007: publish v0.1.0-alpha.1 release binary | Medium |
+| `sun logs` should point to Grafana LogQL URL for Loki | Low |
+| `sun rollback` path format differs from `sun up` | Low |
+| Fixed-tag pod restart on code change | Low |
+
+---
+
+## Previous: deployment lanes and Dogfood Alpha plan
+
+The next product milestone was **Dogfood Alpha**, not deeper hosted work.
 
 **Decision:** Prove Sun's non-hosted value first: install from release, create a
 workspace, run locally, deploy to customer-owned infrastructure, and exercise
@@ -17,15 +46,6 @@ not a replacement for it.
 | Managed Customer Cloud | Customer cloud account; Sun owns the standard substrate shape and lifecycle. |
 | Exported Self-Managed | Customer owns Terraform/manifests/apply/drift; Sun emits artifacts and can inspect. |
 | Sun Hosted | Sun owns substrate, builders, registry, URLs, TLS, logs, releases, billing. |
-
-**Dogfood tickets queued:**
-
-- `DOGFOOD-001` — fresh install and workspace creation (`READY_FOR_ENGINEERING`)
-- `DOGFOOD-002` — local dev lifecycle (`BACKLOG`, depends on DOGFOOD-001)
-- `DOGFOOD-003` — local cluster deploy loop (`BACKLOG`, depends on DOGFOOD-002)
-- `DOGFOOD-004` — operations loop: secrets, migrations, logs, rollback (`BACKLOG`, depends on DOGFOOD-003)
-- `DOGFOOD-005` — customer-cloud deployment contract validation (`BACKLOG`, depends on DOGFOOD-003)
-- `DOGFOOD-006` — reconcile docs from dogfood findings (`BACKLOG`, depends on DOGFOOD-001 through DOGFOOD-005)
 
 ---
 

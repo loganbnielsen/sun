@@ -310,6 +310,8 @@ sun logs payments/charge_svc --tail=0
 
 `sun logs` resolves `<workspace>-<domain>` as the Kubernetes namespace automatically, so you never need to remember Sun's naming convention. Underscores in service names are mapped to hyphens (Kubernetes convention).
 
+**Note:** `sun logs` shows only stdout/stderr from the container. Application-level logs (emitted via `Obs.log_t`) are routed to Loki, not stdout, and will not appear here. For worker errors, trace IDs, and span details, use Grafana.
+
 For historical log search — spanning multiple services, time ranges, or correlated by trace ID — open Grafana at http://localhost:3000 and use the Explore view with Loki as the data source. Query `{service=~"pluto-.*"} | logfmt` to search across all services in a workspace.
 
 ### Checking pod health
@@ -343,6 +345,8 @@ Local and customer-cloud environments materialize secrets as Kubernetes
 `Secret` objects. Hosted mode has a typed client boundary, but no production
 control-plane endpoint yet.
 
+**Note:** `sun secret set` updates the Kubernetes Secret immediately, but running pods are not automatically restarted. The new value takes effect the next time the pod restarts (after `sun up`, `sun deploy`, or a manual `kubectl rollout restart`).
+
 ---
 
 ## Deployment Modes
@@ -375,6 +379,8 @@ sun deploy --image-tag $SHA --registry $REGISTRY --dry-run  # diff review in PRs
 sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY
 # CI commits manifests/ to the GitOps repo; Argo CD applies the change
 ```
+
+> **Security:** The generated YAML includes `Secret` resources with plain-text values in `stringData`. Do not commit these files to a shared or public repository. Before committing, replace `stringData` values with references to a secrets manager (Sealed Secrets, External Secrets Operator, or equivalent).
 
 ### Plan inspection — `sun deploy --emit-plan-to`
 

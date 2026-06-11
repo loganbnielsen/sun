@@ -24,18 +24,37 @@ Sun is built in layers, each one making the platform more complete. The Kafka la
 
 ---
 
-## Current Focus — Dogfood Alpha
+## ~~Dogfood Alpha~~ ✓ done — 2026-06-11
 
-Sun should prove the non-hosted product before Sun Hosted becomes the primary
-engineering focus.
+Sun proved the non-hosted product end-to-end. A new user can install Sun,
+create a workspace, run it locally, and deploy it into customer-owned
+infrastructure without learning OCaml internals, Kubernetes object shapes, Helm
+chart wiring, or Terraform module structure.
 
-**Goal:** A new user can install Sun, create a workspace, run it locally, and
-deploy it into customer-owned infrastructure without learning OCaml internals,
-Kubernetes object shapes, Helm chart wiring, or Terraform module structure.
+**Completed:** DOGFOOD-001 through DOGFOOD-005, plus DOGFOOD-008 (Kafka
+external listener), DOGFOOD-009 (Loki 2.x compatibility). See `project/dogfood/`
+for full reports.
 
-This milestone protects the public/FOSS promise: Sun must be useful without Sun
-Cloud. Hosted Sun can later become the managed version of a workflow that is
-already proven locally and in customer-cloud mode.
+### What the dogfood found
+
+**All core flows passed:**
+- `sun new workspace` → `dune build` → `sun dev up` → `sun up` → `sun status` → `sun rollback`
+- `sun migrate` auto-detects cluster postgres via port-forward
+- `sun logs`, `sun secret set/list/delete` all functional
+- `sun deploy --dry-run / --emit-plan-to / --emit-to` all functional
+- Loki logs from in-cluster workers are complete (trace/span IDs in logfmt line body)
+- Kafka external advertised listener correctly configured for `sun dev run` path
+
+**Follow-up tickets (captured, not blockers):**
+
+| Finding | Source | Priority |
+|---------|--------|----------|
+| `sun logs` shows only stdout; Loki-routed logs require Grafana | DOGFOOD-003/004 | Low |
+| `sun up` with fixed `dev` tag doesn't restart pods on code change | DOGFOOD-004 | Low |
+| `sun rollback <path>` uses different path format from `sun up` | DOGFOOD-004 | Low |
+| Deployment plan omits Kafka topics and pending migrations | DOGFOOD-005 | Medium |
+| GitOps YAML includes secrets in plain-text `stringData` | DOGFOOD-005 | High |
+| `--emit-plan-to` always executes; needs `--dry-run` to preview only | DOGFOOD-005 | Low |
 
 ### Deployment Ownership Lanes
 
@@ -645,3 +664,21 @@ embeds an inspection summary in hosted mock release responses.
 | Ticket | Description | Blocked on |
 |--------|-------------|------------|
 | FEAT-017 | Hosted default URLs and custom-domain flow | DEC-005 |
+
+---
+
+## Next — Post-Dogfood Hardening
+
+Addresses the high and medium findings surfaced during Dogfood Alpha, plus the
+first public release binary.
+
+### Priority items
+
+| Item | Priority | Description |
+|------|----------|-------------|
+| GitOps secrets — replace `stringData` with sealed/external secret refs | High | `sun deploy --emit-to` must not write plain-text secret values into GitOps YAML. Replace with Sealed Secrets or External Secrets Operator references. |
+| Deployment plan completeness | Medium | `--emit-plan-to` JSON shows `"topics": []` and `"migrations": []`. Surface the actual Kafka topics and pending migration state. |
+| First release binary (DOGFOOD-007) | Medium | `git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1` + GitHub release with pre-built binaries. |
+| `sun logs` Grafana pointer | Low | When `sun logs` output is limited to stdout, emit a Grafana LogQL URL for the service so users can reach Loki-routed logs without knowing LogQL. |
+| Path format unification (`sun rollback`) | Low | `sun rollback` uses `domain/svc`; `sun up` uses `app/domain/svc`. Pick one or document both explicitly. |
+| Fixed-tag pod restart | Low | With a fixed `dev` image tag, `sun up` does not restart running pods. Consider forcing a rollout restart when the build SHA changes even if the tag does not. |
