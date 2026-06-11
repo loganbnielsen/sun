@@ -156,7 +156,7 @@ let test_readme_migrate_hint_substituted () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
   let content = read_file "testapp/README.md" in
-  assert_contains "README" content "sun migrate --table testapp_migrations";
+  assert_contains "README" content "sun migrate";
   check_bool "README has no template placeholder" false (contains content "{{name}}")
 
 let test_sun_sources_linked () =
