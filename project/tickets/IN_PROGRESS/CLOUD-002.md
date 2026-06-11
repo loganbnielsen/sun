@@ -3,6 +3,8 @@ id: CLOUD-002
 type: feature
 severity: high
 source: product-planning-2026-06-10
+branch: CLOUD-002/deploy-api-contract
+worktree: ../sun-CLOUD-002-deploy-api-contract
 ---
 
 Define and implement the hosted deploy API contract.
