@@ -44,13 +44,14 @@ jobs:
 
       - name: Smoke test release bundle
         run: |
+          set -e
           VERSION="${{ github.ref_name }}"
           BUNDLE="dist/sun-${VERSION}-linux-x86_64"
           # Binary should start and show help without framework resolution errors
-          ${BUNDLE}/bin/sun --help > /dev/null 2>&1
+          ${BUNDLE}/bin/sun --help > /dev/null
           # Verify framework source exists at expected location in bundle
           test -f ${BUNDLE}/framework/sun-svc/lib/dune
-          test -f ${BUNDLE}/integrations/kafka/kafka-eio-producer/lib/dune
+          test -f ${BUNDLE}/integrations/kafka/kafka-eio-service/lib/dune
           echo "Bundle structure verified"
 
       - name: Create GitHub Release
