@@ -60,7 +60,7 @@ let deployment_exists ns k8s_name =
   Sys.command
     (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" k8s_name ns) = 0
 
-let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) : unit =
+let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) (grafana_base_url : string) : unit =
   let follow = not no_follow in
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
@@ -75,6 +75,9 @@ let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) 
     Printf.eprintf "Run 'sun status' to see deployed services.\n";
     exit 1
   end;
+
+  let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
+  Printf.printf "Grafana logs: %s\n%!" url;
 
   let follow_flag = if follow then " --follow" else "" in
   let tail_flag   = Printf.sprintf " --tail=%d" tail in
@@ -108,10 +111,17 @@ let tail_arg =
          ~doc:"Number of recent lines to show before following (default: 100). \
                Pass 0 to skip history and stream only new lines.")
 
+let grafana_base_url_arg =
+  Arg.(value & opt string "http://localhost:3000" &
+       info ["grafana-base-url"] ~docv:"URL"
+         ~doc:"Base URL of the Grafana instance (default: http://localhost:3000). \
+               Sun prints a copyable Grafana Explore URL with a LogQL query \
+               before streaming kubectl logs.")
+
 let cmd =
   Cmd.v
     (Cmd.info "logs"
        ~doc:"Stream logs from a deployed service. \
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
-    Term.(const run $ service_arg $ follow_flag $ no_follow_flag $ tail_arg)
+    Term.(const run $ service_arg $ follow_flag $ no_follow_flag $ tail_arg $ grafana_base_url_arg)
