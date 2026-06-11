@@ -4,7 +4,7 @@ type: feature
 severity: high
 source: product-planning-2026-06-11
 branch: DOGFOOD-005/customer-cloud-contract
-worktree: ../sun-DOGFOOD-005-customer-cloud-contract
+worktree: /home/lbendtly/Code/sun-DOGFOOD-005-customer-cloud-contract
 ---
 
 Customer-cloud deployment contract validation.

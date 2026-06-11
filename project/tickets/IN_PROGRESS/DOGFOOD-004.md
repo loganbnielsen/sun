@@ -4,7 +4,7 @@ type: feature
 severity: high
 source: product-planning-2026-06-11
 branch: DOGFOOD-004/ops-loop
-worktree: ../sun-DOGFOOD-004-ops-loop
+worktree: /home/lbendtly/Code/sun-DOGFOOD-004-ops-loop
 ---
 
 Operations loop dogfood: secrets, migrations, logs, rollback.
