@@ -98,7 +98,7 @@ objects for each service in your workspace:
 | Namespace | Always. One namespace per `<workspace>-<domain>` pair. |
 | ServiceAccount | Always. One per service, in its namespace. |
 | ConfigMap | When `config:` keys are present in `sun.toml`. |
-| Secret references | Env `valueFrom.secretKeyRef` blocks for substrate secrets you named. Sun never writes secret values. |
+| Secret (redacted) | Always, in GitOps mode (`--emit-to`). All `stringData` values are empty strings with a comment listing the keys to populate. In direct mode the dev defaults are used. |
 | Deployment | For every `-svc` and `-worker`. |
 | Service (ClusterIP) | For every `-svc`. |
 | CronJob | For every `-fn`, using the `schedule:` field from `sun.toml`. |
@@ -109,6 +109,22 @@ Sun's artifact is the set of YAML manifests. In direct mode (`sun deploy`
 without `--emit-to`) Sun applies them via `kubectl apply`. In GitOps mode
 (`sun deploy --emit-to <dir>`) Sun writes them to a directory for Argo CD or
 Flux to apply.
+
+**Secret values in GitOps output:** In GitOps mode, all `kind: Secret` resources
+are emitted with empty `stringData` values. A comment block above `stringData`
+lists every key that must be populated before the manifest is applied:
+
+```yaml
+kind: Secret
+# Populate these values before applying.
+# Use `sun secret set <KEY> --env <env>` or your secrets manager.
+stringData:
+  POSTGRES_URL: ""
+```
+
+Use `sun secret set` to write values directly to the cluster, or replace the
+empty strings with references from Sealed Secrets, External Secrets Operator,
+or equivalent. Do not commit manifest files that contain real secret values.
 
 No per-service manifest hand-editing is required or expected. If a generated
 manifest does not fit your needs, open an issue or add a `sun.toml` escape
