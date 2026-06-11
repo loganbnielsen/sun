@@ -23,7 +23,7 @@ jobs:
           ocaml-compiler: 5.4.1
 
       - name: Install OCaml dependencies
-        run: opam install . --deps-only -y
+        run: opam install dune eio yojson cmdliner caqti-eio caqti-driver-postgresql -y
 
       - name: Build sun binary
         run: opam exec -- dune build cli/sun/bin/main.exe
