@@ -3,6 +3,8 @@ id: AUDIT-029
 type: audit-finding
 severity: high
 source: project/audits/2026-06-12d_audit.md
+branch: AUDIT-029/schema-registry-tls
+worktree: ../sun-AUDIT-029-schema-registry-tls
 ---
 
 Implement TLS support in schema registry HTTP client
