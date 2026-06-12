@@ -67,6 +67,14 @@ let applied_at_q tbl =
   Caqti_request.Infix.(Caqti_type.int ->? Caqti_type.string) ~oneshot:true
     (Printf.sprintf "SELECT applied_at::text FROM %s WHERE version = ?" tbl)
 
+let last_applied_q tbl =
+  Caqti_request.Infix.(Caqti_type.unit ->? Caqti_type.(t2 int string)) ~oneshot:true
+    (Printf.sprintf "SELECT version, name FROM %s ORDER BY version DESC LIMIT 1" tbl)
+
+let delete_version_q tbl =
+  Caqti_request.Infix.(Caqti_type.int ->. Caqti_type.unit) ~oneshot:true
+    (Printf.sprintf "DELETE FROM %s WHERE version = ?" tbl)
+
 (* ── Public API ──────────────────────────────────────────────────────────── *)
 
 let default_table = "sun_schema_migrations"
@@ -122,3 +130,51 @@ let status ?(table = default_table) pool ~dir =
        | Error e -> Error e
        | Ok applied_at -> Ok ({ version; name; applied_at } :: rows))
   ) migrations (Ok [])
+
+(** Roll back the last applied migration using a companion .down.sql file.
+    Expects e.g. db/migrations/0001_notifications.down.sql alongside the up file. *)
+let rollback ?(table = default_table) pool ~dir =
+  let wrap msg = Result.map_error (fun e ->
+    Storage_error.Migration_error (msg ^ Storage_error.to_string e))
+  in
+  let* () = ensure_table table pool |> wrap "create migrations table: " in
+  match Db.find pool (last_applied_q table) () with
+  | Error e -> Error e
+  | Ok None ->
+    Error (Storage_error.Migration_error
+      "no migrations have been applied; nothing to roll back")
+  | Ok (Some (version, name)) ->
+    let down_file = Printf.sprintf "%04d_%s.down.sql" version name in
+    let down_path = Filename.concat dir down_file in
+    if not (Sys.file_exists down_path) then
+      Error (Storage_error.Migration_error (Printf.sprintf
+        "no down-migration file found for version %04d (%s).\n\
+         Create %s with the reverse SQL and retry."
+        version name down_path))
+    else
+      let content =
+        match In_channel.with_open_text down_path In_channel.input_all with
+        | s -> Ok s
+        | exception Sys_error msg ->
+          Error (Storage_error.Migration_error ("cannot read " ^ down_path ^ ": " ^ msg))
+      in
+      let* sql = content in
+      Db.transaction pool (fun pool ->
+        let stmts = split_statements sql in
+        let* () = List.fold_left (fun acc stmt ->
+          match acc with
+          | Error _ as e -> e
+          | Ok () ->
+            let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit)
+                      ~oneshot:true stmt in
+            Db.exec pool q ()
+        ) (Ok ()) stmts in
+        Db.exec pool (delete_version_q table) version
+        |> Result.map_error (fun e ->
+          Storage_error.Migration_error (
+            "update tracking table: " ^ Storage_error.to_string e))
+      )
+      |> Result.map_error (fun e ->
+        Storage_error.Migration_error (
+          Printf.sprintf "rollback %04d (%s) failed: %s"
+            version name (Storage_error.to_string e)))

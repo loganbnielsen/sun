@@ -25,3 +25,14 @@ val status
   -> Db.pool
   -> dir:string
   -> (status list, Storage_error.t) result
+
+(** [rollback pool ~dir] rolls back the last applied migration by running the
+    companion [NNNN_name.down.sql] file and removing the version record from the
+    tracking table.  Fails with an error if no migrations are applied or if the
+    down-migration file does not exist.  Pass [~table] to match the table used
+    in [apply]. *)
+val rollback
+  :  ?table:string
+  -> Db.pool
+  -> dir:string
+  -> (unit, Storage_error.t) result
