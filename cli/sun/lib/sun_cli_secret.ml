@@ -40,7 +40,7 @@ let render_data existing_data key =
     ) pairs) ^
     "\n"
 
-let secret_manifest ~existing_data ~namespace ~key ~value =
+let named_secret_manifest ~secret_name ~existing_data ~namespace ~key ~value =
   Printf.sprintf {|---
 apiVersion: v1
 kind: Secret
@@ -51,9 +51,13 @@ type: Opaque
 %s
 stringData:
   %s: %s
-|} Sun_cli_manifest.runtime_secret_name namespace
+|} secret_name namespace
     (render_data existing_data key)
     key (yaml_quote value)
+
+let secret_manifest ~existing_data ~namespace ~key ~value =
+  named_secret_manifest ~secret_name:Sun_cli_manifest.runtime_secret_name
+    ~existing_data ~namespace ~key ~value
 
 let redacted_result = function
   | Applied namespaces ->
@@ -90,11 +94,11 @@ let apply_manifest yaml =
   (try Sys.remove path with _ -> ());
   result
 
-let get_secret_json namespace =
+let get_named_secret_json ~name namespace =
   let path = Filename.temp_file "sun-secret-get-" ".json" in
   let cmd = Printf.sprintf
     "kubectl get secret %s -n %s -o json > %s 2>/dev/null"
-    (Filename.quote Sun_cli_manifest.runtime_secret_name)
+    (Filename.quote name)
     (Filename.quote namespace)
     (Filename.quote path)
   in
@@ -109,12 +113,69 @@ let get_secret_json namespace =
   (try Sys.remove path with _ -> ());
   result
 
+let get_secret_json namespace =
+  get_named_secret_json ~name:Sun_cli_manifest.runtime_secret_name namespace
+
 let data_keys = function
   | `Assoc fields ->
     (match List.assoc_opt "data" fields with
      | Some (`Assoc data) -> data
      | _ -> [])
   | _ -> []
+
+(* List per-workload secret names in a namespace — secrets ending in "-secrets"
+   except the shared sun-secrets object, which is patched separately for
+   Argo Rollout compatibility. *)
+let list_workload_secrets namespace =
+  let path = Filename.temp_file "sun-secret-ls-" ".txt" in
+  let cmd = Printf.sprintf
+    "kubectl get secrets -n %s \
+     -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}' \
+     2>/dev/null > %s"
+    (Filename.quote namespace) (Filename.quote path)
+  in
+  let secrets =
+    if Sys.command cmd <> 0 then []
+    else begin
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      let suffix = "-secrets" in
+      let slen = String.length suffix in
+      String.split_on_char '\n' content
+      |> List.map String.trim
+      |> List.filter (fun name ->
+           name <> "" &&
+           name <> Sun_cli_manifest.runtime_secret_name &&
+           String.length name >= slen &&
+           String.sub name (String.length name - slen) slen = suffix)
+    end
+  in
+  (try Sys.remove path with _ -> ());
+  secrets
+
+let apply_to_named_secret ~secret_name ~namespace ~key ~value =
+  match get_named_secret_json ~name:secret_name namespace with
+  | Error _ as e -> e
+  | Ok existing ->
+    let existing_data = match existing with
+      | None -> []
+      | Some json ->
+        List.filter_map (function
+          | k, `String v -> Some (k, v)
+          | _ -> None
+        ) (data_keys json)
+    in
+    let yaml = named_secret_manifest ~secret_name ~existing_data ~namespace ~key ~value in
+    apply_manifest yaml
+
+let rollout_restart namespace =
+  let cmd = Printf.sprintf
+    "kubectl rollout restart deployment -n %s >/dev/null 2>/dev/null || true"
+    (Filename.quote namespace)
+  in
+  let _ = Sys.command cmd in
+  ()
 
 let hosted_stub _env =
   Error "hosted secret management will use the Sun control-plane API; no hosted endpoint is configured yet"
@@ -137,6 +198,7 @@ let set ~env ~workspace:_ ~namespaces ~key ~value =
           let rec apply_all = function
             | [] -> Ok (Applied namespaces)
             | ns :: rest ->
+              (* Patch sun-secrets for Argo Rollout workloads *)
               (match get_secret_json ns with
                | Error _ as e -> e
                | Ok existing ->
@@ -150,8 +212,21 @@ let set ~env ~workspace:_ ~namespaces ~key ~value =
                  in
                  let yaml = secret_manifest ~existing_data ~namespace:ns ~key ~value in
                  match apply_manifest yaml with
-               | Ok () -> apply_all rest
-               | Error _ as e -> e)
+                 | Error _ as e -> e
+                 | Ok () ->
+                   (* Also patch each per-service secret so standard Deployment
+                      workloads (which mount <svc>-secrets, not sun-secrets) see
+                      the updated value immediately on next restart. *)
+                   let workload_secrets = list_workload_secrets ns in
+                   let patch_results = List.map (fun sname ->
+                     apply_to_named_secret ~secret_name:sname ~namespace:ns ~key ~value
+                   ) workload_secrets in
+                   let first_error = List.find_opt (function Error _ -> true | _ -> false) patch_results in
+                   (match first_error with
+                    | Some (Error _ as e) -> e
+                    | _ ->
+                      rollout_restart ns;
+                      apply_all rest))
           in
           apply_all namespaces))
 
@@ -192,17 +267,26 @@ let delete ~env ~workspace:_ ~namespaces ~key =
             "[{\"op\":\"remove\",\"path\":\"/data/%s\"}]"
             key
           in
+          let remove_from namespace name =
+            let cmd = Printf.sprintf
+              "kubectl patch secret %s -n %s --type json -p %s >/dev/null 2>/dev/null || true"
+              (Filename.quote name)
+              (Filename.quote namespace)
+              (Filename.quote patch)
+            in
+            run_command cmd
+          in
           let rec delete_all = function
             | [] -> Ok (Deleted namespaces)
             | ns :: rest ->
-              let cmd = Printf.sprintf
-                "kubectl patch secret %s -n %s --type json -p %s >/dev/null 2>/dev/null || true"
-                (Filename.quote Sun_cli_manifest.runtime_secret_name)
-                (Filename.quote ns)
-                (Filename.quote patch)
-              in
-              (match run_command cmd with
-               | Ok () -> delete_all rest
-               | Error _ as e -> e)
+              (match remove_from ns Sun_cli_manifest.runtime_secret_name with
+               | Error _ as e -> e
+               | Ok () ->
+                 let workload_secrets = list_workload_secrets ns in
+                 let _ = List.iter (fun sname ->
+                   let _ = remove_from ns sname in ()
+                 ) workload_secrets in
+                 rollout_restart ns;
+                 delete_all rest)
           in
           delete_all namespaces))
