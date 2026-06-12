@@ -59,16 +59,46 @@ let with_pool url f =
 
 (* ── apply ───────────────────────────────────────────────────────────────── *)
 
-let run_apply dir table () =
-  let url = get_postgres_url () in
-  with_pool url (fun pool ->
-    Printf.printf "Applying migrations from %s...\n%!" dir;
-    match Migration.apply ~table pool ~dir with
-    | Ok () -> Printf.printf "Done.\n"
-    | Error e ->
-      Printf.eprintf "error: %s\n" (Storage_error.to_string e);
-      exit 1
-  )
+(* Print SQL files from [dir] in order without connecting to the database.
+   Used by --dry-run to let operators preview migration SQL before applying. *)
+let print_pending_sql dir =
+  let migration_ext = ".sql" in
+  let down_ext = ".down.sql" in
+  let files =
+    match Sys.readdir dir with
+    | exception Sys_error msg ->
+      Printf.eprintf "error: cannot read migrations dir: %s\n" msg; exit 1
+    | arr ->
+      Array.to_list arr
+      |> List.filter (fun f ->
+           Filename.check_suffix f migration_ext &&
+           not (Filename.check_suffix f down_ext))
+      |> List.sort String.compare
+  in
+  if files = [] then Printf.printf "(no migration files found in %s)\n" dir
+  else
+    List.iter (fun fname ->
+      let path = Filename.concat dir fname in
+      let content =
+        In_channel.with_open_text path In_channel.input_all
+      in
+      Printf.printf "-- %s\n%s\n\n" fname content
+    ) files
+
+let run_apply dir table dry_run =
+  if dry_run then
+    print_pending_sql dir
+  else begin
+    let url = get_postgres_url () in
+    with_pool url (fun pool ->
+      Printf.printf "Applying migrations from %s...\n%!" dir;
+      match Migration.apply ~table pool ~dir with
+      | Ok () -> Printf.printf "Done.\n"
+      | Error e ->
+        Printf.eprintf "error: %s\n" (Storage_error.to_string e);
+        exit 1
+    )
+  end
 
 (* ── status ──────────────────────────────────────────────────────────────── *)
 
@@ -114,10 +144,15 @@ let table_arg =
                (default: sun_<workspace>_schema_migrations; \
                override with this flag to share a table across workspaces)")
 
+let dry_run_flag =
+  Arg.(value & flag &
+       info ["dry-run"]
+         ~doc:"Print pending migration SQL to stdout without applying")
+
 let apply_cmd =
   Cmd.v
     (Cmd.info "apply" ~doc:"Apply all pending migrations (default subcommand)")
-    Term.(const run_apply $ dir_arg $ table_arg $ const ())
+    Term.(const run_apply $ dir_arg $ table_arg $ dry_run_flag)
 
 let status_cmd =
   Cmd.v
@@ -133,5 +168,5 @@ let cmd =
   Cmd.group
     (Cmd.info "migrate"
        ~doc:"Run database migrations against POSTGRES_URL")
-    ~default:Term.(const run_apply $ dir_arg $ table_arg $ const ())
+    ~default:Term.(const run_apply $ dir_arg $ table_arg $ dry_run_flag)
     [ apply_cmd; status_cmd; rollback_cmd ]
