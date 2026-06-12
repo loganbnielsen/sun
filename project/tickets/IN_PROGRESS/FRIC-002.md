@@ -3,6 +3,8 @@ id: FRIC-002
 type: dogfood-finding
 severity: blocker
 source: project/dogfood/RUN_2026-06-11.md
+branch: FRIC-002/secret-set-targets-service-secrets
+worktree: /home/lbendtly/Code/sun-FRIC-002-secret-set-targets-service-secrets
 ---
 
 **Depends on:** None.
