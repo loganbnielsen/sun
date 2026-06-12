@@ -1,5 +1,19 @@
 open Cmdliner
 
+(* Derive the default migration table name from the workspace directory.
+   Using a per-workspace name avoids version-number collisions when multiple
+   workspaces share the same local Postgres instance (e.g. from sun dev up).
+   The --table flag always overrides this default. *)
+let default_table_name =
+  let cwd_name = Filename.basename (Sys.getcwd ()) in
+  let buf = Buffer.create (String.length cwd_name) in
+  String.iter (fun c ->
+    if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') then Buffer.add_char buf c
+    else if c >= 'A' && c <= 'Z' then Buffer.add_char buf (Char.lowercase_ascii c)
+    else Buffer.add_char buf '_'
+  ) cwd_name;
+  Printf.sprintf "sun_%s_schema_migrations" (Buffer.contents buf)
+
 let cluster_pg_exists () =
   Sys.command "kubectl get svc postgresql -n postgresql >/dev/null 2>&1" = 0
 
@@ -94,9 +108,11 @@ let dir_arg =
          ~doc:"Directory containing migration SQL files (default: db/migrations)")
 
 let table_arg =
-  Arg.(value & opt string "sun_schema_migrations" &
+  Arg.(value & opt string default_table_name &
        info ["table"] ~docv:"TABLE"
-         ~doc:"Migration tracking table name (default: sun_schema_migrations)")
+         ~doc:"Migration tracking table name \
+               (default: sun_<workspace>_schema_migrations; \
+               override with this flag to share a table across workspaces)")
 
 let apply_cmd =
   Cmd.v
