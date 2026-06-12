@@ -25,3 +25,6 @@ done
 This ensures the port-forward automatically reconnects to the new pod after a rollout. Alternatively, in `sun status`, add a liveness check for each registered port-forward PID (using `kill -0`) and print a warning + suggested remediation for any that are dead.
 
 **Code location:** `cli/sun/bin/cmd_up.ml` — `start_port_forward` function; the background process is launched directly without a restart wrapper.
+
+## Review — automated checks passed
+FRIC-003 port-forward restart loop correctly wraps kubectl port-forward in a while-true shell script, written at /tmp/sun-pf-<name>.sh, with setsid to survive shell exit. Both cmd_up.ml and cmd_dev.ml updated.

@@ -21,3 +21,6 @@ worktree: /home/lbendtly/Code/sun-FRIC-002-secret-set-targets-service-secrets
 - `cli/sun/lib/sun_cli_secret.ml` line 84: `kubectl apply` targets `Sun_cli_manifest.runtime_secret_name` (`"sun-secrets"`)
 - `cli/sun/lib/sun_cli_manifest.ml` lines 303–304: `deployment_doc` `envFrom` mounts `<name>-secrets`
 - `cli/sun/lib/sun_cli_manifest.ml` lines 408–409: `rollout_doc` `envFrom` mounts `runtime_secret_name` (`"sun-secrets"`) — only Argo Rollout workloads consume `sun-secrets`
+
+## Review — automated checks passed
+FRIC-002 remediation correctly patches all per-service <name>-secrets workload secrets alongside sun-secrets, with proper error handling, shell quoting, and rollout restart on set/delete.
