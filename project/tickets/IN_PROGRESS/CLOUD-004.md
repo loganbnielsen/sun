@@ -3,6 +3,8 @@ id: CLOUD-004
 type: feature
 severity: high
 source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
+branch: CLOUD-004/postgres-control-plane-registry
+worktree: ../sun-CLOUD-004-postgres-control-plane-registry
 ---
 
 Persist the hosted control-plane registry in Postgres.
