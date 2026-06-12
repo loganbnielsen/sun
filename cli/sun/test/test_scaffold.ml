@@ -109,6 +109,7 @@ let test_existing_files_still_generated () =
   Sun_cli_cmd_new.new_workspace "testapp";
   let expected = [
     "testapp/.ocamlformat";
+    "testapp/.dockerignore";
     "testapp/dune-project";
     "testapp/README.md";
     "testapp/vendor/framework";
@@ -148,7 +149,9 @@ let test_dockerfile_paths_are_workspace_relative () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
   let content = read_file "testapp/app/payments/charge_svc/Dockerfile" in
-  assert_contains "Dockerfile" content "COPY _build/default/app/payments/charge_svc/bin/main.exe";
+  assert_contains "Dockerfile" content
+    "COPY --from=build /workspace/_build/default/app/payments/charge_svc/bin/main.exe";
+  assert_contains "Dockerfile" content "dune build app/payments/charge_svc/bin/main.exe";
   check_bool "Dockerfile does not include nested workspace path" false
     (contains content "_build/default/testapp/app/payments/charge_svc")
 

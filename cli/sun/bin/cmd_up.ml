@@ -407,6 +407,23 @@ let run filter_path dry_run tag confirm_group_change =
     end
   end;
 
+  (* The multi-stage Dockerfile compiles from source inside ubuntu-24.04, so
+     vendor/ symlinks (which point outside the workspace) must be resolved into
+     real files before docker build runs.  We create a temporary self-contained
+     copy with cp -rL (follow symlinks) and remove it when done. *)
+  let ctx_dir = repo_root ^ ".docker-ctx" in
+  if not dry_run then begin
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
+    Printf.printf "Preparing build context...\n%!";
+    if Sys.command (Printf.sprintf "cp -rL %s %s"
+         (Filename.quote repo_root) (Filename.quote ctx_dir)) <> 0 then begin
+      Printf.eprintf "error: failed to copy workspace for docker build context\n";
+      exit 1
+    end;
+    ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
+      (Filename.quote ctx_dir) (Filename.quote ctx_dir)))
+  end;
+
   (try
     List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
       (* push_image is the host-accessible URL used for docker build/push and
@@ -416,7 +433,10 @@ let run filter_path dry_run tag confirm_group_change =
         ~registry:push_registry ~workspace
         ~k8s_name:spec.k8s_name ~tag:sha in
       let repo_dir   = spec.source_dir in
-      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" repo_root repo_dir in
+      (* In dry-run the ctx_dir is not created; fall back to repo_root for the
+         Dockerfile path so the plan output shows a real path. *)
+      let build_ctx  = if dry_run then repo_root else ctx_dir in
+      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" build_ctx repo_dir in
 
       Printf.printf "[%s] %s/%s\n%!" (prim_label
         (match spec.primitive with
@@ -426,15 +446,9 @@ let run filter_path dry_run tag confirm_group_change =
         spec.domain spec.source_name;
 
       if not dry_run then begin
-        Printf.printf "  compiling...\n%!";
-        let build_cmd = Printf.sprintf
-          "(cd %s && eval $(opam env) && dune build %s/bin/main.exe)"
-          repo_root repo_dir in
-        if run_cmd ~echo:false build_cmd <> 0 then
-          raise (Deploy_failed (Printf.sprintf "dune build failed: %s" repo_dir));
         Printf.printf "  packaging %s...\n%!" push_image;
         let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
-          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote repo_root) in
+          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
         if run_cmd ~echo:false docker_cmd <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
@@ -496,10 +510,12 @@ let run filter_path dry_run tag confirm_group_change =
 
     ) plan.Sun_cli_deployment_plan.services
   with Deploy_failed msg ->
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);
 
   if not dry_run then begin
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
     Printf.printf "Run 'sun status' to check pod health.\n";
     (* Warn if unapplied migration files exist *)
