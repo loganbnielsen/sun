@@ -1010,6 +1010,42 @@ let new_fn arg =
   write ~path:(dir ^ "/Dockerfile")  ~content:(subst v tpl_dockerfile);
   Printf.printf "\nDone.  Build: dune build %s/bin/main.exe\n" dir
 
+(* Append [new_mod] to the "(modules ...)" stanza in [path].
+   Handles the standard single-line form "(modules Foo Bar)". *)
+let patch_modules_stanza path new_mod =
+  let ic = open_in path in
+  let content = In_channel.input_all ic in
+  close_in ic;
+  let prefix = "(modules " in
+  let plen = String.length prefix in
+  let clen = String.length content in
+  let rec find_prefix i =
+    if i > clen - plen then None
+    else if String.sub content i plen = prefix then Some (i + plen)
+    else find_prefix (i + 1)
+  in
+  match find_prefix 0 with
+  | None ->
+    Printf.printf "  note: could not locate (modules ...) in %s — add %s manually\n" path new_mod
+  | Some pos ->
+    let rec find_close i depth =
+      if i >= clen then clen
+      else match content.[i] with
+        | '(' -> find_close (i + 1) (depth + 1)
+        | ')' -> if depth = 0 then i else find_close (i + 1) (depth - 1)
+        | _   -> find_close (i + 1) depth
+    in
+    let close = find_close pos 0 in
+    let updated =
+      String.sub content 0 close
+      ^ " " ^ new_mod
+      ^ String.sub content close (clen - close)
+    in
+    let oc = open_out path in
+    output_string oc updated;
+    close_out oc;
+    Printf.printf "  updated %s\n" path
+
 let new_event arg =
   let ws = ws_of_cwd () in
   let team, name = parse_domain_name arg in
@@ -1025,10 +1061,7 @@ let new_event arg =
   end;
   write ~path:file ~content:(subst v event_ml);
   if Sys.file_exists dune_f then
-    Printf.printf {|
-  Note: %s already exists.
-  Add %s to the (modules ...) list.
-|} dune_f mod_
+    patch_modules_stanza dune_f mod_
   else begin
     write ~path:dune_f ~content:(subst v {tpl|(library
  (name {{lib}})
