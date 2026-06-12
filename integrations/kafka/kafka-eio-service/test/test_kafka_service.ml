@@ -68,39 +68,23 @@ let test_wire_too_short () =
 (* JSON base_url parser                                                *)
 (* ------------------------------------------------------------------ *)
 
-let parse_base_url url =
-  if String.length url >= 8 && String.sub url 0 8 = "https://" then
-    failwith ("kafka_service: HTTPS schema registry not yet supported — \
-               set SCHEMA_REGISTRY_URL to an http:// address \
-               (url: " ^ url ^ ")");
-  let s =
-    if String.length url >= 7 && String.sub url 0 7 = "http://" then
-      String.sub url 7 (String.length url - 7)
-    else url
-  in
-  match String.rindex_opt s ':' with
-  | None -> (s, 80)
-  | Some i ->
-    let host = String.sub s 0 i in
-    let port_s = String.sub s (i + 1) (String.length s - i - 1) in
-    (match int_of_string_opt port_s with
-     | Some p -> (host, p)
-     | None -> (s, 80))
+let check_url msg expected url =
+  let (eh, ep, et) = expected in
+  let (ah, ap, at_) = Kafka_service.parse_base_url url in
+  Alcotest.(check string) (msg ^ " host")   eh ah;
+  Alcotest.(check int)    (msg ^ " port")   ep ap;
+  Alcotest.(check bool)   (msg ^ " use_tls") et at_
 
 let test_parse_url () =
-  Alcotest.(check (pair string int)) "localhost:8081"
-    ("localhost", 8081) (parse_base_url "http://localhost:8081");
-  Alcotest.(check (pair string int)) "localhost:9644"
-    ("localhost", 9644) (parse_base_url "http://localhost:9644");
-  Alcotest.(check (pair string int)) "no port defaults to 80"
-    ("localhost", 80) (parse_base_url "http://localhost")
+  check_url "http://localhost:8081"  ("localhost", 8081, false) "http://localhost:8081";
+  check_url "http://localhost:9644"  ("localhost", 9644, false) "http://localhost:9644";
+  check_url "http no port"           ("localhost", 80,   false) "http://localhost"
 
-let test_parse_url_https_rejected () =
-  Alcotest.check_raises "https:// raises Failure"
-    (Failure "kafka_service: HTTPS schema registry not yet supported — \
-               set SCHEMA_REGISTRY_URL to an http:// address \
-               (url: https://registry.example.com:8081)")
-    (fun () -> ignore (parse_base_url "https://registry.example.com:8081"))
+let test_parse_url_https () =
+  check_url "https:// with port"
+    ("registry.example.com", 8081, true) "https://registry.example.com:8081";
+  check_url "https:// default 443"
+    ("registry.confluent.io", 443, true)  "https://registry.confluent.io"
 
 (* ------------------------------------------------------------------ *)
 (* Runner                                                              *)
@@ -117,6 +101,6 @@ let () =
     ];
     "url_parser", [
       test_case "parse base url"       `Quick test_parse_url;
-      test_case "https:// rejected"    `Quick test_parse_url_https_rejected;
+      test_case "https:// tls=true"   `Quick test_parse_url_https;
     ];
   ]

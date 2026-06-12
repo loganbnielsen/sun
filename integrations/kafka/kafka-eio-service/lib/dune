@@ -2,4 +2,5 @@
  (name kafka_eio_service)
  (wrapped false)
  (modules kafka_service)
- (libraries kafka_eio_core kafka_eio_producer kafka_eio_consumer eio eio.unix unix yojson obs_eio))
+ (libraries kafka_eio_core kafka_eio_producer kafka_eio_consumer eio eio.unix unix yojson obs_eio
+            tls-eio x509 domain-name ptime))
