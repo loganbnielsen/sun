@@ -3,6 +3,8 @@ id: FRIC-003
 type: dogfood-finding
 severity: high
 source: project/dogfood/RUN_2026-06-11.md
+branch: FRIC-003/port-forward-restart-loop
+worktree: /home/lbendtly/Code/sun-FRIC-003-port-forward-restart-loop
 ---
 
 **Depends on:** None.

@@ -3,6 +3,8 @@ id: AUDIT-021
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-021/migrate-rollback-impl
+worktree: /home/lbendtly/Code/sun-AUDIT-021-migrate-rollback-impl
 ---
 
 `sun migrate rollback` is a non-functional stub
