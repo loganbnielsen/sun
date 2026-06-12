@@ -240,18 +240,28 @@ let run filter_path dry_run tag confirm_group_change =
   end;
 
   (* Pre-flight: POSTGRES_URL must be set before applying to non-local
-     clusters.  Local k3d stays usable without host credentials; generated
-     manifests still render an empty POSTGRES_URL rather than a hardcoded dev
-     password.  Dry-run is exempt because it only prints YAML. *)
-  if not dry_run && not (is_known_local_dev_context ()) then begin
-    match Sys.getenv_opt "POSTGRES_URL" with
-    | None | Some "" ->
-      Printf.eprintf
-        "error: POSTGRES_URL is not set.\n\
-         Set it in your environment before running 'sun up':\n\
-         \  export POSTGRES_URL=postgresql://user:pass@host:5432/dbname\n";
-      exit 1
-    | Some _ -> ()
+     clusters.  For local k3d, populate it with the in-cluster dev Postgres
+     URL so generated Secrets carry a usable value instead of "".
+     Dry-run is exempt because it only prints YAML. *)
+  if not dry_run then begin
+    if is_known_local_dev_context () then begin
+      (* Inject the dev Postgres URL when running against the local k3d cluster
+         and the operator has not already overridden it. *)
+      (match Sys.getenv_opt "POSTGRES_URL" with
+       | None | Some "" ->
+         Unix.putenv "POSTGRES_URL"
+           "postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev"
+       | Some _ -> ())
+    end else begin
+      match Sys.getenv_opt "POSTGRES_URL" with
+      | None | Some "" ->
+        Printf.eprintf
+          "error: POSTGRES_URL is not set.\n\
+           Set it in your environment before running 'sun up':\n\
+           \  export POSTGRES_URL=postgresql://user:pass@host:5432/dbname\n";
+        exit 1
+      | Some _ -> ()
+    end
   end;
 
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;
