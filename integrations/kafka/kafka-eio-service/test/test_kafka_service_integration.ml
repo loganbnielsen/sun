@@ -264,7 +264,7 @@ let test_decode_error_callback () =
           Eio.Fiber.fork ~sw (fun () ->
             ignore (Kafka_service.consume svc topic ~group_id ~sw
               ~on_ready:(fun () -> Eio.Promise.resolve consumer_ready_r ())
-              ~on_decode_error:(fun e ~ack ->
+              ~on_decode_error:(fun e ~raw_bytes:_ ~ack ->
                 Eio.Stream.add error_stream e;
                 ack ();
                 Kafka_consumer.Stop
