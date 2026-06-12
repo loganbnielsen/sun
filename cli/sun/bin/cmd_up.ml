@@ -209,7 +209,7 @@ let save_deployed_groups workspace groups =
   let value = String.concat "\n" groups in
   let apply_json = Printf.sprintf
     {|{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"%s","namespace":"default"},"data":{"consumer_groups":"%s"}}|}
-    name (String.escaped value)
+    (String.escaped name) (String.escaped value)
   in
   let path = Filename.temp_file "sun-state-" ".json" in
   let oc = open_out path in
