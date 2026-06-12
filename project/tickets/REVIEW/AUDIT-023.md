@@ -3,6 +3,8 @@ id: AUDIT-023
 type: audit-finding
 severity: low
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-023/migrate-dry-run
+worktree: ../sun-AUDIT-023-migrate-dry-run
 ---
 
 `sun migrate` missing `--dry-run` flag

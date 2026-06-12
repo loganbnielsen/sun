@@ -3,6 +3,8 @@ id: AUDIT-022
 type: audit-finding
 severity: low
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-022/auto-forward-pg-polling
+worktree: ../sun-AUDIT-022-auto-forward-pg-polling
 ---
 
 `auto_forward_pg` uses ambient `Unix.sleepf 2.0` timing
