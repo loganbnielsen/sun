@@ -3,6 +3,8 @@ id: AUDIT-027
 type: audit-finding
 severity: high
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-027/partition-count-guard
+worktree: ../sun-AUDIT-027-partition-count-guard
 ---
 
 Partition count reduction not guarded at deploy time
