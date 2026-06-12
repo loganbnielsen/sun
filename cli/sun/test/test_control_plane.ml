@@ -1,14 +1,25 @@
 let check_int    = Alcotest.(check int)
 let check_string = Alcotest.(check string)
 
-let registry () = Sun_cli_registry.create ()
+(* Build a vtable backed by an in-memory registry *)
+let memory_ops () =
+  let r = Sun_cli_registry.create () in
+  { Sun_cli_control_plane.
+    create_project     = Sun_cli_registry.create_project r;
+    get_project        = Sun_cli_registry.get_project r;
+    create_release     = Sun_cli_registry.create_release r;
+    list_releases      = Sun_cli_registry.list_releases r;
+    list_releases_page = Sun_cli_registry.list_releases_page r;
+    get_release_logs   = (fun _project_id release_id ->
+                            Sun_cli_registry.get_release_logs r release_id);
+  }
 
 (* ── POST /projects ─────────────────────────────────────────────────────── *)
 
 let test_post_projects_creates () =
-  let r = registry () in
+  let ops = memory_ops () in
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.post_projects ~workspace:"pluto")
   in
   check_int "status 201" 201 resp.Sun_cli_control_plane.status;
@@ -17,10 +28,10 @@ let test_post_projects_creates () =
     (resp.body |> member "project_id" |> to_string)
 
 let test_post_projects_idempotent () =
-  let r = registry () in
+  let ops = memory_ops () in
   let req = Sun_cli_control_plane.post_projects ~workspace:"pluto" in
-  let r1 = Sun_cli_control_plane.handle r req in
-  let r2 = Sun_cli_control_plane.handle r req in
+  let r1 = Sun_cli_control_plane.handle ops req in
+  let r2 = Sun_cli_control_plane.handle ops req in
   check_int "both 201" r1.status r2.status;
   let open Yojson.Safe.Util in
   check_string "same id"
@@ -28,19 +39,19 @@ let test_post_projects_idempotent () =
     (r2.body |> member "project_id" |> to_string)
 
 let test_post_projects_missing_body () =
-  let r = registry () in
+  let ops = memory_ops () in
   let req = { Sun_cli_control_plane.meth = Post; path = "/projects"; body = None; params = [] } in
-  let resp = Sun_cli_control_plane.handle r req in
+  let resp = Sun_cli_control_plane.handle ops req in
   check_int "status 400" 400 resp.status
 
 (* ── GET /projects/{id} ─────────────────────────────────────────────────── *)
 
 let test_get_project_returns_metadata () =
-  let r = registry () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops () in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.get_project ~project_id:"proj-pluto")
   in
   check_int "status 200" 200 resp.status;
@@ -49,17 +60,17 @@ let test_get_project_returns_metadata () =
     (resp.body |> member "project" |> member "workspace" |> to_string)
 
 let test_get_project_includes_release_ids () =
-  let r = registry () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops () in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
-  ignore (Sun_cli_control_plane.handle r
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_release
       ~project_id:"proj-pluto"
       ~environment:"production"
       ~image_tag:"abc123"
       ~service_names:["charge-svc"]));
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.get_project ~project_id:"proj-pluto")
   in
   let open Yojson.Safe.Util in
@@ -67,9 +78,9 @@ let test_get_project_includes_release_ids () =
     (resp.body |> member "release_ids" |> to_list |> List.length)
 
 let test_get_project_not_found () =
-  let r = registry () in
+  let ops = memory_ops () in
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.get_project ~project_id:"proj-ghost")
   in
   check_int "status 404" 404 resp.status
@@ -77,11 +88,11 @@ let test_get_project_not_found () =
 (* ── POST /projects/{id}/releases ───────────────────────────────────────── *)
 
 let test_post_release_creates () =
-  let r = registry () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops () in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.post_release
         ~project_id:"proj-pluto"
         ~environment:"production"
@@ -98,9 +109,9 @@ let test_post_release_creates () =
     (resp.body |> member "services" |> to_list |> List.length)
 
 let test_post_release_unknown_project () =
-  let r = registry () in
+  let ops = memory_ops () in
   let resp =
-    Sun_cli_control_plane.handle r
+    Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.post_release
         ~project_id:"proj-ghost"
         ~environment:"production"
@@ -110,8 +121,8 @@ let test_post_release_unknown_project () =
   check_int "status 400" 400 resp.status
 
 let test_post_release_missing_body () =
-  let r = registry () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops () in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
   let req = {
     Sun_cli_control_plane.meth = Post;
@@ -119,15 +130,15 @@ let test_post_release_missing_body () =
     body = None;
     params = [];
   } in
-  let resp = Sun_cli_control_plane.handle r req in
+  let resp = Sun_cli_control_plane.handle ops req in
   check_int "status 400" 400 resp.status
 
 (* ── unknown routes ─────────────────────────────────────────────────────── *)
 
 let test_unknown_route () =
-  let r = registry () in
+  let ops = memory_ops () in
   let req = { Sun_cli_control_plane.meth = Get; path = "/unknown"; body = None; params = [] } in
-  let resp = Sun_cli_control_plane.handle r req in
+  let resp = Sun_cli_control_plane.handle ops req in
   check_int "status 404" 404 resp.status
 
 let () =

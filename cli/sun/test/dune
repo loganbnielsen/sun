@@ -9,6 +9,7 @@
   test_hosted_executor
   test_registry
   test_control_plane
+  test_pg_registry
   test_release_contract
   test_release_history
   test_hosted_url
