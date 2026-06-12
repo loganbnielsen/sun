@@ -316,7 +316,7 @@ All operations return `(_, Sun.Storage.error) result`. No exceptions at public A
 - `caqti` + `caqti-driver-postgresql` as the Eio-compatible driver layer
 - `Sun.Storage.Table.Make(Schema)` functor produces a typed table client where the compiler enforces column types and query shape
 - Connection pool managed by the `Make` functor; callers never touch raw connections
-- Migrations live in `db/migrations/` as numbered SQL files (`0001_init.sql`, `0002_add_index.sql`); Sun applies them in order and tracks applied versions in a `sun_schema_migrations` table
+- Migrations live in `db/migrations/` as numbered SQL files (`0001_init.sql`, `0002_add_index.sql`); Sun applies them in order and tracks applied versions in a `sun_schema_migrations` table (library default); the `sun migrate` CLI uses a workspace-prefixed default `sun_<workspace>_schema_migrations`, overridable with `--table`
 - Local dev: `docker run --rm -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:16`
 
 **Deliverables:**

@@ -217,8 +217,9 @@ EOF
 sun migrate --env production 2>&1
 
 # Verify migration tracking is workspace-prefixed
+# Replace <workspace> with the workspace directory name (e.g. sun_pluto_schema_migrations)
 psql $POSTGRES_URL -c \
-  "SELECT * FROM sun_schema_migrations ORDER BY applied_at DESC LIMIT 3;"
+  "SELECT * FROM sun_<workspace>_schema_migrations ORDER BY applied_at DESC LIMIT 3;"
 
 kubectl logs -n payments -l app=charge_worker --since=5m | grep -i error
 ```
