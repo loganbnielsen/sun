@@ -16,3 +16,6 @@ worktree: ../sun-AUDIT-022-auto-forward-pg-polling
 **Impact:** Flaky `sun migrate` on cold clusters; misleading error output.
 
 **Remediation:** Replace `Unix.sleepf 2.0` with a short polling loop that retries a TCP connect to `localhost:15432` up to ~10× at 0.5 s intervals before giving up.
+
+## Review — automated checks passed
+Unix.sleepf 2.0 replaced with a TCP-connect polling loop: up to 10 attempts at 0.5s intervals, warning on timeout, at_exit cleanup preserved.

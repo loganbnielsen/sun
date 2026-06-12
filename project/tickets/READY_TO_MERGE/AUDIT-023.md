@@ -16,3 +16,6 @@ worktree: ../sun-AUDIT-023-migrate-dry-run
 **Impact:** Operators cannot preview migration SQL before applying to a live database. Risky for production migrations with additive/destructive changes.
 
 **Remediation:** Add `--dry-run` flag to the `apply` subcommand (and the default subcommand path) that reads pending migration files and prints each SQL statement to stdout without executing them against the database.
+
+## Review — automated checks passed
+--dry-run flag added to apply_cmd and the default Term; print_pending_sql reads .sql files (excluding .down.sql), prints headers and content; no DB connection in dry_run path.
