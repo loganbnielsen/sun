@@ -3,6 +3,8 @@ id: AUDIT-028
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-028/consumer-group-change-detection
+worktree: ../sun-AUDIT-028-consumer-group-change-detection
 ---
 
 Consumer group ID changes not detected before deploy
