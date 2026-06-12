@@ -839,6 +839,17 @@
           "commit": "4ec2a65",
           "duration_s": 1.038,
           "baseline": true
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "f9f408f",
+          "duration_s": 1.134
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "f9f408f",
+          "duration_s": 1.102,
+          "baseline": true
         }
       ]
     },
