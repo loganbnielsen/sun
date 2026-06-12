@@ -15,14 +15,16 @@ type response = {
 (* ── vtable ─────────────────────────────────────────────────────────────── *)
 
 type registry_ops = {
-  create_project    : workspace:string -> (Sun_cli_registry.project, string) result;
-  get_project       : string -> (Sun_cli_registry.project, string) result;
-  create_release    : project_id:string -> environment:string -> image_tag:string
-                      -> service_names:string list -> (Sun_cli_registry.release, string) result;
-  list_releases     : project_id:string -> (Sun_cli_registry.release list, string) result;
-  list_releases_page: project_id:string -> ?page:int -> ?page_size:int -> unit
-                      -> (Sun_cli_registry.release list * int, string) result;
-  get_release_logs  : string -> string -> (string list, string) result;
+  create_project        : workspace:string -> (Sun_cli_registry.project, string) result;
+  get_project           : string -> (Sun_cli_registry.project, string) result;
+  create_release        : project_id:string -> environment:string -> image_tag:string
+                          -> service_names:string list -> (Sun_cli_registry.release, string) result;
+  list_releases         : project_id:string -> (Sun_cli_registry.release list, string) result;
+  list_releases_page    : project_id:string -> ?page:int -> ?page_size:int -> unit
+                          -> (Sun_cli_registry.release list * int, string) result;
+  get_release_logs      : string -> string -> (string list, string) result;
+  append_log_line       : string -> string -> unit;
+  update_release_digest : string -> string -> (unit, string) result;
 }
 
 let ok body      = { status = 200; body }

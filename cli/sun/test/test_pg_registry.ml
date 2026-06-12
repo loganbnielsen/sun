@@ -28,13 +28,15 @@ let check_bool   = Alcotest.(check bool)
 let memory_ops () =
   let r = Sun_cli_registry.create () in
   { Sun_cli_control_plane.
-    create_project     = Sun_cli_registry.create_project r;
-    get_project        = Sun_cli_registry.get_project r;
-    create_release     = Sun_cli_registry.create_release r;
-    list_releases      = Sun_cli_registry.list_releases r;
-    list_releases_page = Sun_cli_registry.list_releases_page r;
-    get_release_logs   = (fun _project_id release_id ->
-                            Sun_cli_registry.get_release_logs r release_id);
+    create_project        = Sun_cli_registry.create_project r;
+    get_project           = Sun_cli_registry.get_project r;
+    create_release        = Sun_cli_registry.create_release r;
+    list_releases         = Sun_cli_registry.list_releases r;
+    list_releases_page    = Sun_cli_registry.list_releases_page r;
+    get_release_logs      = (fun _project_id release_id ->
+                               Sun_cli_registry.get_release_logs r release_id);
+    append_log_line       = Sun_cli_registry.append_log_line r;
+    update_release_digest = Sun_cli_registry.update_release_digest r;
   }
 
 let test_memory_create_project () =
@@ -114,6 +116,42 @@ let test_pg_list_releases () =
   | Some _url ->
     skip "pg integration test stub — set CONTROL_PLANE_TEST_DATABASE_URL to run"
 
+(* ── builder pipeline tests (memory ops) ──────────────────────────────────── *)
+
+(* Simulate the fake_builder pattern: build_and_push records log lines and
+   returns a digest.  We exercise the append_log_line + update_release_digest
+   vtable fields here so the happy path is covered without invoking Docker. *)
+let test_builder_pipeline_memory () =
+  let ops = memory_ops () in
+  let p = ops.Sun_cli_control_plane.create_project ~workspace:"testws" |> get_ok in
+  let pid = p.Sun_cli_registry.project_id in
+  let rel = ops.Sun_cli_control_plane.create_release
+    ~project_id:pid ~environment:"production" ~image_tag:"sha-abc"
+    ~service_names:["charge-svc"]
+    |> get_ok
+  in
+  let rid = rel.Sun_cli_registry.release_id in
+  (* Simulate fake_builder log output *)
+  ops.Sun_cli_control_plane.append_log_line rid "[build] (fake) built reg/app:v1";
+  ops.Sun_cli_control_plane.append_log_line rid "[push] (fake) pushed reg/app:v1";
+  ops.Sun_cli_control_plane.append_log_line rid "[deploy] (fake) digest: sha256:test";
+  (* Record digest *)
+  let digest_result = ops.Sun_cli_control_plane.update_release_digest rid "sha256:test" in
+  check_bool "digest update ok" true (Result.is_ok digest_result);
+  (* Verify logs were captured *)
+  let logs = ops.Sun_cli_control_plane.get_release_logs pid rid |> get_ok in
+  check_bool "has log lines" true (List.length logs > 0);
+  let has_digest_log =
+    List.exists (fun l -> String.length l >= 15 &&
+      String.sub l 0 9 = "[deploy] ") logs
+  in
+  check_bool "deploy log present" true has_digest_log
+
+let test_update_release_digest_unknown () =
+  let ops = memory_ops () in
+  let result = ops.Sun_cli_control_plane.update_release_digest "no-such-rel" "sha256:abc" in
+  check_bool "error on missing release" true (Result.is_error result)
+
 let () =
   Alcotest.run "pg_registry"
     [ "memory_ops vtable", [
@@ -122,6 +160,10 @@ let () =
         Alcotest.test_case "create release" `Quick test_memory_create_release;
         Alcotest.test_case "list releases paginated" `Quick test_memory_list_releases_page;
         Alcotest.test_case "get release logs" `Quick test_memory_get_release_logs;
+      ];
+      "builder pipeline", [
+        Alcotest.test_case "builder pipeline records digest and logs" `Quick test_builder_pipeline_memory;
+        Alcotest.test_case "update digest returns error for unknown release" `Quick test_update_release_digest_unknown;
       ];
       "pg_ops (integration)", [
         Alcotest.test_case "create project" `Quick test_pg_create_project;

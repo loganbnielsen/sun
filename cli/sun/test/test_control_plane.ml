@@ -5,13 +5,15 @@ let check_string = Alcotest.(check string)
 let memory_ops () =
   let r = Sun_cli_registry.create () in
   { Sun_cli_control_plane.
-    create_project     = Sun_cli_registry.create_project r;
-    get_project        = Sun_cli_registry.get_project r;
-    create_release     = Sun_cli_registry.create_release r;
-    list_releases      = Sun_cli_registry.list_releases r;
-    list_releases_page = Sun_cli_registry.list_releases_page r;
-    get_release_logs   = (fun _project_id release_id ->
-                            Sun_cli_registry.get_release_logs r release_id);
+    create_project        = Sun_cli_registry.create_project r;
+    get_project           = Sun_cli_registry.get_project r;
+    create_release        = Sun_cli_registry.create_release r;
+    list_releases         = Sun_cli_registry.list_releases r;
+    list_releases_page    = Sun_cli_registry.list_releases_page r;
+    get_release_logs      = (fun _project_id release_id ->
+                               Sun_cli_registry.get_release_logs r release_id);
+    append_log_line       = Sun_cli_registry.append_log_line r;
+    update_release_digest = Sun_cli_registry.update_release_digest r;
   }
 
 (* ── POST /projects ─────────────────────────────────────────────────────── *)

@@ -39,6 +39,7 @@ type release = {
   project_id  : project_id;
   environment : string;
   image_tag   : string;
+  digest      : string option;
   services    : release_service list;
   status      : release_status;
   created_at  : string;
@@ -82,6 +83,9 @@ val get_release : t -> release_id -> (release, string) result
 
 val append_log_line : t -> release_id -> string -> unit
 (** Append a log line to a release's in-memory log buffer. *)
+
+val update_release_digest : t -> release_id -> string -> (unit, string) result
+(** Update the digest field on an existing release. Error if not found. *)
 
 val get_release_logs : t -> release_id -> (string list, string) result
 (** Return all log lines for a release. Error if the release does not exist. *)
