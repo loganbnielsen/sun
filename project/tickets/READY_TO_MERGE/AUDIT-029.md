@@ -24,3 +24,6 @@ Implement TLS support in schema registry HTTP client
 ## Review — returned for revision
 - `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:87` — When no CA bundle is found, the HTTPS schema registry client installs an authenticator that accepts any certificate, leaving TLS connections unverified instead of failing closed or using configured trust roots.
 - `integrations/kafka/kafka-eio-service/test/test_kafka_service.ml:71` — The HTTPS parse test uses a copied local parse_base_url implementation rather than the production kafka_service.ml function, so it does not cover the required production behavior for use_tls=true and default port 443.
+
+## Review — automated checks passed
+AUDIT-029 fixes build cleanly and implement verified HTTPS schema registry support with production parse coverage and fail-closed CA handling.
