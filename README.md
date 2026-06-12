@@ -186,11 +186,14 @@ export SUN_HOME=~/sun   # add to ~/.bashrc or ~/.zshrc
 # 1. Provision the local cluster (Redpanda, PostgreSQL, Loki, Prometheus, Grafana)
 sun dev up
 
+# 1a. (Optional) Iterate fast on code changes — runs services as native binaries, no Docker rebuild
+sun dev run
+
 # 2. Scaffold a new workspace
 sun new workspace pluto
 cd pluto
 
-# 3. Build images and deploy to the cluster
+# 3. Build images and deploy to the cluster (final smoke test)
 sun up
 
 # 4. Run database migrations

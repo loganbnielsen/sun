@@ -77,6 +77,36 @@ Prometheus      localhost:9090
 
 These port-forwards are managed by Sun in the background (PIDs recorded in `~/.local/share/sun/`). `sun dev down` tears everything down. Running `sun dev up` again clears any stale port-forwards first, so repeat runs are safe.
 
+### Local iteration with `sun dev run`
+
+Once the cluster is up and you have a workspace (see Part 2), use `sun dev run` for rapid code-change iteration:
+
+```bash
+sun dev run
+```
+
+`sun dev run` discovers every service in `app/<domain>/<name>/` that has a `Dockerfile`, runs a single `dune build` across all of them, then spawns each compiled binary as a **native process** — no Docker image rebuild required. Each service's stdout and stderr are prefixed with `[domain/name]` so you can follow multiple services in one terminal. Ctrl-C cleanly kills all child processes.
+
+The environment variables your services expect are inherited directly from the shell (set by `sun dev up`'s port-forwards):
+
+| Variable | Value (set by `sun dev up`) |
+|---|---|
+| `KAFKA_BROKERS` | `localhost:9092` |
+| `SCHEMA_REGISTRY_URL` | `http://localhost:8081` |
+| `POSTGRES_URL` | `postgresql://postgres:dev@localhost:5432/dev` |
+| `LOKI_URL` | `http://localhost:3100` |
+
+**When to use `sun dev run` vs `sun up`:**
+
+| | `sun dev run` | `sun up` |
+|---|---|---|
+| How services run | Native OCaml binaries | Docker containers in k3d |
+| On code change | `dune build` + re-run (~seconds) | `docker build` + redeploy (~minutes) |
+| Uses k3d infra | Yes (via port-forwards from `sun dev up`) | Yes |
+| Good for | Fast edit-compile-run loop | Final smoke test before CI |
+
+Both commands talk to the same Kafka broker, PostgreSQL, and Loki instance that `sun dev up` started. The difference is only in how the service processes themselves are launched.
+
 ---
 
 ## Part 2 — Scaffold a workspace
@@ -435,6 +465,7 @@ sun new event <team>/<name>                       add a typed Kafka event
 sun dev up                                        provision local k3d cluster
 sun dev down                                      tear down the cluster
 sun dev status                                    show running infra endpoints
+sun dev run                                       run services as native processes (fast iteration)
 
 sun up [path] [--dry-run] [--tag]                 build images and deploy to local cluster
 sun deploy [--image-tag TAG] [--registry URL]     deploy pre-built images (CI mode)
