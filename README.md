@@ -152,7 +152,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Sun CLI — secrets (`sun secret set/list/delete`) | Complete |
 | Production deployment pipeline (`sun deploy`, Terraform, Argo CD) | Complete |
 | Progressive delivery (`[infra.rollout]`, Argo Rollouts) | Complete |
-| Sun-hosted executor | Experimental mock boundary |
+| Sun-hosted executor (`sun cloud deploy`) | Build-and-push pipeline: builds Docker image, pushes to `--registry`, records release history |
 
 ---
 
