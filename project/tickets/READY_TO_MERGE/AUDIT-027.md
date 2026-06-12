@@ -16,3 +16,6 @@ Partition count reduction not guarded at deploy time
 **Impact:** Confusing deploy failures with no clear error message. Operators may not understand that partition reductions are forbidden by Kafka.
 
 **Remediation:** In `kafka_service.ml` `register`, before calling `rd_kafka_CreateTopics`, query the existing topic's partition count via the admin API. If the configured count is lower than the existing count, return `Error "partition count for topic '<name>' cannot be reduced from N to M; use --force-partition-reduce to override"`. Expose `--force-partition-reduce` as a deploy flag if an escape hatch is needed.
+
+## Review — automated checks passed
+Build clean, single-file diff, all checklist items satisfied, no ticket files touched, no injection risk.
