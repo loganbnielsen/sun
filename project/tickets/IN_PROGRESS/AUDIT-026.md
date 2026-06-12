@@ -3,6 +3,8 @@ id: AUDIT-026
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-026/multi-stage-dockerfile
+worktree: ../sun-AUDIT-026-multi-stage-dockerfile
 ---
 
 Generated Dockerfiles copy host-compiled binaries (non-hermetic build)
