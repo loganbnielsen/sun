@@ -138,6 +138,10 @@ let http_put net ~clock ~base_url ~path ~content_type ~body =
   http_do net ~clock ~meth:"PUT" ~base_url ~path
     ~content_type_opt:(Some content_type) ~body_opt:(Some body)
 
+let http_get net ~clock ~base_url ~path =
+  http_do net ~clock ~meth:"GET" ~base_url ~path
+    ~content_type_opt:None ~body_opt:None
+
 (* ------------------------------------------------------------------ *)
 (* Schema registry                                                     *)
 (* ------------------------------------------------------------------ *)
@@ -230,6 +234,24 @@ let ensure_topic rk ~topic_name ~partitions =
   else
     Ok ()
 
+(* Query the current partition count for an existing topic via the Redpanda
+   admin API.  Returns None if the topic does not exist or the admin API is
+   unreachable — callers must not block on this being populated. *)
+let query_topic_partitions net ~clock ~admin_url ~topic_name =
+  match http_get net ~clock ~base_url:admin_url
+          ~path:(Printf.sprintf "/v1/topics/%s" topic_name) with
+  | Error _ | Ok (404, _) -> None
+  | Ok (200, body) ->
+    (try
+      match Yojson.Safe.from_string body with
+      | `Assoc fields ->
+        (match List.assoc_opt "partitions" fields with
+         | Some (`List parts) -> Some (List.length parts)
+         | _ -> None)
+      | _ -> None
+    with _ -> None)
+  | Ok _ -> None
+
 (* ------------------------------------------------------------------ *)
 (* Confluent wire format: 0x00 + 4-byte big-endian schema_id + JSON   *)
 (* ------------------------------------------------------------------ *)
@@ -303,6 +325,20 @@ let create (cfg : config) ~sw =
 let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module MESSAGE with type t = a) -> (a topic, string) result =
   fun svc ~net ~clock (module M) ->
   let rk = Kafka_producer.raw_handle svc.producer in
+  let partition_guard () =
+    match query_topic_partitions net ~clock ~admin_url:svc.admin_url
+            ~topic_name:M.topic_name with
+    | None -> Ok ()
+    | Some current when current <= svc.partitions -> Ok ()
+    | Some current ->
+      Error (Printf.sprintf
+        "partition count for topic '%s' cannot be reduced from %d to %d; \
+         delete the topic first if this change is intentional"
+        M.topic_name current svc.partitions)
+  in
+  match partition_guard () with
+  | Error e -> Error e
+  | Ok () ->
   match ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions with
   | Error e -> Error e
   | Ok () ->
