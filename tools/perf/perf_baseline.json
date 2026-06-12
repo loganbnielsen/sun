@@ -888,6 +888,17 @@
           "commit": "66968b6",
           "duration_s": 1.138,
           "baseline": true
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "de6e61c",
+          "duration_s": 1.104
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "de6e61c",
+          "duration_s": 1.101,
+          "baseline": true
         }
       ]
     },
