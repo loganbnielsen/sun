@@ -3,6 +3,17 @@
 let check_int  = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
 
+let memory_ops_of reg =
+  { Sun_cli_control_plane.
+    create_project     = Sun_cli_registry.create_project reg;
+    get_project        = Sun_cli_registry.get_project reg;
+    create_release     = Sun_cli_registry.create_release reg;
+    list_releases      = Sun_cli_registry.list_releases reg;
+    list_releases_page = Sun_cli_registry.list_releases_page reg;
+    get_release_logs   = (fun _project_id release_id ->
+                            Sun_cli_registry.get_release_logs reg release_id);
+  }
+
 let make_registry_with_releases n =
   let r = Sun_cli_registry.create () in
   let p = Sun_cli_registry.create_project r ~workspace:"pluto"
@@ -149,35 +160,36 @@ let test_logs_append () =
 
 let setup_with_releases n =
   let r = Sun_cli_registry.create () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops_of r in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
   for i = 1 to n do
-    ignore (Sun_cli_control_plane.handle r
+    ignore (Sun_cli_control_plane.handle ops
       (Sun_cli_control_plane.post_release
         ~project_id:"proj-pluto"
         ~environment:"production"
         ~image_tag:(Printf.sprintf "tag-%d" i)
         ~service_names:["svc"]))
   done;
-  r
+  (r, ops)
 
 let test_get_releases_200 () =
-  let r = setup_with_releases 3 in
-  let resp = Sun_cli_control_plane.handle r
+  let _r, ops = setup_with_releases 3 in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_releases ~project_id:"proj-pluto" ()) in
   check_int "status 200" 200 resp.Sun_cli_control_plane.status
 
 let test_get_releases_returns_list () =
-  let r = setup_with_releases 3 in
-  let resp = Sun_cli_control_plane.handle r
+  let _r, ops = setup_with_releases 3 in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_releases ~project_id:"proj-pluto" ()) in
   let open Yojson.Safe.Util in
   check_int "three releases" 3
     (resp.body |> member "releases" |> to_list |> List.length)
 
 let test_get_releases_pagination () =
-  let r = setup_with_releases 5 in
-  let resp = Sun_cli_control_plane.handle r
+  let _r, ops = setup_with_releases 5 in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_releases ~project_id:"proj-pluto"
        ~page:1 ~page_size:3 ()) in
   let open Yojson.Safe.Util in
@@ -188,25 +200,26 @@ let test_get_releases_pagination () =
 
 let test_get_releases_unknown_project () =
   let r = Sun_cli_registry.create () in
-  let resp = Sun_cli_control_plane.handle r
+  let ops = memory_ops_of r in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_releases ~project_id:"proj-ghost" ()) in
   check_int "404" 404 resp.Sun_cli_control_plane.status
 
 let test_get_release_logs_200 () =
-  let r = setup_with_releases 1 in
+  let r, ops = setup_with_releases 1 in
   let releases = match Sun_cli_registry.list_releases r ~project_id:"proj-pluto" with
     | Ok rs -> rs | Error m -> Alcotest.fail m in
   let rid = (List.hd releases).Sun_cli_registry.release_id in
-  let resp = Sun_cli_control_plane.handle r
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_release_logs ~project_id:"proj-pluto" ~release_id:rid) in
   check_int "status 200" 200 resp.Sun_cli_control_plane.status
 
 let test_get_release_logs_returns_lines () =
-  let r = setup_with_releases 1 in
+  let r, ops = setup_with_releases 1 in
   let releases = match Sun_cli_registry.list_releases r ~project_id:"proj-pluto" with
     | Ok rs -> rs | Error m -> Alcotest.fail m in
   let rid = (List.hd releases).Sun_cli_registry.release_id in
-  let resp = Sun_cli_control_plane.handle r
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_release_logs ~project_id:"proj-pluto" ~release_id:rid) in
   let open Yojson.Safe.Util in
   check_bool "non-empty lines" true
@@ -214,7 +227,8 @@ let test_get_release_logs_returns_lines () =
 
 let test_get_release_logs_unknown () =
   let r = Sun_cli_registry.create () in
-  let resp = Sun_cli_control_plane.handle r
+  let ops = memory_ops_of r in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.get_release_logs
        ~project_id:"proj-pluto" ~release_id:"rel-ghost") in
   check_int "404" 404 resp.Sun_cli_control_plane.status

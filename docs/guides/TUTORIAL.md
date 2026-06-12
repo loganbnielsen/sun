@@ -564,3 +564,15 @@ kubectl apply -f platform/infra/argocd/application.yaml
 ```
 
 From this point, every `git push` to `main` in CI runs `sun deploy --emit-to`, commits the YAML to the GitOps repo, and Argo CD reconciles the cluster automatically.
+
+### Hosted control-plane release history
+
+`sun cloud deploy`, `sun cloud releases`, and `sun cloud logs` record release history in an in-memory store by default (state is lost when the process exits). To persist release history across restarts, set `CONTROL_PLANE_DATABASE_URL` to a Postgres connection URL:
+
+```bash
+export CONTROL_PLANE_DATABASE_URL=postgresql://user:pass@host:5432/dbname
+sun cloud deploy --environment production
+sun cloud releases
+```
+
+When `CONTROL_PLANE_DATABASE_URL` is unset (the default), the commands use in-memory state, which is convenient for local testing without requiring a database.

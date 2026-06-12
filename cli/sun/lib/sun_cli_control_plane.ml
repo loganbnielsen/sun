@@ -12,6 +12,19 @@ type response = {
   body   : Yojson.Safe.t;
 }
 
+(* ── vtable ─────────────────────────────────────────────────────────────── *)
+
+type registry_ops = {
+  create_project    : workspace:string -> (Sun_cli_registry.project, string) result;
+  get_project       : string -> (Sun_cli_registry.project, string) result;
+  create_release    : project_id:string -> environment:string -> image_tag:string
+                      -> service_names:string list -> (Sun_cli_registry.release, string) result;
+  list_releases     : project_id:string -> (Sun_cli_registry.release list, string) result;
+  list_releases_page: project_id:string -> ?page:int -> ?page_size:int -> unit
+                      -> (Sun_cli_registry.release list * int, string) result;
+  get_release_logs  : string -> string -> (string list, string) result;
+}
+
 let ok body      = { status = 200; body }
 let created body = { status = 201; body }
 let bad_request msg =
@@ -38,25 +51,25 @@ let split_path path =
   |> List.filter (fun s -> s <> "")
 
 (* POST /projects *)
-let handle_post_projects registry body =
+let handle_post_projects ops body =
   match body with
   | None -> bad_request "body required"
   | Some json ->
     match json_string "workspace" json with
     | Error msg -> bad_request msg
     | Ok workspace ->
-      match Sun_cli_registry.create_project registry ~workspace with
+      match ops.create_project ~workspace with
       | Error msg -> bad_request msg
       | Ok project ->
         created (Sun_cli_registry.project_to_json project)
 
 (* GET /projects/{id} *)
-let handle_get_project registry project_id =
-  match Sun_cli_registry.get_project registry project_id with
+let handle_get_project ops project_id =
+  match ops.get_project project_id with
   | Error _ -> not_found (Printf.sprintf "project %S not found" project_id)
   | Ok project ->
     let releases =
-      match Sun_cli_registry.list_releases registry ~project_id with
+      match ops.list_releases ~project_id with
       | Ok rs -> rs
       | Error _ -> []
     in
@@ -72,7 +85,7 @@ let handle_get_project registry project_id =
 (* POST /projects/{id}/releases *)
 let ( let* ) = Result.bind
 
-let handle_post_release registry project_id body =
+let handle_post_release ops project_id body =
   match body with
   | None -> bad_request "body required"
   | Some json ->
@@ -80,8 +93,7 @@ let handle_post_release registry project_id body =
       let* environment = json_string "environment" json in
       let* image_tag = json_string "image_tag" json in
       let* service_names = json_strings "service_names" json in
-      Sun_cli_registry.create_release registry
-        ~project_id ~environment ~image_tag ~service_names
+      ops.create_release ~project_id ~environment ~image_tag ~service_names
     in
     match result with
     | Error msg -> bad_request msg
@@ -94,11 +106,10 @@ let param_int key params default =
   | None -> default
 
 (* GET /projects/{id}/releases *)
-let handle_get_releases registry project_id params =
+let handle_get_releases ops project_id params =
   let page      = param_int "page"      params 1  in
   let page_size = param_int "page_size" params 20 in
-  match Sun_cli_registry.list_releases_page registry
-          ~project_id ~page ~page_size () with
+  match ops.list_releases_page ~project_id ~page ~page_size () with
   | Error _ -> not_found (Printf.sprintf "project %S not found" project_id)
   | Ok (items, total) ->
     ok (`Assoc [
@@ -109,8 +120,8 @@ let handle_get_releases registry project_id params =
     ])
 
 (* GET /projects/{id}/releases/{release_id}/logs *)
-let handle_get_release_logs registry _project_id release_id =
-  match Sun_cli_registry.get_release_logs registry release_id with
+let handle_get_release_logs ops project_id release_id =
+  match ops.get_release_logs project_id release_id with
   | Error _ -> not_found (Printf.sprintf "release %S not found" release_id)
   | Ok lines ->
     ok (`Assoc [
@@ -120,18 +131,18 @@ let handle_get_release_logs registry _project_id release_id =
 
 (* ── dispatcher ─────────────────────────────────────────────────────────── *)
 
-let handle registry req =
+let handle ops req =
   match req.meth, split_path req.path with
   | Post, [ "projects" ] ->
-    handle_post_projects registry req.body
+    handle_post_projects ops req.body
   | Get, [ "projects"; id ] ->
-    handle_get_project registry id
+    handle_get_project ops id
   | Post, [ "projects"; id; "releases" ] ->
-    handle_post_release registry id req.body
+    handle_post_release ops id req.body
   | Get, [ "projects"; id; "releases" ] ->
-    handle_get_releases registry id req.params
+    handle_get_releases ops id req.params
   | Get, [ "projects"; id; "releases"; rid; "logs" ] ->
-    handle_get_release_logs registry id rid
+    handle_get_release_logs ops id rid
   | _ ->
     not_found (Printf.sprintf "no route for %s" req.path)
 

@@ -8,15 +8,27 @@ let check_string = Alcotest.(check string)
 let check_int    = Alcotest.(check int)
 let check_bool   = Alcotest.(check bool)
 
+let memory_ops_of reg =
+  { Sun_cli_control_plane.
+    create_project     = Sun_cli_registry.create_project reg;
+    get_project        = Sun_cli_registry.get_project reg;
+    create_release     = Sun_cli_registry.create_release reg;
+    list_releases      = Sun_cli_registry.list_releases reg;
+    list_releases_page = Sun_cli_registry.list_releases_page reg;
+    get_release_logs   = (fun _project_id release_id ->
+                            Sun_cli_registry.get_release_logs reg release_id);
+  }
+
 let setup () =
   let r = Sun_cli_registry.create () in
-  ignore (Sun_cli_control_plane.handle r
+  let ops = memory_ops_of r in
+  ignore (Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_projects ~workspace:"pluto"));
-  r
+  ops
 
 let post_release ?(environment = "production") ?(image_tag = "abc123")
-    ?(service_names = ["charge-svc"; "notify-worker"]) registry =
-  Sun_cli_control_plane.handle registry
+    ?(service_names = ["charge-svc"; "notify-worker"]) ops =
+  Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_release
        ~project_id:"proj-pluto"
        ~environment
@@ -26,44 +38,44 @@ let post_release ?(environment = "production") ?(image_tag = "abc123")
 (* ── required top-level fields ─────────────────────────────────────────── *)
 
 let test_response_has_release_id () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   let open Yojson.Safe.Util in
   let release_id = resp.Sun_cli_control_plane.body |> member "release_id" |> to_string in
   check_bool "release_id non-empty" true (String.length release_id > 0)
 
 let test_response_has_status () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   let open Yojson.Safe.Util in
   let status = resp.body |> member "status" |> to_string in
   check_bool "status is valid" true
     (List.mem status ["queued"; "building"; "live"; "failed"])
 
 let test_response_status_is_live () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   let open Yojson.Safe.Util in
   check_string "stub status" "live"
     (resp.body |> member "status" |> to_string)
 
 let test_response_has_created_at () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   let open Yojson.Safe.Util in
   let created_at = resp.body |> member "created_at" |> to_string in
   check_bool "created_at non-empty" true (String.length created_at > 0)
 
 let test_response_has_environment () =
-  let r = setup () in
-  let resp = post_release r ~environment:"staging" in
+  let ops = setup () in
+  let resp = post_release ops ~environment:"staging" in
   let open Yojson.Safe.Util in
   check_string "environment" "staging"
     (resp.body |> member "environment" |> to_string)
 
 let test_response_has_image_tag () =
-  let r = setup () in
-  let resp = post_release r ~image_tag:"sha256abc" in
+  let ops = setup () in
+  let resp = post_release ops ~image_tag:"sha256abc" in
   let open Yojson.Safe.Util in
   check_string "image_tag" "sha256abc"
     (resp.body |> member "image_tag" |> to_string)
@@ -71,23 +83,23 @@ let test_response_has_image_tag () =
 (* ── services list ──────────────────────────────────────────────────────── *)
 
 let test_services_list_present () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   let open Yojson.Safe.Util in
   let svcs = resp.body |> member "services" |> to_list in
   check_int "service count" 2 (List.length svcs)
 
 let test_service_has_name_and_status () =
-  let r = setup () in
-  let resp = post_release r ~service_names:["charge-svc"] in
+  let ops = setup () in
+  let resp = post_release ops ~service_names:["charge-svc"] in
   let open Yojson.Safe.Util in
   let svc = resp.body |> member "services" |> index 0 in
   check_string "service_name" "charge-svc" (svc |> member "service_name" |> to_string);
   check_string "service status" "live" (svc |> member "status" |> to_string)
 
 let test_services_empty_list () =
-  let r = setup () in
-  let resp = post_release r ~service_names:[] in
+  let ops = setup () in
+  let resp = post_release ops ~service_names:[] in
   let open Yojson.Safe.Util in
   check_int "empty services" 0
     (resp.body |> member "services" |> to_list |> List.length)
@@ -95,23 +107,24 @@ let test_services_empty_list () =
 (* ── HTTP status codes ──────────────────────────────────────────────────── *)
 
 let test_well_formed_request_returns_201 () =
-  let r = setup () in
-  let resp = post_release r in
+  let ops = setup () in
+  let resp = post_release ops in
   check_int "http 201" 201 resp.Sun_cli_control_plane.status
 
 let test_missing_body_returns_400 () =
-  let r = setup () in
+  let ops = setup () in
   let req = {
     Sun_cli_control_plane.meth = Post;
     path = "/projects/proj-pluto/releases";
     body = None;
     params = [];
   } in
-  check_int "http 400" 400 (Sun_cli_control_plane.handle r req).status
+  check_int "http 400" 400 (Sun_cli_control_plane.handle ops req).status
 
 let test_unknown_project_returns_400 () =
   let r = Sun_cli_registry.create () in
-  let resp = Sun_cli_control_plane.handle r
+  let ops = memory_ops_of r in
+  let resp = Sun_cli_control_plane.handle ops
     (Sun_cli_control_plane.post_release
        ~project_id:"proj-unknown"
        ~environment:"production"
