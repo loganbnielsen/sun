@@ -243,9 +243,17 @@ module Pg_registry = struct
        VALUES (?, ?, ?, ?, ?, ?)"
 
   let list_releases_q =
-    (Caqti_type.string ->* Caqti_type.(t6 string string string string string string))
-      "SELECT release_id, project_id, environment, image_tag, status, created_at \
+    (Caqti_type.string ->* Caqti_type.(t7 string string string string string string (option string)))
+      "SELECT release_id, project_id, environment, image_tag, status, created_at, digest \
        FROM hosted_releases WHERE project_id = ? ORDER BY created_at ASC"
+
+  let update_digest_q =
+    (Caqti_type.(t2 string string) ->. Caqti_type.unit)
+      "UPDATE hosted_releases SET digest = ? WHERE release_id = ?"
+
+  let append_log_q =
+    (Caqti_type.(t2 string string) ->. Caqti_type.unit)
+      "INSERT INTO hosted_release_logs (release_id, line) VALUES (?, ?)"
 
   let insert_service_q =
     (Caqti_type.(t3 string string string) ->. Caqti_type.unit)
@@ -257,10 +265,6 @@ module Pg_registry = struct
       "SELECT service_name, service_status \
        FROM hosted_release_services WHERE release_id = ?"
 
-  let insert_log_q =
-    (Caqti_type.(t2 string string) ->. Caqti_type.unit)
-      "INSERT INTO hosted_release_logs (release_id, line) VALUES (?, ?)"
-
   let list_logs_q =
     (Caqti_type.string ->* Caqti_type.string)
       "SELECT line FROM hosted_release_logs \
@@ -271,18 +275,21 @@ module Pg_registry = struct
   let storage_err_to_string e = Storage_error.to_string e
 
   let ensure_schema pool =
+    let all_ddl = ddl @ [
+      "ALTER TABLE hosted_releases ADD COLUMN IF NOT EXISTS digest TEXT";
+    ] in
     List.iter (fun sql ->
       let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) sql in
       match Db.exec pool q () with
       | Ok () -> ()
       | Error e ->
         Printf.eprintf "warning: schema DDL failed: %s\n%!" (storage_err_to_string e)
-    ) ddl
+    ) all_ddl
 
   let row_to_project (project_id, workspace) : Sun_cli_registry.project =
     { project_id; workspace }
 
-  let row_to_release services (release_id, project_id, environment, image_tag, status_s, created_at)
+  let row_to_release services (release_id, project_id, environment, image_tag, status_s, created_at, digest)
       : Sun_cli_registry.release =
     let status = match status_s with
       | "queued"   -> Sun_cli_registry.Queued
@@ -290,7 +297,7 @@ module Pg_registry = struct
       | "failed"   -> Sun_cli_registry.Failed
       | _          -> Sun_cli_registry.Live
     in
-    { release_id; project_id; environment; image_tag; status; created_at; services }
+    { release_id; project_id; environment; image_tag; digest; status; created_at; services }
 
   let fetch_services pool release_id =
     match Db.collect pool list_services_q release_id with
@@ -367,7 +374,7 @@ module Pg_registry = struct
              List.fold_left (fun acc line ->
                match acc with
                | Error _ as e -> e
-               | Ok () -> Db.exec tx insert_log_q (release_id, line)
+               | Ok () -> Db.exec tx append_log_q (release_id, line)
              ) (Ok ()) log_lines)
       ) in
       (match result with
@@ -381,6 +388,7 @@ module Pg_registry = struct
          in
          Ok { Sun_cli_registry.
               release_id; project_id; environment; image_tag;
+              digest = None;
               status = Sun_cli_registry.Live; created_at; services })
 
   let pg_list_releases pool ~project_id =
@@ -391,7 +399,8 @@ module Pg_registry = struct
       | Error e -> Error (storage_err_to_string e)
       | Ok rows ->
         let results = List.map (fun row ->
-          match fetch_services pool (fst (let (a,b,_,_,_,_) = row in (a,b))) with
+          let (release_id, _, _, _, _, _, _) = row in
+          match fetch_services pool release_id with
           | Error e -> Error e
           | Ok svcs -> Ok (row_to_release svcs row)
         ) rows in
@@ -420,16 +429,39 @@ module Pg_registry = struct
     | Error e -> Error (storage_err_to_string e)
     | Ok lines -> Ok lines
 
+  let pg_append_log_line pool release_id line =
+    (match Db.exec pool append_log_q (release_id, line) with
+     | Ok () -> ()
+     | Error e ->
+       Printf.eprintf "warning: append_log_line failed: %s\n%!" (storage_err_to_string e))
+
+  let pg_update_digest pool release_id digest_str =
+    match Db.exec pool update_digest_q (digest_str, release_id) with
+    | Ok () -> Ok ()
+    | Error e -> Error (storage_err_to_string e)
+
+  let update_status_q =
+    (Caqti_type.(t2 string string) ->. Caqti_type.unit)
+      "UPDATE hosted_releases SET status = ? WHERE release_id = ?"
+
+  let pg_update_status pool release_id status_str =
+    match Db.exec pool update_status_q (status_str, release_id) with
+    | Ok () -> Ok ()
+    | Error e -> Error (storage_err_to_string e)
+
   (* ── vtable builder ────────────────────────────────────────────────────── *)
 
   let pg_ops pool : Sun_cli_control_plane.registry_ops = {
     Sun_cli_control_plane.
-    create_project     = pg_create_project pool;
-    get_project        = pg_get_project pool;
-    create_release     = pg_create_release pool;
-    list_releases      = pg_list_releases pool;
-    list_releases_page = pg_list_releases_page pool;
-    get_release_logs   = pg_get_release_logs pool;
+    create_project        = pg_create_project pool;
+    get_project           = pg_get_project pool;
+    create_release        = pg_create_release pool;
+    list_releases         = pg_list_releases pool;
+    list_releases_page    = pg_list_releases_page pool;
+    get_release_logs      = pg_get_release_logs pool;
+    append_log_line       = pg_append_log_line pool;
+    update_release_digest = pg_update_digest pool;
+    update_release_status = pg_update_status pool;
   }
 end
 
@@ -438,13 +470,16 @@ end
 let memory_ops () =
   let r = Sun_cli_registry.create () in
   { Sun_cli_control_plane.
-    create_project     = Sun_cli_registry.create_project r;
-    get_project        = Sun_cli_registry.get_project r;
-    create_release     = Sun_cli_registry.create_release r;
-    list_releases      = Sun_cli_registry.list_releases r;
-    list_releases_page = Sun_cli_registry.list_releases_page r;
-    get_release_logs   = (fun _project_id release_id ->
-                            Sun_cli_registry.get_release_logs r release_id);
+    create_project        = Sun_cli_registry.create_project r;
+    get_project           = Sun_cli_registry.get_project r;
+    create_release        = Sun_cli_registry.create_release r;
+    list_releases         = Sun_cli_registry.list_releases r;
+    list_releases_page    = Sun_cli_registry.list_releases_page r;
+    get_release_logs      = (fun _project_id release_id ->
+                               Sun_cli_registry.get_release_logs r release_id);
+    append_log_line       = Sun_cli_registry.append_log_line r;
+    update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
 (* ── Registry selector ───────────────────────────────────────────────────── *)
@@ -483,7 +518,92 @@ let get_ok_or_exit = function
     Printf.eprintf "error: %s\n" msg;
     exit 1
 
-let cloud_deploy environment image_tag dry_run output_json =
+(* ── Builder adapter ─────────────────────────────────────────────────────── *)
+
+type builder_result = {
+  image_tag : string;
+  digest    : string;
+}
+
+type builder_adapter = {
+  build_and_push :
+    workspace_path:string ->
+    service_dir:string ->
+    image_ref:string ->
+    log:(string -> unit) ->
+    (builder_result, string) result;
+}
+
+let run_streaming cmd log =
+  let ic = Unix.open_process_in cmd in
+  (try
+    while true do
+      log (input_line ic)
+    done
+  with End_of_file -> ());
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> Ok ()
+  | Unix.WEXITED n -> Error (Printf.sprintf "command exited %d: %s" n cmd)
+  | _ -> Error (Printf.sprintf "command failed: %s" cmd)
+
+let get_digest image_ref =
+  let cmd = Printf.sprintf
+    "docker inspect --format '{{index .RepoDigests 0}}' %s 2>/dev/null"
+    (Filename.quote image_ref) in
+  let ic = Unix.open_process_in cmd in
+  let s = String.trim (In_channel.input_all ic) in
+  (match Unix.close_process_in ic with _ -> ());
+  if s = "" || s = "<no value>" then image_ref
+  else s
+
+let local_builder = {
+  build_and_push = fun ~workspace_path ~service_dir ~image_ref ~log ->
+    let ctx_dir = workspace_path ^ ".cloud-ctx" in
+    (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
+    let rc = Sys.command (Printf.sprintf "cp -rL %s %s 2>&1"
+      (Filename.quote workspace_path) (Filename.quote ctx_dir)) in
+    if rc <> 0 then Error "failed to copy workspace for docker build context"
+    else begin
+      ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
+        (Filename.quote ctx_dir) (Filename.quote ctx_dir)));
+      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
+      if not (Sys.file_exists dockerfile) then begin
+        (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
+        Error (Printf.sprintf "Dockerfile not found: %s" dockerfile)
+      end else begin
+        log (Printf.sprintf "[build] building %s" image_ref);
+        let build_cmd = Printf.sprintf "docker build -t %s -f %s %s 2>&1"
+          (Filename.quote image_ref) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
+        match run_streaming build_cmd log with
+        | Error msg ->
+          (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
+          Error msg
+        | Ok () ->
+          log (Printf.sprintf "[push] pushing %s" image_ref);
+          let push_cmd = Printf.sprintf "docker push %s 2>&1"
+            (Filename.quote image_ref) in
+          (match run_streaming push_cmd log with
+           | Error msg ->
+             (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
+             Error msg
+           | Ok () ->
+             (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
+             let digest = get_digest image_ref in
+             log (Printf.sprintf "[deploy] image digest: %s" digest);
+             Ok { image_tag = image_ref; digest })
+      end
+    end
+}
+
+let fake_builder ?(digest = "sha256:deadbeef") () = {
+  build_and_push = fun ~workspace_path:_ ~service_dir:_ ~image_ref ~log ->
+    log (Printf.sprintf "[build] (fake) built %s" image_ref);
+    log (Printf.sprintf "[push] (fake) pushed %s" image_ref);
+    log (Printf.sprintf "[deploy] (fake) digest: %s" digest);
+    Ok { image_tag = image_ref; digest }
+}
+
+let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_run output_json =
   let workspace = Filename.basename (Sys.getcwd ()) in
   let sha = match image_tag with Some t -> t | None -> git_sha () in
 
@@ -491,8 +611,17 @@ let cloud_deploy environment image_tag dry_run output_json =
     let project_id = Sun_cli_registry.project_id_of_workspace workspace in
     Printf.printf "Project:  %s\nEnv:      %s\nTag:      %s\n"
       project_id environment sha;
-    Printf.printf "(dry-run: no release recorded)\n%!"
+    Printf.printf "(dry-run: no build or release recorded)\n%!"
   end else begin
+    let reg = match registry with
+      | Some r -> r
+      | None ->
+        match Sys.getenv_opt "CLOUD_REGISTRY" with
+        | Some r -> r
+        | None ->
+          Printf.eprintf "error: --registry or CLOUD_REGISTRY required for hosted deploy\n";
+          exit 1
+    in
     with_registry (fun ops ->
       let project = ops.Sun_cli_control_plane.create_project ~workspace
         |> get_ok_or_exit in
@@ -509,24 +638,44 @@ let cloud_deploy environment image_tag dry_run output_json =
           ~service_names
         |> get_ok_or_exit
       in
-      if output_json then
-        print_string (Yojson.Safe.pretty_to_string
-          (Sun_cli_registry.release_to_json release))
-      else begin
-        Printf.printf "Release:  %s\n" release.Sun_cli_registry.release_id;
-        Printf.printf "Project:  %s\n" release.Sun_cli_registry.project_id;
-        Printf.printf "Env:      %s\n" release.Sun_cli_registry.environment;
-        Printf.printf "Tag:      %s\n" release.Sun_cli_registry.image_tag;
-        Printf.printf "Status:   %s\n"
-          (Sun_cli_registry.release_status_to_string release.Sun_cli_registry.status);
-        if release.Sun_cli_registry.services <> [] then begin
-          Printf.printf "Services:\n";
-          List.iter (fun (s : Sun_cli_registry.release_service) ->
-            Printf.printf "  %-30s  %s\n"
-              s.service_name
-              (Sun_cli_registry.service_status_to_string s.service_status))
-            release.Sun_cli_registry.services
+      let release_id = release.Sun_cli_registry.release_id in
+      ops.Sun_cli_control_plane.append_log_line release_id "[deploy] build phase starting";
+      let workspace_path = Sys.getcwd () in
+      let last_digest = ref sha in
+      let all_ok = List.for_all (fun (svc : Sun_cli_manifest.service) ->
+        let image_ref = Printf.sprintf "%s/%s/%s:%s"
+          reg workspace (Sun_cli_deployment_plan.k8s_name_of svc.name) sha in
+        let log line = ops.Sun_cli_control_plane.append_log_line release_id line in
+        match builder.build_and_push
+            ~workspace_path ~service_dir:svc.dir ~image_ref ~log with
+        | Error msg ->
+          ops.Sun_cli_control_plane.append_log_line release_id
+            (Printf.sprintf "[deploy] build failed: %s" msg);
+          false
+        | Ok result ->
+          last_digest := result.digest;
+          true
+      ) services in
+      if all_ok then begin
+        ignore (ops.Sun_cli_control_plane.update_release_digest release_id !last_digest);
+        ops.Sun_cli_control_plane.append_log_line release_id
+          "[deploy] release complete: status=live";
+        let release_with_digest = { release with Sun_cli_registry.digest = Some !last_digest } in
+        if output_json then
+          print_string (Yojson.Safe.pretty_to_string
+            (Sun_cli_registry.release_to_json release_with_digest))
+        else begin
+          Printf.printf "Release:  %s\n" release_id;
+          Printf.printf "Digest:   %s\n" !last_digest;
+          Printf.printf "Status:   live\n"
         end
+      end else begin
+        ignore (ops.Sun_cli_control_plane.update_release_status release_id "failed");
+        ops.Sun_cli_control_plane.append_log_line release_id "[deploy] release failed";
+        Printf.eprintf
+          "error: build failed; check release logs with: sun cloud logs --release %s\n"
+          release_id;
+        exit 1
       end;
       print_char '\n'; flush stdout
     )
@@ -545,22 +694,30 @@ let cloud_image_tag_arg =
 let cloud_dry_run_flag =
   Arg.(value & flag &
        info ["dry-run"]
-         ~doc:"Print project/env/tag without recording a release")
+         ~doc:"Print project/env/tag without building or recording a release")
 
 let output_json_flag =
   Arg.(value & flag &
        info ["output-json"]
          ~doc:"Print the release record as JSON")
 
+let registry_arg =
+  Arg.(value & opt (some string) None &
+       info ["registry"] ~docv:"URL"
+         ~doc:"Container registry base URL \
+               (e.g. registry.example.com/myapp). \
+               Falls back to CLOUD_REGISTRY env var.")
+
 let deploy_cmd =
   Cmd.v
     (Cmd.info "deploy"
-       ~doc:"Record a hosted release in the project registry. \
-             Creates the project if it does not exist, then records a new \
-             release with status=live. Use --dry-run to preview without \
-             recording.")
-    Term.(const cloud_deploy $ environment_arg $ cloud_image_tag_arg
-          $ cloud_dry_run_flag $ output_json_flag)
+       ~doc:"Build workspace images, push to a registry, and record a hosted \
+             release. Creates the project if it does not exist. \
+             Use --dry-run to preview without building or recording.")
+    (* cloud_deploy has an optional ~builder arg for test injection; bind the
+       default here so Cmdliner sees a regular curried function. *)
+    Term.(const (cloud_deploy ~builder:local_builder) $ environment_arg $ cloud_image_tag_arg
+          $ registry_arg $ cloud_dry_run_flag $ output_json_flag)
 
 (* ── cloud releases ──────────────────────────────────────────────────────── *)
 

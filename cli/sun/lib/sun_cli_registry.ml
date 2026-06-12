@@ -24,6 +24,7 @@ type release = {
   project_id  : project_id;
   environment : string;
   image_tag   : string;
+  digest      : string option;
   services    : release_service list;
   status      : release_status;
   created_at  : string;
@@ -87,6 +88,26 @@ let append_log_line t release_id line =
   in
   Hashtbl.replace t.logs release_id (existing @ [line])
 
+let update_release_digest t release_id digest_str =
+  match Hashtbl.find_opt t.releases release_id with
+  | None -> Error (Printf.sprintf "release %S not found" release_id)
+  | Some r ->
+    Hashtbl.replace t.releases release_id { r with digest = Some digest_str };
+    Ok ()
+
+let update_release_status t release_id status_str =
+  match Hashtbl.find_opt t.releases release_id with
+  | None -> Error (Printf.sprintf "release %S not found" release_id)
+  | Some r ->
+    let status = match status_str with
+      | "failed"   -> Failed
+      | "building" -> Building
+      | "live"     -> Live
+      | _          -> Queued
+    in
+    Hashtbl.replace t.releases release_id { r with status };
+    Ok ()
+
 let create_release t ~project_id ~environment ~image_tag ~service_names =
   match get_project t project_id with
   | Error msg -> Error msg
@@ -102,6 +123,7 @@ let create_release t ~project_id ~environment ~image_tag ~service_names =
       project_id;
       environment;
       image_tag;
+      digest = None;
       services;
       status = Live;
       created_at;
@@ -185,6 +207,7 @@ let release_to_json (r : release) =
     "project_id",  `String r.project_id;
     "environment", `String r.environment;
     "image_tag",   `String r.image_tag;
+    "digest",      (match r.digest with None -> `Null | Some s -> `String s);
     "status",      `String (release_status_to_string r.status);
     "created_at",  `String r.created_at;
     "services",    `List (List.map release_service_to_json r.services);
