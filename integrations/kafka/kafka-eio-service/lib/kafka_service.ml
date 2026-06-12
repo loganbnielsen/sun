@@ -71,25 +71,28 @@ let tls_authenticator = lazy (
     ]
   in
   let cas = List.find_map (fun path ->
+    let ic = ref None in
     try
-      let ic = open_in path in
-      let n  = in_channel_length ic in
+      let ch = open_in path in
+      ic := Some ch;
+      let n  = in_channel_length ch in
       let s  = Bytes.create n in
-      really_input ic s 0 n;
-      close_in ic;
+      really_input ch s 0 n;
+      close_in ch;
+      ic := None;
       match X509.Certificate.decode_pem_multiple (Bytes.to_string s) with
-      | Ok certs when certs <> [] -> Some certs
+      | Ok certs when certs <> [] -> Some (path, certs)
       | _ -> None
-    with _ -> None
+    with _ ->
+      Option.iter close_in_noerr !ic;
+      None
   ) ca_paths in
   match cas with
-  | Some certs -> X509.Authenticator.chain_of_trust ~time certs
+  | Some (_path, certs) -> Ok (X509.Authenticator.chain_of_trust ~time certs)
   | None ->
-    Printf.eprintf
-      "sun: warning: no system CA bundle found — TLS connections to the \
-       schema registry will not verify server certificates\n%!";
-    (* Accept any certificate when no CA bundle is available. *)
-    (fun ?ip:_ ~host:_ _chain -> Ok None)
+    Error
+      "kafka_service: no system CA bundle found for HTTPS schema registry; \
+       refusing to connect without certificate verification"
 )
 
 let http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt =
@@ -162,8 +165,13 @@ let http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt =
   try
     Ok (Eio.Net.with_tcp_connect net ~host ~service:(string_of_int port) (fun flow ->
       if use_tls then begin
+        let authenticator =
+          match Lazy.force tls_authenticator with
+          | Ok authenticator -> authenticator
+          | Error msg -> failwith msg
+        in
         let config =
-          match Tls.Config.client ~authenticator:(Lazy.force tls_authenticator) () with
+          match Tls.Config.client ~authenticator () with
           | Ok c   -> c
           | Error (`Msg m) -> failwith ("kafka_service: TLS config error: " ^ m)
         in

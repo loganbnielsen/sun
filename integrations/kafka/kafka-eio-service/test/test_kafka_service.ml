@@ -68,34 +68,9 @@ let test_wire_too_short () =
 (* JSON base_url parser                                                *)
 (* ------------------------------------------------------------------ *)
 
-let parse_base_url url =
-  let strip pfx s =
-    let plen = String.length pfx in
-    if String.length s >= plen && String.sub s 0 plen = pfx
-    then Some (String.sub s plen (String.length s - plen))
-    else None
-  in
-  let (use_tls, rest) =
-    match strip "https://" url with
-    | Some s -> (true, s)
-    | None ->
-      match strip "http://" url with
-      | Some s -> (false, s)
-      | None   -> (false, url)
-  in
-  let default_port = if use_tls then 443 else 80 in
-  match String.rindex_opt rest ':' with
-  | None   -> (rest, default_port, use_tls)
-  | Some i ->
-    let host = String.sub rest 0 i in
-    let port_s = String.sub rest (i + 1) (String.length rest - i - 1) in
-    (match int_of_string_opt port_s with
-     | Some p -> (host, p, use_tls)
-     | None   -> (rest, default_port, use_tls))
-
 let check_url msg expected url =
   let (eh, ep, et) = expected in
-  let (ah, ap, at_) = parse_base_url url in
+  let (ah, ap, at_) = Kafka_service.parse_base_url url in
   Alcotest.(check string) (msg ^ " host")   eh ah;
   Alcotest.(check int)    (msg ^ " port")   ep ap;
   Alcotest.(check bool)   (msg ^ " use_tls") et at_
