@@ -50,7 +50,7 @@ let secret_backend_to_string = function
   | Sun_cli_manifest.External_secrets _     -> "external-secrets"
 
 let run filter_path dry_run emit_to emit_plan_to image_tag registry
-        secret_backend_str store_ref store_kind key_prefix refresh_interval =
+        secret_backend_str store_ref store_kind key_prefix refresh_interval confirm_group_change =
   let secret_backend =
     parse_secret_backend secret_backend_str store_ref store_kind key_prefix refresh_interval emit_to
   in
@@ -104,6 +104,25 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
      exit 1);
   let env  = Sun_cli_env_target.to_env_config ~name:workspace env_target in
   let plan = Sun_cli_deployment_plan.of_services ~workspace ~env services in
+
+  (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
+     since that path does not touch the cluster directly). *)
+  if not dry_run && emit_to = None then begin
+    let prev_groups = Cmd_up.load_deployed_groups workspace in
+    let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
+    let removed = Cmd_up.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
+    if removed <> [] && not confirm_group_change then begin
+      Printf.eprintf
+        "\nwarning: the following consumer group(s) are no longer present in \
+         this deploy plan:\n";
+      List.iter (fun g -> Printf.eprintf "  - %s\n" g) removed;
+      Printf.eprintf
+        "\nMessages produced while the old group is absent will be consumed\n\
+         from the latest offset when the group is re-added, silently skipping\n\
+         any backlog.  Pass --confirm-group-change to acknowledge and proceed.\n\n";
+      exit 1
+    end
+  end;
 
   (* Emit plan JSON if requested *)
   (match emit_plan_to with
@@ -159,7 +178,8 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
      Printf.printf "Commit and push to your GitOps repo, then Argo CD will apply them.\n"
    | None when not dry_run ->
      Printf.printf "\nDone. %d service(s) deployed.\n" (List.length services);
-     Printf.printf "Run 'sun status' to check pod health.\n"
+     Printf.printf "Run 'sun status' to check pod health.\n";
+     Cmd_up.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
    | None -> ())
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
@@ -231,6 +251,11 @@ let refresh_interval_arg =
          ~doc:"How often ESO should sync the secret from the external store (default: 1h). \
                Examples: '1h', '30m', '5m'.")
 
+let confirm_group_change_flag =
+  Arg.(value & flag &
+       info ["confirm-group-change"]
+         ~doc:"Acknowledge that consumer group IDs have changed and proceed with deploy")
+
 let cmd =
   Cmd.v
     (Cmd.info "deploy"
@@ -240,4 +265,4 @@ let cmd =
     Term.(const run $ path_arg $ dry_run_flag $ emit_to_arg
           $ emit_plan_to_arg $ image_tag_arg $ registry_arg
           $ secret_backend_arg $ secret_store_ref_arg $ secret_store_kind_arg
-          $ key_prefix_arg $ refresh_interval_arg)
+          $ key_prefix_arg $ refresh_interval_arg $ confirm_group_change_flag)
