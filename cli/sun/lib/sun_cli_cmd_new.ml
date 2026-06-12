@@ -596,7 +596,7 @@ let ws_svc_lib_dune = {tpl|(library
 
 (* app/payments/charge_svc/bin/main.ml *)
 let ws_svc_bin_ml = {tpl|let () =
-  let postgres_url = Option.filter (fun s -> s <> "") (Sys.getenv_opt "POSTGRES_URL") in
+  let postgres_url = Option.bind (Sys.getenv_opt "POSTGRES_URL") (fun s -> if s = "" then None else Some s) in
   let loki_url     = Sys.getenv_opt "LOKI_URL" in
   let kafka_config = Kafka_service.config_of_env () in
   Eio_main.run @@ fun env ->
@@ -695,7 +695,7 @@ let ws_worker_lib_dune = {tpl|(library
 
 (* app/comms/notify_worker/bin/main.ml *)
 let ws_worker_bin_ml = {tpl|let () =
-  let postgres_url = Option.filter (fun s -> s <> "") (Sys.getenv_opt "POSTGRES_URL") in
+  let postgres_url = Option.bind (Sys.getenv_opt "POSTGRES_URL") (fun s -> if s = "" then None else Some s) in
   let loki_url     = Sys.getenv_opt "LOKI_URL" in
   let kafka_config = Kafka_service.config_of_env () in
   Eio_main.run @@ fun env ->
