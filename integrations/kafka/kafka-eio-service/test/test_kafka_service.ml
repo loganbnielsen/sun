@@ -69,38 +69,47 @@ let test_wire_too_short () =
 (* ------------------------------------------------------------------ *)
 
 let parse_base_url url =
-  if String.length url >= 8 && String.sub url 0 8 = "https://" then
-    failwith ("kafka_service: HTTPS schema registry not yet supported — \
-               set SCHEMA_REGISTRY_URL to an http:// address \
-               (url: " ^ url ^ ")");
-  let s =
-    if String.length url >= 7 && String.sub url 0 7 = "http://" then
-      String.sub url 7 (String.length url - 7)
-    else url
+  let strip pfx s =
+    let plen = String.length pfx in
+    if String.length s >= plen && String.sub s 0 plen = pfx
+    then Some (String.sub s plen (String.length s - plen))
+    else None
   in
-  match String.rindex_opt s ':' with
-  | None -> (s, 80)
+  let (use_tls, rest) =
+    match strip "https://" url with
+    | Some s -> (true, s)
+    | None ->
+      match strip "http://" url with
+      | Some s -> (false, s)
+      | None   -> (false, url)
+  in
+  let default_port = if use_tls then 443 else 80 in
+  match String.rindex_opt rest ':' with
+  | None   -> (rest, default_port, use_tls)
   | Some i ->
-    let host = String.sub s 0 i in
-    let port_s = String.sub s (i + 1) (String.length s - i - 1) in
+    let host = String.sub rest 0 i in
+    let port_s = String.sub rest (i + 1) (String.length rest - i - 1) in
     (match int_of_string_opt port_s with
-     | Some p -> (host, p)
-     | None -> (s, 80))
+     | Some p -> (host, p, use_tls)
+     | None   -> (rest, default_port, use_tls))
+
+let check_url msg expected url =
+  let (eh, ep, et) = expected in
+  let (ah, ap, at_) = parse_base_url url in
+  Alcotest.(check string) (msg ^ " host")   eh ah;
+  Alcotest.(check int)    (msg ^ " port")   ep ap;
+  Alcotest.(check bool)   (msg ^ " use_tls") et at_
 
 let test_parse_url () =
-  Alcotest.(check (pair string int)) "localhost:8081"
-    ("localhost", 8081) (parse_base_url "http://localhost:8081");
-  Alcotest.(check (pair string int)) "localhost:9644"
-    ("localhost", 9644) (parse_base_url "http://localhost:9644");
-  Alcotest.(check (pair string int)) "no port defaults to 80"
-    ("localhost", 80) (parse_base_url "http://localhost")
+  check_url "http://localhost:8081"  ("localhost", 8081, false) "http://localhost:8081";
+  check_url "http://localhost:9644"  ("localhost", 9644, false) "http://localhost:9644";
+  check_url "http no port"           ("localhost", 80,   false) "http://localhost"
 
-let test_parse_url_https_rejected () =
-  Alcotest.check_raises "https:// raises Failure"
-    (Failure "kafka_service: HTTPS schema registry not yet supported — \
-               set SCHEMA_REGISTRY_URL to an http:// address \
-               (url: https://registry.example.com:8081)")
-    (fun () -> ignore (parse_base_url "https://registry.example.com:8081"))
+let test_parse_url_https () =
+  check_url "https:// with port"
+    ("registry.example.com", 8081, true) "https://registry.example.com:8081";
+  check_url "https:// default 443"
+    ("registry.confluent.io", 443, true)  "https://registry.confluent.io"
 
 (* ------------------------------------------------------------------ *)
 (* Runner                                                              *)
@@ -117,6 +126,6 @@ let () =
     ];
     "url_parser", [
       test_case "parse base url"       `Quick test_parse_url;
-      test_case "https:// rejected"    `Quick test_parse_url_https_rejected;
+      test_case "https:// tls=true"   `Quick test_parse_url_https;
     ];
   ]

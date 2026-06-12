@@ -36,26 +36,64 @@ type t = {
 (* ------------------------------------------------------------------ *)
 
 let parse_base_url url =
-  if String.length url >= 8 && String.sub url 0 8 = "https://" then
-    failwith ("kafka_service: HTTPS schema registry not yet supported — \
-               set SCHEMA_REGISTRY_URL to an http:// address \
-               (url: " ^ url ^ ")");
-  let s =
-    if String.length url >= 7 && String.sub url 0 7 = "http://" then
-      String.sub url 7 (String.length url - 7)
-    else url
+  let strip pfx s =
+    let plen = String.length pfx in
+    if String.length s >= plen && String.sub s 0 plen = pfx
+    then Some (String.sub s plen (String.length s - plen))
+    else None
   in
-  match String.rindex_opt s ':' with
-  | None -> (s, 80)
+  let (use_tls, rest) =
+    match strip "https://" url with
+    | Some s -> (true, s)
+    | None ->
+      match strip "http://" url with
+      | Some s -> (false, s)
+      | None   -> (false, url)
+  in
+  let default_port = if use_tls then 443 else 80 in
+  match String.rindex_opt rest ':' with
+  | None   -> (rest, default_port, use_tls)
   | Some i ->
-    let host = String.sub s 0 i in
-    let port_s = String.sub s (i + 1) (String.length s - i - 1) in
+    let host = String.sub rest 0 i in
+    let port_s = String.sub rest (i + 1) (String.length rest - i - 1) in
     (match int_of_string_opt port_s with
-     | Some p -> (host, p)
-     | None -> (s, 80))
+     | Some p -> (host, p, use_tls)
+     | None   -> (rest, default_port, use_tls))
+
+(* Cached TLS authenticator — reads system CA bundle once. *)
+let tls_authenticator = lazy (
+  let time () = Ptime.of_float_s (Unix.gettimeofday ()) in
+  let ca_paths =
+    [ "/etc/ssl/certs/ca-certificates.crt"   (* Debian/Ubuntu/WSL *)
+    ; "/etc/pki/tls/certs/ca-bundle.crt"     (* RHEL/CentOS/Fedora *)
+    ; "/etc/ssl/ca-bundle.pem"               (* OpenSUSE *)
+    ; "/etc/ssl/cert.pem"                    (* macOS/Alpine *)
+    ]
+  in
+  let cas = List.find_map (fun path ->
+    try
+      let ic = open_in path in
+      let n  = in_channel_length ic in
+      let s  = Bytes.create n in
+      really_input ic s 0 n;
+      close_in ic;
+      match X509.Certificate.decode_pem_multiple (Bytes.to_string s) with
+      | Ok certs when certs <> [] -> Some certs
+      | _ -> None
+    with _ -> None
+  ) ca_paths in
+  match cas with
+  | Some certs -> X509.Authenticator.chain_of_trust ~time certs
+  | None ->
+    Printf.eprintf
+      "sun: warning: no system CA bundle found — TLS connections to the \
+       schema registry will not verify server certificates\n%!";
+    (* Accept any certificate when no CA bundle is available. *)
+    (fun ?ip:_ ~host:_ _chain -> Ok None)
+)
 
 let http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt =
-  let (host, port) = parse_base_url base_url in
+  let (host, port, use_tls) = parse_base_url base_url in
   let body = Option.value ~default:"" body_opt in
   let ct_header = match content_type_opt with
     | Some ct -> [Printf.sprintf "Content-Type: %s" ct]
@@ -63,64 +101,77 @@ let http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt =
   in
   let headers =
     [ Printf.sprintf "%s %s HTTP/1.1" meth path
-    ; Printf.sprintf "Host: %s:%d" host port
+    ; Printf.sprintf "Host: %s" host
     ; "Connection: close"
     ; Printf.sprintf "Content-Length: %d" (String.length body)
     ; "Accept: application/json"
     ] @ ct_header
   in
   let req = String.concat "\r\n" headers ^ "\r\n\r\n" ^ body in
+  let read_response flow =
+    Eio.Flow.copy_string req flow;
+    let buf = Eio.Buf_read.of_flow ~max_size:(4 * 1024 * 1024) flow in
+    let status_line = Eio.Buf_read.line buf in
+    let status =
+      match String.split_on_char ' ' status_line with
+      | _ :: code :: _ -> Option.value ~default:0 (int_of_string_opt code)
+      | _ -> 0
+    in
+    let content_length = ref None in
+    let is_chunked = ref false in
+    let rec read_headers () =
+      let line = Eio.Buf_read.line buf in
+      if line = "" then ()
+      else begin
+        let lower = String.lowercase_ascii line in
+        (if String.length lower > 15 && String.sub lower 0 15 = "content-length:" then
+          content_length :=
+            int_of_string_opt (String.trim (String.sub line 15 (String.length line - 15))));
+        (if String.length lower > 18 && String.sub lower 0 18 = "transfer-encoding:" then
+          let enc = String.trim (String.sub lower 18 (String.length lower - 18)) in
+          if enc = "chunked" then is_chunked := true);
+        read_headers ()
+      end
+    in
+    read_headers ();
+    let resp_body =
+      if !is_chunked then begin
+        let result = Buffer.create 1024 in
+        let rec read_chunks () =
+          let size_line = String.trim (Eio.Buf_read.line buf) in
+          let chunk_size =
+            try int_of_string ("0x" ^ size_line)
+            with _ -> 0
+          in
+          if chunk_size = 0 then ()
+          else begin
+            Buffer.add_string result (Eio.Buf_read.take chunk_size buf);
+            ignore (Eio.Buf_read.line buf);
+            read_chunks ()
+          end
+        in
+        read_chunks ();
+        Buffer.contents result
+      end else
+        match !content_length with
+        | Some n -> Eio.Buf_read.take n buf
+        | None   -> Eio.Buf_read.take_all buf
+    in
+    (status, resp_body)
+  in
   try
     Ok (Eio.Net.with_tcp_connect net ~host ~service:(string_of_int port) (fun flow ->
-      Eio.Flow.copy_string req flow;
-      let buf = Eio.Buf_read.of_flow ~max_size:(4 * 1024 * 1024) flow in
-      let status_line = Eio.Buf_read.line buf in
-      let status =
-        match String.split_on_char ' ' status_line with
-        | _ :: code :: _ -> Option.value ~default:0 (int_of_string_opt code)
-        | _ -> 0
-      in
-      let content_length = ref None in
-      let is_chunked = ref false in
-      let rec read_headers () =
-        let line = Eio.Buf_read.line buf in
-        if line = "" then ()
-        else begin
-          let lower = String.lowercase_ascii line in
-          (if String.length lower > 15 && String.sub lower 0 15 = "content-length:" then
-            content_length :=
-              int_of_string_opt (String.trim (String.sub line 15 (String.length line - 15))));
-          (if String.length lower > 18 && String.sub lower 0 18 = "transfer-encoding:" then
-            let enc = String.trim (String.sub lower 18 (String.length lower - 18)) in
-            if enc = "chunked" then is_chunked := true);
-          read_headers ()
-        end
-      in
-      read_headers ();
-      let resp_body =
-        if !is_chunked then begin
-          let result = Buffer.create 1024 in
-          let rec read_chunks () =
-            let size_line = String.trim (Eio.Buf_read.line buf) in
-            let chunk_size =
-              try int_of_string ("0x" ^ size_line)
-              with _ -> 0
-            in
-            if chunk_size = 0 then ()
-            else begin
-              Buffer.add_string result (Eio.Buf_read.take chunk_size buf);
-              ignore (Eio.Buf_read.line buf);
-              read_chunks ()
-            end
-          in
-          read_chunks ();
-          Buffer.contents result
-        end else
-          match !content_length with
-          | Some n -> Eio.Buf_read.take n buf
-          | None   -> Eio.Buf_read.take_all buf
-      in
-      (status, resp_body)
+      if use_tls then begin
+        let config =
+          match Tls.Config.client ~authenticator:(Lazy.force tls_authenticator) () with
+          | Ok c   -> c
+          | Error (`Msg m) -> failwith ("kafka_service: TLS config error: " ^ m)
+        in
+        let host_dn = Domain_name.host_exn (Domain_name.of_string_exn host) in
+        let tls_flow = Tls_eio.client_of_flow config ~host:host_dn flow in
+        read_response tls_flow
+      end else
+        read_response flow
     ))
   with exn -> Error (Printexc.to_string exn)
 
