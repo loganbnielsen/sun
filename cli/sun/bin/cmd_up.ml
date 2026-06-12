@@ -132,6 +132,116 @@ let check_port_forward_liveness ~name ~local_port =
   end;
   alive
 
+(** Extract the first occurrence of [prefix] followed by decimal digits in
+    [s], returning the digits as a string.  Returns [""] if not found. *)
+let extract_after_prefix s prefix =
+  let pl = String.length prefix and sl = String.length s in
+  let rec go i =
+    if i + pl > sl then ""
+    else if String.sub s i pl = prefix then begin
+      (* Collect digits after the prefix *)
+      let j = ref (i + pl) in
+      while !j < sl && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
+      if !j > i + pl then String.sub s (i + pl) (!j - (i + pl))
+      else go (i + 1)
+    end
+    else go (i + 1)
+  in
+  go 0
+
+(** Find the PID that owns [local_port] using [ss].  Returns [Some pid] or
+    [None] if the port is free / the lookup fails. *)
+let pid_owning_port local_port =
+  (* ss -tlnp prints lines like:
+       LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("kubectl",pid=12345,...))
+     We grab the users field and extract the pid. *)
+  let tmp = Filename.temp_file "sun-ss-" ".tmp" in
+  ignore (Sys.command
+    (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let content = In_channel.input_all ic in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  (* Extract pid=<N> from the users:((...)) field — no Str dependency needed *)
+  let digits = extract_after_prefix content "pid=" in
+  if digits = "" then None
+  else (try Some (int_of_string digits) with _ -> None)
+
+(** Parse a null-delimited /proc/<pid>/cmdline into a string list. *)
+let read_proc_cmdline pid =
+  let path = Printf.sprintf "/proc/%d/cmdline" pid in
+  try
+    let ic = open_in path in
+    let raw = In_channel.input_all ic in
+    close_in ic;
+    (* cmdline args are NUL-separated; split on NUL and filter empties *)
+    List.filter (fun s -> s <> "") (String.split_on_char '\x00' raw)
+  with _ ->
+    (* Fall back to ps if /proc is unavailable *)
+    let tmp = Filename.temp_file "sun-ps-" ".tmp" in
+    ignore (Sys.command
+      (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+    let ic = open_in tmp in
+    let s = String.trim (In_channel.input_all ic) in
+    close_in ic;
+    (try Sys.remove tmp with _ -> ());
+    String.split_on_char ' ' s
+
+(** Parse the arg list from a [kubectl port-forward -n <ns> svc/<svc> ...]
+    invocation.  Returns [(namespace, service)] or raises [Not_found]. *)
+let parse_kubectl_pf_args args =
+  (* Find -n flag value *)
+  let rec find_ns = function
+    | "-n" :: ns :: _ -> ns
+    | _ :: rest -> find_ns rest
+    | [] -> raise Not_found
+  in
+  let ns = find_ns args in
+  (* Find the resource argument, which matches svc/<name> or deployment/<name> *)
+  let svc =
+    List.find_map (fun a ->
+      if String.length a > 4 && String.sub a 0 4 = "svc/" then
+        Some (String.sub a 4 (String.length a - 4))
+      else None
+    ) args
+  in
+  match svc with
+  | Some s -> (ns, s)
+  | None -> raise Not_found
+
+(** Check whether [local_port] is bound by a stale Sun-managed kubectl
+    port-forward pointing at a different namespace or service than the one we
+    are about to start.  Returns [Some (pid, old_namespace, old_service)] when
+    a stale forward is detected, [None] otherwise. *)
+let detect_stale_port_forward local_port target_namespace target_service =
+  match pid_owning_port local_port with
+  | None -> None
+  | Some pid ->
+    let args = read_proc_cmdline pid in
+    (* Must be a kubectl invocation *)
+    let is_kubectl =
+      match args with
+      | prog :: _ ->
+        let base = Filename.basename prog in
+        base = "kubectl" || base = "kubectl.exe"
+      | [] -> false
+    in
+    if not is_kubectl then None
+    else begin
+      (* Must be a port-forward subcommand *)
+      let has_pf = List.exists (fun a -> a = "port-forward") args in
+      if not has_pf then None
+      else begin
+        match (try Some (parse_kubectl_pf_args args) with Not_found -> None) with
+        | None -> None
+        | Some (old_ns, old_svc) ->
+          if old_ns <> target_namespace || old_svc <> target_service then
+            Some (pid, old_ns, old_svc)
+          else
+            None
+      end
+    end
+
 let wait_for_rollout ~namespace ~name =
   let cmd = Printf.sprintf
     "kubectl rollout status deployment/%s -n %s --timeout=60s"
@@ -352,9 +462,25 @@ let run filter_path dry_run tag confirm_group_change =
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc ->
            let local_port = 8080 in
-           if not (port_forward_running ~service:spec.k8s_name spec.k8s_name) then
+           if not (port_forward_running ~service:spec.k8s_name spec.k8s_name) then begin
+             (* Before binding the port, check whether a stale Sun-managed
+                port-forward from a different workspace/namespace already owns
+                it.  If so, kill it and print a notice.  We only kill kubectl
+                processes — never unrelated processes. *)
+             (match detect_stale_port_forward local_port spec.namespace spec.k8s_name with
+              | Some (stale_pid, old_ns, old_svc) ->
+                Printf.printf
+                  "  [sun up] replacing stale port-forward for %s/%s on port %d\n%!"
+                  old_ns old_svc local_port;
+                (try Unix.kill stale_pid Sys.sigterm
+                 with Unix.Unix_error _ -> ());
+                (* Give the old process ~400 ms to release the port before we
+                   start the new wrapper script. *)
+                Unix.sleepf 0.4
+              | None -> ());
              start_port_forward ~name:spec.k8s_name ~namespace:spec.namespace
-               ~service:spec.k8s_name ~local_port ~remote_port:80;
+               ~service:spec.k8s_name ~local_port ~remote_port:80
+           end;
            let pf_alive = check_port_forward_liveness ~name:spec.k8s_name ~local_port in
            Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
            if pf_alive then
