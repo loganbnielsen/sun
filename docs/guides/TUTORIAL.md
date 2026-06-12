@@ -100,7 +100,7 @@ cd pluto
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
-This generates 21 files. Here is what was created and why:
+This generates 22 files. Here is what was created and why:
 
 ```
 pluto/
@@ -433,6 +433,7 @@ sun status [domain]                               show running pods and port-for
 
 sun migrate [apply]                               apply pending migrations
 sun migrate status                                show per-file applied/pending table
+sun migrate rollback                              roll back the last applied migration
 
 sun rollback [domain/service]                     roll back last deploy for one or all services
 sun logs <service> [--no-follow] [--tail=N]       stream logs from a deployed service
@@ -487,7 +488,7 @@ Services can opt into a typed high-level rollout strategy:
 ```toml
 [infra.rollout]
 strategy = "canary"
-steps = [10, 40, 100]
+steps = [{weight = 10}, {pause = {duration = 300}}, {weight = 50}, {pause = {}}, {weight = 100}]
 ```
 
 Canary steps are weight percentages from 0 to 100. For blue-green deployments, use:

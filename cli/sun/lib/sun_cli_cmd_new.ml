@@ -915,7 +915,7 @@ let new_workspace name =
   write ~path:(name ^ "/db/migrations/0001_notifications.sql") ~content:(subst v ws_migration_sql);
   let linked = link_sun_sources name in
   Printf.printf {|
-Done. 21 files generated.
+Done. 22 files generated.
 
   cd %s
   eval $(opam env) && dune build   # verify the scaffold compiles

@@ -218,7 +218,7 @@ charge-svc-5464d77bd4-2lnb9    1/1     Running   0          2m
 ```
 
 ```bash
-# 6. Try it
+# 7. Try it
 curl localhost:8080/health
 # ok
 
@@ -336,6 +336,7 @@ sun status payments        # single domain
 ```bash
 sun migrate                # apply pending migrations
 sun migrate status         # show applied / pending
+sun migrate rollback       # roll back the last applied migration
 ```
 
 ### Secrets
