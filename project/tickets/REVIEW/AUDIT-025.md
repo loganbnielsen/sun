@@ -3,6 +3,8 @@ id: AUDIT-025
 type: audit-finding
 severity: low
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-025/decode-error-structured-log
+worktree: ../sun-AUDIT-025-decode-error-structured-log
 ---
 
 `default_on_decode_error` uses unstructured stderr; callback lacks raw bytes
