@@ -28,10 +28,30 @@ let auto_forward_pg () =
     Unix.stdin devnull_w devnull_w
   in
   Unix.close devnull_w;
-  Unix.sleepf 2.0;  (* give the port-forward time to establish *)
   at_exit (fun () ->
     (try Unix.kill pid Sys.sigterm with _ -> ());
     (try ignore (Unix.waitpid [Unix.WNOHANG] pid) with _ -> ()));
+  (* Poll until localhost:15432 accepts a TCP connection, up to 5 s. *)
+  let max_attempts = 10 in
+  let rec wait n =
+    if n = 0 then
+      (Printf.eprintf "warning: port-forward did not become ready in time\n%!")
+    else begin
+      (try
+        let addr = Unix.ADDR_INET (Unix.inet_addr_loopback, 15432) in
+        let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+        (try
+          Unix.connect s addr;
+          Unix.close s
+        with exn ->
+          Unix.close s;
+          raise exn)
+      with _ ->
+        Unix.sleepf 0.5;
+        wait (n - 1))
+    end
+  in
+  wait max_attempts;
   "postgresql://postgres:dev@localhost:15432/dev"
 
 let get_postgres_url () =
