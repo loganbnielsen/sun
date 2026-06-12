@@ -3,6 +3,8 @@ id: AUDIT-024
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-11_audit.md
+branch: AUDIT-024/workspace-prefixed-migration-table
+worktree: ../sun-AUDIT-024-workspace-prefixed-migration-table
 ---
 
 Migration tracking table is not workspace-prefixed
