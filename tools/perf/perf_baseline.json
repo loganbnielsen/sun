@@ -861,6 +861,22 @@
           "commit": "1ac9839",
           "duration_s": 1.109,
           "baseline": true
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "dba35e5",
+          "duration_s": 1.110
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "dba35e5",
+          "duration_s": 1.112
+        },
+        {
+          "date": "2026-06-11",
+          "commit": "dba35e5",
+          "duration_s": 1.098,
+          "baseline": true
         }
       ]
     },
