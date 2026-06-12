@@ -29,3 +29,11 @@ COPY --from=build /workspace/_build/default/<service>/bin/main.exe /usr/local/bi
 CMD ["/usr/local/bin/<svc>"]
 ```
 Update scaffold template, examples, and the Dockerfile generation in `sun up`.
+
+**Review notes (2026-06-12, fail):** Scaffold template and `cmd_up.ml` were correctly updated. Four example Dockerfiles were NOT updated and must be converted to multi-stage builds before this ticket can pass:
+- `examples/pluto/app/payments/charge_svc/Dockerfile`
+- `examples/pluto/app/comms/notify_worker/Dockerfile`
+- `examples/venus/app/logistics/fulfillment_worker/Dockerfile`
+- `examples/venus/app/comms/notify_worker/Dockerfile`
+
+All four still use the old single-stage pattern (`FROM ubuntu:24.04` + `COPY _build/...`) and are missing `USER 65534`.
