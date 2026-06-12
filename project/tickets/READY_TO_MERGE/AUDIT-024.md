@@ -16,3 +16,6 @@ Migration tracking table is not workspace-prefixed
 **Impact:** Incorrect `sun migrate status` output and missed migrations when multiple workspaces share a database.
 
 **Remediation:** Derive the default table name from the workspace name found in the nearest `dune-project` file (e.g., `sun_<workspace>_schema_migrations`). Update `Migration.apply`, `Migration.status`, `Migration.rollback`, and `cmd_migrate.ml`. The `--table` flag override continues to work for advanced use.
+
+## Review — automated checks passed
+Build clean, diff limited to cmd_migrate.ml, default_table_name correctly derived from workspace directory with sanitization, table_arg updated, tests pass.

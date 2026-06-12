@@ -16,3 +16,6 @@ Consumer group ID changes not detected before deploy
 **Impact:** Silent message loss or double-processing on consumer group ID renames. No warning is emitted before or after deploy.
 
 **Remediation:** Store the last deployed `consumer_groups` in a ConfigMap (`sun-deploy-state`) per workspace namespace. On each deploy, compare the incoming plan's groups against the stored set. Emit a prominent warning (and require `--confirm-group-change` to proceed) if any group ID is renamed or removed.
+
+## Review — automated checks passed
+All checklist items satisfied; build clean; no shell injection; JSON escaping advisory fixed in follow-up commit (String.escaped applied to ConfigMap name field).
