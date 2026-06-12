@@ -36,7 +36,12 @@ let read_cmdline pid =
   (try Sys.remove tmp with _ -> ());
   s
 
-let port_forward_running ~service name =
+let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
+let script_file name = Printf.sprintf "/tmp/sun-pf-%s.sh" name
+
+(* The PID file now holds the wrapper shell's PID, not kubectl's.
+   Identify our wrapper by the script file name in the process's cmdline. *)
+let port_forward_running ~service:_ name =
   let pf = pid_file name in
   if Sys.file_exists pf then begin
     let ic = open_in pf in
@@ -46,10 +51,7 @@ let port_forward_running ~service name =
       let pid = int_of_string pid_s in
       let alive = Sys.command (Printf.sprintf "kill -0 %d 2>/dev/null" pid) = 0 in
       let args = if alive then read_cmdline pid else "" in
-      let ok = alive
-        && contains args "kubectl port-forward"
-        && contains args ("svc/" ^ service)
-      in
+      let ok = alive && contains args (Printf.sprintf "sun-pf-%s.sh" name) in
       if not ok then (try Sys.remove pf with _ -> ());
       ok
     with _ ->
@@ -57,23 +59,29 @@ let port_forward_running ~service name =
       false
   end else false
 
-let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
-
+(** Write a self-restarting wrapper script and background it in a new session.
+    On pod rollout, kubectl exits; the loop restarts it within ~1 s so the
+    port-forward stays live across deploys without manual intervention. *)
 let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
   ensure_state_dir ();
-  let script = Printf.sprintf
-    "kubectl port-forward -n %s svc/%s %d:%d </dev/null > %s 2>&1 & echo $! > %s"
-    (Filename.quote namespace)
-    (Filename.quote service)
+  let sf = script_file name in
+  let lf = log_file name in
+  let pf = pid_file name in
+  let content = Printf.sprintf
+    "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s svc/%s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
+    (Filename.quote pf)
+    (Filename.quote namespace) (Filename.quote service)
     local_port remote_port
-    (Filename.quote (log_file name))
-    (Filename.quote (pid_file name))
+    (Filename.quote lf)
   in
-  let cmd = Printf.sprintf
-    "setsid sh -c %s"
-    (Filename.quote script)
-  in
-  ignore (run_cmd ~echo:false cmd)
+  let oc = open_out sf in
+  output_string oc content;
+  close_out oc;
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote sf)));
+  (* setsid puts the loop in its own session so it outlives this process;
+     the trailing & returns immediately to the OCaml caller. *)
+  ignore (run_cmd ~echo:false
+    (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
 
 (** Read the last [n] lines of a file, or [""] if the file is missing/empty. *)
 let read_last_lines path n =

@@ -61,21 +61,21 @@ type pf_spec = {
 let start_port_forward pf =
   Printf.printf "  port-forward  %-12s localhost:%d → %s/%s:%d\n%!"
     pf.name pf.local_port pf.namespace pf.target pf.remote_port;
-  (* Start in background, capture PID via $! *)
   let log_file = Printf.sprintf "/tmp/sun-pf-%s.log" pf.name in
-  let script = Printf.sprintf
-    "kubectl port-forward -n %s %s %d:%d </dev/null > %s 2>&1 & echo $! > %s"
-    (Filename.quote pf.namespace)
-    (Filename.quote pf.target)
+  let script_file = Printf.sprintf "/tmp/sun-pf-%s.sh" pf.name in
+  let content = Printf.sprintf
+    "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s %s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
+    (Filename.quote (pid_file pf.name))
+    (Filename.quote pf.namespace) (Filename.quote pf.target)
     pf.local_port pf.remote_port
     (Filename.quote log_file)
-    (Filename.quote (pid_file pf.name))
   in
-  let cmd = Printf.sprintf
-    "setsid sh -c %s"
-    (Filename.quote script)
-  in
-  ignore (run_cmd ~echo:false cmd)
+  let oc = open_out script_file in
+  output_string oc content;
+  close_out oc;
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote script_file)));
+  ignore (run_cmd ~echo:false
+    (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
 let stop_port_forwards () =
   if Sys.file_exists state_dir then begin
