@@ -10,6 +10,7 @@ type status = {
 
 let parse_filename f =
   if not (Filename.check_suffix f ".sql") then None
+  else if Filename.check_suffix f ".down.sql" then None
   else
     let base = Filename.chop_suffix f ".sql" in
     match String.split_on_char '_' base with
