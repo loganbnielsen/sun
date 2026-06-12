@@ -421,15 +421,32 @@ jobs:
         run: eval $(opam env) && sun status
 |tpl}
 
-let tpl_dockerfile = {tpl|# sun up compiles locally with dune, then runs:
-#   docker build -t <image> -f {{repo_dir}}/Dockerfile <repo_root>
+let tpl_dockerfile = {tpl|# Stage 1: compile inside ubuntu-24.04 so the binary links against glibc 2.39.
+# sun up resolves vendor/ symlinks into the build context before running docker build.
+FROM ocaml/opam:ubuntu-24.04-ocaml-5.4.1 AS build
+RUN sudo apt-get update && sudo apt-get install -y \
+    librdkafka-dev libpq-dev libssl-dev && \
+    sudo rm -rf /var/lib/apt/lists/*
+RUN opam install -y --no-self-upgrade \
+    eio eio_main cohttp-eio yojson cmdliner base64 uri cstruct mtime \
+    caqti-eio caqti-driver-postgresql
+COPY . /workspace
+WORKDIR /workspace
+RUN opam exec -- dune build {{repo_dir}}/bin/main.exe
+
+# Stage 2: minimal runtime image
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y librdkafka1 libpq5 ca-certificates && \
     rm -rf /var/lib/apt/lists/*
-COPY _build/default/{{repo_dir}}/bin/main.exe /usr/local/bin/{{binary}}
+COPY --from=build /workspace/_build/default/{{repo_dir}}/bin/main.exe /usr/local/bin/{{binary}}
 # Run as nobody (uid 65534) — matches securityContext in generated k8s manifests
 USER 65534
 CMD ["/usr/local/bin/{{binary}}"]
+|tpl}
+
+let tpl_dockerignore = {tpl|_build/
+.git/
+*.docker-ctx/
 |tpl}
 
 (* ── Workspace scaffold templates ────────────────────────────────────── *)
@@ -945,6 +962,7 @@ let new_workspace name =
       ("repo_dir", "app/comms/notify_worker");
       ("binary",   name ^ "-notify-worker");
     ]) tpl_dockerfile);
+  write ~path:(name ^ "/.dockerignore") ~content:tpl_dockerignore;
   (* db *)
   write ~path:(name ^ "/db/migrations/0001_notifications.sql") ~content:(subst v ws_migration_sql);
   write ~path:(name ^ "/db/migrations/0001_notifications.down.sql") ~content:(subst v ws_migration_down_sql);
@@ -953,7 +971,7 @@ let new_workspace name =
   write ~path:(name ^ "/test/dune")            ~content:(subst v ws_test_dune);
   let linked = link_sun_sources name in
   Printf.printf {|
-Done. 25 files generated.
+Done. 26 files generated.
 
   cd %s
   eval $(opam env) && dune build   # verify the scaffold compiles
