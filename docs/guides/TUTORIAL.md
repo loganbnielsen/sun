@@ -280,7 +280,9 @@ Applying migrations from db/migrations...
 Done.
 ```
 
-The migration runner applies SQL files in numeric order and records each applied version in a `sun_schema_migrations` table. Re-running `sun migrate` is safe — already-applied versions are skipped.
+The migration runner applies SQL files in numeric order and records each applied version in a `sun_<workspace>_schema_migrations` table (for example, `sun_pluto_schema_migrations` when your workspace directory is `pluto`). Re-running `sun migrate` is safe — already-applied versions are skipped.
+
+The table name is derived from your workspace directory name. Use `--table <name>` to override the default if you need a custom tracking table.
 
 Check migration status at any time:
 
