@@ -14,6 +14,7 @@ let memory_ops () =
                                Sun_cli_registry.get_release_logs r release_id);
     append_log_line       = Sun_cli_registry.append_log_line r;
     update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
 (* ── POST /projects ─────────────────────────────────────────────────────── *)

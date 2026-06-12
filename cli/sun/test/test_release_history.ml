@@ -14,6 +14,7 @@ let memory_ops_of reg =
                                Sun_cli_registry.get_release_logs reg release_id);
     append_log_line       = Sun_cli_registry.append_log_line reg;
     update_release_digest = Sun_cli_registry.update_release_digest reg;
+    update_release_status = (fun rid s -> Sun_cli_registry.update_release_status reg rid s);
   }
 
 let make_registry_with_releases n =

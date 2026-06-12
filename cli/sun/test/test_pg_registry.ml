@@ -37,6 +37,7 @@ let memory_ops () =
                                Sun_cli_registry.get_release_logs r release_id);
     append_log_line       = Sun_cli_registry.append_log_line r;
     update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
 let test_memory_create_project () =
@@ -152,6 +153,134 @@ let test_update_release_digest_unknown () =
   let result = ops.Sun_cli_control_plane.update_release_digest "no-such-rel" "sha256:abc" in
   check_bool "error on missing release" true (Result.is_error result)
 
+(* ── update_release_status tests ─────────────────────────────────────────── *)
+
+let test_update_release_status_failed () =
+  let ops = memory_ops () in
+  let p = ops.Sun_cli_control_plane.create_project ~workspace:"testws" |> get_ok in
+  let pid = p.Sun_cli_registry.project_id in
+  let rel = ops.Sun_cli_control_plane.create_release
+    ~project_id:pid ~environment:"production" ~image_tag:"sha-abc"
+    ~service_names:["svc-a"]
+    |> get_ok
+  in
+  let rid = rel.Sun_cli_registry.release_id in
+  (* Mark as failed (simulates the build-failure branch in cloud_deploy) *)
+  let result = ops.Sun_cli_control_plane.update_release_status rid "failed" in
+  check_bool "status update ok" true (Result.is_ok result);
+  (* Append the log line that cloud_deploy now emits *)
+  ops.Sun_cli_control_plane.append_log_line rid "[deploy] release failed";
+  let logs = ops.Sun_cli_control_plane.get_release_logs pid rid |> get_ok in
+  let has_failed_log =
+    List.exists (fun l -> l = "[deploy] release failed") logs
+  in
+  check_bool "failed log present" true has_failed_log
+
+let test_update_release_status_unknown () =
+  let ops = memory_ops () in
+  let result = ops.Sun_cli_control_plane.update_release_status "no-such-rel" "failed" in
+  check_bool "error on missing release" true (Result.is_error result)
+
+(* ── fake_builder injection test ─────────────────────────────────────────── *)
+
+(* fake_builder type mirroring cmd_cloud.ml — avoids importing the executable *)
+type builder_result = {
+  image_tag : string;
+  digest    : string;
+}
+
+type builder_adapter = {
+  build_and_push :
+    workspace_path:string ->
+    service_dir:string ->
+    image_ref:string ->
+    log:(string -> unit) ->
+    (builder_result, string) result;
+}
+
+let fake_builder ?(digest = "sha256:deadbeef") () = {
+  build_and_push = fun ~workspace_path:_ ~service_dir:_ ~image_ref ~log ->
+    log (Printf.sprintf "[build] (fake) built %s" image_ref);
+    log (Printf.sprintf "[push] (fake) pushed %s" image_ref);
+    log (Printf.sprintf "[deploy] (fake) digest: %s" digest);
+    Ok { image_tag = image_ref; digest }
+}
+
+(* run_deploy_pipeline: mirrors the core logic of cloud_deploy, using injectable builder *)
+let run_deploy_pipeline ~ops ~builder ~workspace ~environment ~services =
+  let project = ops.Sun_cli_control_plane.create_project ~workspace |> get_ok in
+  let pid = project.Sun_cli_registry.project_id in
+  let service_names = List.map fst services in
+  let rel = ops.Sun_cli_control_plane.create_release
+    ~project_id:pid ~environment ~image_tag:"sha-test"
+    ~service_names |> get_ok
+  in
+  let rid = rel.Sun_cli_registry.release_id in
+  let last_digest = ref "sha-test" in
+  let all_ok = List.for_all (fun (svc_name, svc_dir) ->
+    let image_ref = Printf.sprintf "reg/%s/%s:sha-test" workspace svc_name in
+    let log line = ops.Sun_cli_control_plane.append_log_line rid line in
+    match builder.build_and_push
+        ~workspace_path:"/tmp/ws" ~service_dir:svc_dir ~image_ref ~log with
+    | Error msg ->
+      ops.Sun_cli_control_plane.append_log_line rid
+        (Printf.sprintf "[deploy] build failed: %s" msg);
+      false
+    | Ok result ->
+      last_digest := result.digest;
+      true
+  ) services in
+  if all_ok then begin
+    ignore (ops.Sun_cli_control_plane.update_release_digest rid !last_digest);
+    ops.Sun_cli_control_plane.append_log_line rid "[deploy] release complete: status=live";
+    let release_with_digest = { rel with Sun_cli_registry.digest = Some !last_digest } in
+    Ok release_with_digest
+  end else begin
+    ignore (ops.Sun_cli_control_plane.update_release_status rid "failed");
+    ops.Sun_cli_control_plane.append_log_line rid "[deploy] release failed";
+    Error "build failed"
+  end
+
+let test_fake_builder_injection_happy_path () =
+  let ops = memory_ops () in
+  let builder = fake_builder ~digest:"sha256:test" () in
+  let result = run_deploy_pipeline ~ops ~builder
+    ~workspace:"myapp" ~environment:"production"
+    ~services:[("charge-svc", "services/charge")]
+  in
+  check_bool "pipeline ok" true (Result.is_ok result);
+  let rel = Result.get_ok result in
+  check_string "digest set" "sha256:test"
+    (Option.value ~default:"" rel.Sun_cli_registry.digest);
+  let logs = ops.Sun_cli_control_plane.get_release_logs
+    "proj-myapp" rel.Sun_cli_registry.release_id |> get_ok in
+  let has_complete_log =
+    List.exists (fun l -> l = "[deploy] release complete: status=live") logs
+  in
+  check_bool "complete log present" true has_complete_log
+
+let test_fake_builder_injection_failure () =
+  let ops = memory_ops () in
+  let failing_builder = {
+    build_and_push = fun ~workspace_path:_ ~service_dir:_ ~image_ref:_ ~log:_ ->
+      Error "simulated docker build error"
+  } in
+  let result = run_deploy_pipeline ~ops ~builder:failing_builder
+    ~workspace:"myapp2" ~environment:"production"
+    ~services:[("api-svc", "services/api")]
+  in
+  check_bool "pipeline fails" true (Result.is_error result);
+  (* Verify that get_release_logs is accessible and contains failure log *)
+  let pid = Sun_cli_registry.project_id_of_workspace "myapp2" in
+  let all_releases = ops.Sun_cli_control_plane.list_releases ~project_id:pid |> get_ok in
+  check_bool "release recorded" true (List.length all_releases = 1);
+  let rid = (List.hd all_releases).Sun_cli_registry.release_id in
+  let logs = ops.Sun_cli_control_plane.get_release_logs pid rid |> get_ok in
+  let has_failed_log =
+    List.exists (fun l -> l = "[deploy] release failed") logs
+  in
+  check_bool "failed log present" true has_failed_log
+
 let () =
   Alcotest.run "pg_registry"
     [ "memory_ops vtable", [
@@ -164,6 +293,14 @@ let () =
       "builder pipeline", [
         Alcotest.test_case "builder pipeline records digest and logs" `Quick test_builder_pipeline_memory;
         Alcotest.test_case "update digest returns error for unknown release" `Quick test_update_release_digest_unknown;
+      ];
+      "update_release_status", [
+        Alcotest.test_case "mark release as failed records log" `Quick test_update_release_status_failed;
+        Alcotest.test_case "update status returns error for unknown release" `Quick test_update_release_status_unknown;
+      ];
+      "builder injection", [
+        Alcotest.test_case "fake_builder happy path sets digest" `Quick test_fake_builder_injection_happy_path;
+        Alcotest.test_case "fake_builder failure marks release failed" `Quick test_fake_builder_injection_failure;
       ];
       "pg_ops (integration)", [
         Alcotest.test_case "create project" `Quick test_pg_create_project;

@@ -95,6 +95,19 @@ let update_release_digest t release_id digest_str =
     Hashtbl.replace t.releases release_id { r with digest = Some digest_str };
     Ok ()
 
+let update_release_status t release_id status_str =
+  match Hashtbl.find_opt t.releases release_id with
+  | None -> Error (Printf.sprintf "release %S not found" release_id)
+  | Some r ->
+    let status = match status_str with
+      | "failed"   -> Failed
+      | "building" -> Building
+      | "live"     -> Live
+      | _          -> Queued
+    in
+    Hashtbl.replace t.releases release_id { r with status };
+    Ok ()
+
 let create_release t ~project_id ~environment ~image_tag ~service_names =
   match get_project t project_id with
   | Error msg -> Error msg

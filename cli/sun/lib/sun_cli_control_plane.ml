@@ -25,6 +25,7 @@ type registry_ops = {
   get_release_logs      : string -> string -> (string list, string) result;
   append_log_line       : string -> string -> unit;
   update_release_digest : string -> string -> (unit, string) result;
+  update_release_status : string -> string -> (unit, string) result;
 }
 
 let ok body      = { status = 200; body }

@@ -440,6 +440,15 @@ module Pg_registry = struct
     | Ok () -> Ok ()
     | Error e -> Error (storage_err_to_string e)
 
+  let update_status_q =
+    (Caqti_type.(t2 string string) ->. Caqti_type.unit)
+      "UPDATE hosted_releases SET status = ? WHERE release_id = ?"
+
+  let pg_update_status pool release_id status_str =
+    match Db.exec pool update_status_q (status_str, release_id) with
+    | Ok () -> Ok ()
+    | Error e -> Error (storage_err_to_string e)
+
   (* ── vtable builder ────────────────────────────────────────────────────── *)
 
   let pg_ops pool : Sun_cli_control_plane.registry_ops = {
@@ -452,6 +461,7 @@ module Pg_registry = struct
     get_release_logs      = pg_get_release_logs pool;
     append_log_line       = pg_append_log_line pool;
     update_release_digest = pg_update_digest pool;
+    update_release_status = pg_update_status pool;
   }
 end
 
@@ -469,6 +479,7 @@ let memory_ops () =
                                Sun_cli_registry.get_release_logs r release_id);
     append_log_line       = Sun_cli_registry.append_log_line r;
     update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
 (* ── Registry selector ───────────────────────────────────────────────────── *)
@@ -592,7 +603,7 @@ let fake_builder ?(digest = "sha256:deadbeef") () = {
     Ok { image_tag = image_ref; digest }
 }
 
-let cloud_deploy environment image_tag registry dry_run output_json =
+let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_run output_json =
   let workspace = Filename.basename (Sys.getcwd ()) in
   let sha = match image_tag with Some t -> t | None -> git_sha () in
 
@@ -635,7 +646,7 @@ let cloud_deploy environment image_tag registry dry_run output_json =
         let image_ref = Printf.sprintf "%s/%s/%s:%s"
           reg workspace (Sun_cli_deployment_plan.k8s_name_of svc.name) sha in
         let log line = ops.Sun_cli_control_plane.append_log_line release_id line in
-        match local_builder.build_and_push
+        match builder.build_and_push
             ~workspace_path ~service_dir:svc.dir ~image_ref ~log with
         | Error msg ->
           ops.Sun_cli_control_plane.append_log_line release_id
@@ -649,15 +660,18 @@ let cloud_deploy environment image_tag registry dry_run output_json =
         ignore (ops.Sun_cli_control_plane.update_release_digest release_id !last_digest);
         ops.Sun_cli_control_plane.append_log_line release_id
           "[deploy] release complete: status=live";
+        let release_with_digest = { release with Sun_cli_registry.digest = Some !last_digest } in
         if output_json then
           print_string (Yojson.Safe.pretty_to_string
-            (Sun_cli_registry.release_to_json release))
+            (Sun_cli_registry.release_to_json release_with_digest))
         else begin
           Printf.printf "Release:  %s\n" release_id;
           Printf.printf "Digest:   %s\n" !last_digest;
           Printf.printf "Status:   live\n"
         end
       end else begin
+        ignore (ops.Sun_cli_control_plane.update_release_status release_id "failed");
+        ops.Sun_cli_control_plane.append_log_line release_id "[deploy] release failed";
         Printf.eprintf
           "error: build failed; check release logs with: sun cloud logs --release %s\n"
           release_id;
@@ -700,7 +714,9 @@ let deploy_cmd =
        ~doc:"Build workspace images, push to a registry, and record a hosted \
              release. Creates the project if it does not exist. \
              Use --dry-run to preview without building or recording.")
-    Term.(const cloud_deploy $ environment_arg $ cloud_image_tag_arg
+    (* cloud_deploy has an optional ~builder arg for test injection; bind the
+       default here so Cmdliner sees a regular curried function. *)
+    Term.(const (cloud_deploy ~builder:local_builder) $ environment_arg $ cloud_image_tag_arg
           $ registry_arg $ cloud_dry_run_flag $ output_json_flag)
 
 (* ── cloud releases ──────────────────────────────────────────────────────── *)

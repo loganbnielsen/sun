@@ -87,6 +87,10 @@ val append_log_line : t -> release_id -> string -> unit
 val update_release_digest : t -> release_id -> string -> (unit, string) result
 (** Update the digest field on an existing release. Error if not found. *)
 
+val update_release_status : t -> release_id -> string -> (unit, string) result
+(** Update the status field on an existing release. Accepts "failed", "building",
+    "live", or "queued". Error if not found. *)
+
 val get_release_logs : t -> release_id -> (string list, string) result
 (** Return all log lines for a release. Error if the release does not exist. *)
 
