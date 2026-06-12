@@ -45,3 +45,11 @@ that records the produced image digest in the release model.
 - Remote build farm scheduling.
 - Multi-architecture builds.
 - Custom domains or TLS provisioning.
+
+**Review notes (2026-06-12, fail):** Three violations to fix before re-review:
+
+1. **High — failed builds don't mark release as Failed.** In `cloud_deploy`, the `else` branch (build failure) calls `eprintf` + `exit 1` but never updates the release record to `status=Failed`. Add `update_release_status` to the `registry_ops` vtable (and both memory/pg implementations), and call it on failure.
+
+2. **Medium — builder not injectable into `cloud_deploy`.** `cloud_deploy` hardcodes `local_builder.build_and_push`. Add a `builder:builder_adapter` parameter to `cloud_deploy` so tests can pass `fake_builder`. Update the `deploy_cmd` term to pass `local_builder` as default. Tests should call `cloud_deploy` with `fake_builder` rather than simulating vtable calls directly.
+
+3. **Low — `--output-json` prints stale digest.** The `release` binding is captured before the build loop, so it has `digest = None`. After `update_release_digest`, re-fetch the release (add `get_release` to `registry_ops`) or update the local binding to include the new digest before serialising.
