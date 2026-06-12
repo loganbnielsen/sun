@@ -3,6 +3,8 @@ id: CLOUD-005
 type: feature
 severity: high
 source: docs/planning/POST_DOGFOOD_GAMEPLAN.md
+branch: CLOUD-005/hosted-builder-registry-handoff
+worktree: ../sun-CLOUD-005-hosted-builder-registry-handoff
 ---
 
 Add a real hosted builder and registry handoff path.
