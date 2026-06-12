@@ -76,10 +76,15 @@ let run_status dir table () =
 
 (* ── rollback ────────────────────────────────────────────────────────────── *)
 
-let run_rollback _ _ () =
-  Printf.eprintf "sun migrate rollback: not yet implemented.\n";
-  Printf.eprintf "  Tip: write a down migration SQL file and apply it directly for now.\n";
-  exit 1
+let run_rollback dir table () =
+  let url = get_postgres_url () in
+  with_pool url (fun pool ->
+    match Migration.rollback ~table pool ~dir with
+    | Ok () -> Printf.printf "Rolled back.\n"
+    | Error e ->
+      Printf.eprintf "error: %s\n" (Storage_error.to_string e);
+      exit 1
+  )
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 

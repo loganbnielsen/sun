@@ -732,6 +732,10 @@ let ws_migration_sql = {tpl|CREATE TABLE IF NOT EXISTS {{name}}_notifications (
 );
 |tpl}
 
+(* db/migrations/0001_notifications.down.sql *)
+let ws_migration_down_sql = {tpl|DROP TABLE IF EXISTS {{name}}_notifications;
+|tpl}
+
 (* ── Generic primitive templates ─────────────────────────────────────── *)
 
 (* Generic svc: lib/handler.ml *)
@@ -913,9 +917,10 @@ let new_workspace name =
     ]) tpl_dockerfile);
   (* db *)
   write ~path:(name ^ "/db/migrations/0001_notifications.sql") ~content:(subst v ws_migration_sql);
+  write ~path:(name ^ "/db/migrations/0001_notifications.down.sql") ~content:(subst v ws_migration_down_sql);
   let linked = link_sun_sources name in
   Printf.printf {|
-Done. 22 files generated.
+Done. 23 files generated.
 
   cd %s
   eval $(opam env) && dune build   # verify the scaffold compiles
