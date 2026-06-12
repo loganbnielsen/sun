@@ -75,16 +75,17 @@ The following substrate inputs must exist before running `sun deploy`.
 ### Base Domain and TLS (Optional)
 
 - A DNS name under which services are exposed, e.g. `myapp.example.com`.
-  Pass via `sun deploy --base-domain <domain>` or `base_domain` in `sun.toml`.
-- When `base_domain` is set, Sun generates an Ingress object for each `-svc`
-  with a host rule `<service>.<base_domain>`.
+  Set `ingress_host` in `[infra.deploy]` of each service's `sun.toml` to
+  enable Ingress generation for that service.
+- When `ingress_host` is set, Sun generates an Ingress object for the `-svc`
+  with a host rule matching that value.
 - TLS termination is the cluster's responsibility. Sun does not create
   `Certificate` resources or interact with cert-manager unless you add a
   `tls_secret_name` field to the service spec in `sun.toml`. Sun will then
   reference that secret in the Ingress TLS block, but it will not provision the
   certificate.
-- If `base_domain` is absent, no Ingress objects are generated and services are
-  only reachable via `kubectl port-forward` or ClusterIP.
+- If no service has `ingress_host` set, no Ingress objects are generated and
+  services are only reachable via `kubectl port-forward` or ClusterIP.
 
 ---
 
@@ -102,7 +103,7 @@ objects for each service in your workspace:
 | Deployment | For every `-svc` and `-worker`. |
 | Service (ClusterIP) | For every `-svc`. |
 | CronJob | For every `-fn`, using the `schedule:` field from `sun.toml`. |
-| Ingress | For `-svc` when `base_domain` is set. |
+| Ingress | For `-svc` when `ingress_host` is set in `sun.toml`. |
 | NetworkPolicy | Always. Denies NodePort egress, enforces non-root containers. |
 
 Sun's artifact is the set of YAML manifests. In direct mode (`sun deploy`
@@ -213,18 +214,17 @@ docker push $REGISTRY/orders-svc:$SHA
 # 2. Deploy — Sun's responsibility
 sun deploy \
   --registry   $REGISTRY \
-  --image-tag  $SHA \
-  --base-domain myapp.example.com
+  --image-tag  $SHA
 ```
 
 What Sun does in step 2:
 
 1. Discovers services in `app/` (any directory with a `Dockerfile`).
 2. Reads `sun.toml` for service metadata (domain, primitive type, schedule,
-   secret names, config keys).
+   secret names, config keys, `ingress_host`).
 3. Validates that `--registry` is non-empty for customer cluster modes.
 4. Renders namespaces, service accounts, Deployments/Services/CronJobs,
-   Ingress (if `base_domain` set), and NetworkPolicies.
+   Ingress (when `ingress_host` is set in `sun.toml`), and NetworkPolicies.
 5. Applies manifests via `kubectl apply` (direct mode) or writes YAML files
    to the `--emit-to` directory (GitOps mode).
 
