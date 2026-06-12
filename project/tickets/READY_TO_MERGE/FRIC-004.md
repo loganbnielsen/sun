@@ -24,3 +24,6 @@ with:
 Option.bind (Sys.getenv_opt "POSTGRES_URL") (fun s -> if s = "" then None else Some s)
 ```
 This is the correct OCaml idiom for filtering an option value. Apply to both the `svc` and `worker` entrypoint templates. Then regenerate a workspace and verify `dune build` succeeds.
+
+## Review — automated checks passed
+FRIC-004 remediation is scoped correctly, builds, and generated service/worker templates no longer use Option.filter.

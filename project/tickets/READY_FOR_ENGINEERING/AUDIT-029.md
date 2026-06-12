@@ -20,3 +20,7 @@ Implement TLS support in schema registry HTTP client
 2. Thread `use_tls` through `http_do_once` → open a TLS-enabled Eio socket when `use_tls = true`. Use `cohttp-eio` TLS support or `tls-eio` directly.
 3. Update callers (`http_post`, `http_get`) and the `parse_base_url` API.
 4. Add a test in `kafka-eio-service/test/` that verifies an `https://` URL parses correctly with `use_tls = true` and port 443.
+
+## Review — returned for revision
+- `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:87` — When no CA bundle is found, the HTTPS schema registry client installs an authenticator that accepts any certificate, leaving TLS connections unverified instead of failing closed or using configured trust roots.
+- `integrations/kafka/kafka-eio-service/test/test_kafka_service.ml:71` — The HTTPS parse test uses a copied local parse_base_url implementation rather than the production kafka_service.ml function, so it does not cover the required production behavior for use_tls=true and default port 443.
