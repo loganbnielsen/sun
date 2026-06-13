@@ -45,3 +45,6 @@ Automate the scaffold-to-running-app e2e path; current coverage relies on dogfoo
 
 ## Review — returned for revision
 - `platform/local/scripts/run_tests.sh:161` — run_golden-e2e references $REPO_ROOT inside the timeout subshell but REPO_ROOT is never exported. In the subshell, $REPO_ROOT is empty, so bash "$REPO_ROOT/cli/sun/e2e/golden_path.sh" becomes bash "/cli/sun/e2e/golden_path.sh" which does not exist. Fix: add `export REPO_ROOT` after it is set (around line 30), or inline the path computation inside run_golden-e2e using BASH_SOURCE.
+
+## Review — automated checks passed
+AUDIT-042 implements a complete golden-path e2e test harness with proper integration into the test runner, correct exit codes, and comprehensive infra prerequisite documentation.

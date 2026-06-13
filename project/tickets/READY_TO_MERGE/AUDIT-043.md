@@ -46,3 +46,6 @@ This makes command behavior hard to audit. Some call sites discard stderr, some 
 - `cli/sun/bin/cmd_up.ml:81` — setsid ... & (shell: background execution) lacks (* shell: <reason> *) comment required by Sun_cli_process module contract.
 - `cli/sun/bin/cmd_dev.ml:35` — ensure_state_dir calls run_shell for plain mkdir -p with no shell features; should use Sun_cli_process.exec "mkdir" ["-p"; state_dir] as cmd_up.ml line 13 correctly does.
 - `cli/sun/bin/cmd_dev.ml:85` — kill via run_shell with 2>/dev/null redirection is legitimate shell use but lacks the required (* shell: <reason> *) annotation per module contract.
+
+## Review — automated checks passed
+All shell operators annotated, all non-shell commands use Sun_cli_process functions, no ticket changes, build succeeds
