@@ -32,35 +32,11 @@ type t = {
 }
 
 (* ------------------------------------------------------------------ *)
-(* Minimal HTTP/1.1 client                                             *)
+(* HTTP client via cohttp-eio                                          *)
 (* ------------------------------------------------------------------ *)
 
-let parse_base_url url =
-  let strip pfx s =
-    let plen = String.length pfx in
-    if String.length s >= plen && String.sub s 0 plen = pfx
-    then Some (String.sub s plen (String.length s - plen))
-    else None
-  in
-  let (use_tls, rest) =
-    match strip "https://" url with
-    | Some s -> (true, s)
-    | None ->
-      match strip "http://" url with
-      | Some s -> (false, s)
-      | None   -> (false, url)
-  in
-  let default_port = if use_tls then 443 else 80 in
-  match String.rindex_opt rest ':' with
-  | None   -> (rest, default_port, use_tls)
-  | Some i ->
-    let host = String.sub rest 0 i in
-    let port_s = String.sub rest (i + 1) (String.length rest - i - 1) in
-    (match int_of_string_opt port_s with
-     | Some p -> (host, p, use_tls)
-     | None   -> (rest, default_port, use_tls))
-
-(* Cached TLS authenticator — reads system CA bundle once. *)
+(* Cached TLS authenticator — reads system CA bundle once.
+   Used to build the https wrapper passed to Cohttp_eio.Client.make. *)
 let tls_authenticator = lazy (
   let time () = Ptime.of_float_s (Unix.gettimeofday ()) in
   let ca_paths =
@@ -95,110 +71,76 @@ let tls_authenticator = lazy (
        refusing to connect without certificate verification"
 )
 
-let http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt =
-  let (host, port, use_tls) = parse_base_url base_url in
-  let body = Option.value ~default:"" body_opt in
-  let ct_header = match content_type_opt with
-    | Some ct -> [Printf.sprintf "Content-Type: %s" ct]
-    | None -> []
+(* Build the https wrapper for Cohttp_eio.Client.make.
+   Reads the system CA bundle and wires Tls_eio for certificate-verified TLS.
+   Fails closed: if no CA bundle is found, HTTPS connections are rejected. *)
+let make_https_wrapper () =
+  let authenticator =
+    match Lazy.force tls_authenticator with
+    | Ok a -> a
+    | Error msg -> failwith msg
   in
+  let tls_config =
+    match Tls.Config.client ~authenticator () with
+    | Ok c -> c
+    | Error (`Msg m) -> failwith ("kafka_service: TLS config error: " ^ m)
+  in
+  fun uri raw ->
+    let host =
+      Uri.host uri
+      |> Option.map (fun h -> Domain_name.(host_exn (of_string_exn h)))
+    in
+    Tls_eio.client_of_flow ?host tls_config raw
+
+(* Build a Cohttp_eio client.  The https wrapper is initialised lazily on
+   first use so that plain-HTTP-only callers pay no startup cost. *)
+let https_wrapper = lazy (make_https_wrapper ())
+
+let http_do_once net ~sw ~meth ~base_url ~path ~content_type_opt ~body_opt =
+  let uri = Uri.of_string (base_url ^ path) in
+  let https = Some (Lazy.force https_wrapper) in
+  let client = Cohttp_eio.Client.make ~https net in
   let headers =
-    [ Printf.sprintf "%s %s HTTP/1.1" meth path
-    ; Printf.sprintf "Host: %s" host
-    ; "Connection: close"
-    ; Printf.sprintf "Content-Length: %d" (String.length body)
-    ; "Accept: application/json"
-    ] @ ct_header
+    let base = Http.Header.of_list
+      [ ("Accept",     "application/json")
+      ; ("Connection", "close")
+      ] in
+    match content_type_opt with
+    | None    -> base
+    | Some ct -> Http.Header.add base "Content-Type" ct
   in
-  let req = String.concat "\r\n" headers ^ "\r\n\r\n" ^ body in
-  let read_response flow =
-    Eio.Flow.copy_string req flow;
-    let buf = Eio.Buf_read.of_flow ~max_size:(4 * 1024 * 1024) flow in
-    let status_line = Eio.Buf_read.line buf in
-    let status =
-      match String.split_on_char ' ' status_line with
-      | _ :: code :: _ -> Option.value ~default:0 (int_of_string_opt code)
-      | _ -> 0
-    in
-    let content_length = ref None in
-    let is_chunked = ref false in
-    let rec read_headers () =
-      let line = Eio.Buf_read.line buf in
-      if line = "" then ()
-      else begin
-        let lower = String.lowercase_ascii line in
-        (if String.length lower > 15 && String.sub lower 0 15 = "content-length:" then
-          content_length :=
-            int_of_string_opt (String.trim (String.sub line 15 (String.length line - 15))));
-        (if String.length lower > 18 && String.sub lower 0 18 = "transfer-encoding:" then
-          let enc = String.trim (String.sub lower 18 (String.length lower - 18)) in
-          if enc = "chunked" then is_chunked := true);
-        read_headers ()
-      end
-    in
-    read_headers ();
-    let resp_body =
-      if !is_chunked then begin
-        let result = Buffer.create 1024 in
-        let rec read_chunks () =
-          let size_line = String.trim (Eio.Buf_read.line buf) in
-          let chunk_size =
-            try int_of_string ("0x" ^ size_line)
-            with _ -> 0
-          in
-          if chunk_size = 0 then ()
-          else begin
-            Buffer.add_string result (Eio.Buf_read.take chunk_size buf);
-            ignore (Eio.Buf_read.line buf);
-            read_chunks ()
-          end
-        in
-        read_chunks ();
-        Buffer.contents result
-      end else
-        match !content_length with
-        | Some n -> Eio.Buf_read.take n buf
-        | None   -> Eio.Buf_read.take_all buf
-    in
-    (status, resp_body)
+  let body = match body_opt with
+    | None   -> None
+    | Some s -> Some (Cohttp_eio.Body.of_string s)
   in
-  try
-    Ok (Eio.Net.with_tcp_connect net ~host ~service:(string_of_int port) (fun flow ->
-      if use_tls then begin
-        let authenticator =
-          match Lazy.force tls_authenticator with
-          | Ok authenticator -> authenticator
-          | Error msg -> failwith msg
-        in
-        let config =
-          match Tls.Config.client ~authenticator () with
-          | Ok c   -> c
-          | Error (`Msg m) -> failwith ("kafka_service: TLS config error: " ^ m)
-        in
-        let host_dn = Domain_name.host_exn (Domain_name.of_string_exn host) in
-        let tls_flow = Tls_eio.client_of_flow config ~host:host_dn flow in
-        read_response tls_flow
-      end else
-        read_response flow
-    ))
-  with exn -> Error (Printexc.to_string exn)
+  let resp, resp_body =
+    Cohttp_eio.Client.call client ~sw ~headers ?body meth uri
+  in
+  let status = Http.Status.to_int (Http.Response.status resp) in
+  let body_str =
+    Eio.Buf_read.(parse_exn take_all) resp_body ~max_size:(4 * 1024 * 1024)
+  in
+  (status, body_str)
 
 let http_do net ~clock ~meth ~base_url ~path ~content_type_opt ~body_opt =
   try
-    Eio.Time.with_timeout_exn clock 10.0
-      (fun () -> http_do_once net ~meth ~base_url ~path ~content_type_opt ~body_opt)
-  with Eio.Time.Timeout -> Error "HTTP request timed out after 10s"
+    Eio.Time.with_timeout_exn clock 10.0 (fun () ->
+      Eio.Switch.run (fun sw ->
+        Ok (http_do_once net ~sw ~meth ~base_url ~path ~content_type_opt ~body_opt)))
+  with
+  | Eio.Time.Timeout -> Error "HTTP request timed out after 10s"
+  | exn -> Error (Printexc.to_string exn)
 
 let http_post net ~clock ~base_url ~path ~content_type ~body =
-  http_do net ~clock ~meth:"POST" ~base_url ~path
+  http_do net ~clock ~meth:`POST ~base_url ~path
     ~content_type_opt:(Some content_type) ~body_opt:(Some body)
 
 let http_put net ~clock ~base_url ~path ~content_type ~body =
-  http_do net ~clock ~meth:"PUT" ~base_url ~path
+  http_do net ~clock ~meth:`PUT ~base_url ~path
     ~content_type_opt:(Some content_type) ~body_opt:(Some body)
 
 let http_get net ~clock ~base_url ~path =
-  http_do net ~clock ~meth:"GET" ~base_url ~path
+  http_do net ~clock ~meth:`GET ~base_url ~path
     ~content_type_opt:None ~body_opt:None
 
 (* ------------------------------------------------------------------ *)
