@@ -39,3 +39,8 @@ becomes:
 Also audit `render_secret_key_refs` (line 225): if per-key `secretKeyRef` entries from `[infra.env] secrets = [...]` are also intended to reference `<name>-secrets` rather than a global `sun-secrets`, propagate `name` into that function and update it accordingly. This secondary path is lower urgency since `[infra.env] secrets` usage is uncommon, but should be consistent with the `envFrom` fix.
 
 Add a test in the existing manifest tests that exercises `rollout_doc` with `Canary` and `Blue_green` strategies and asserts the generated `secretRef.name` equals `<service-name>-secrets`.
+
+## Review — returned for revision
+- `cli/sun/test/test_manifest_render.ml:197` — test_svc_secret_refs_without_values still asserts `name: sun-secrets`; after the fix render_secret_key_refs emits `name: charge-svc-secrets`, so this assertion must be updated to `name: charge-svc-secrets`.
+- `cli/sun/test/test_manifest_render.ml:455` — test_rollout_canary_secrets_use_sun_secrets asserts `name: sun-secrets` (old broken behaviour) and asserts absence of `name: charge-svc-secrets`; both assertions are inverted after the fix and must be swapped.
+- `cli/sun/test/test_manifest_render.ml:469` — test_rollout_blue_green_secrets_use_sun_secrets asserts `name: sun-secrets` (old broken behaviour) and asserts absence of `name: charge-svc-secrets`; both assertions are inverted after the fix and must be swapped.
