@@ -16,6 +16,10 @@
   base64
   uri
   cstruct
+  tls-eio
+  x509
+  domain-name
+  ptime
   mtime
   caqti-eio
   caqti-driver-postgresql
