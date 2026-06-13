@@ -1,5 +1,6 @@
 (tests
  (names
+  test_process
   test_deployment_plan
   test_env_target
   test_manifest_render
