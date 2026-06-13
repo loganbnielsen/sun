@@ -212,7 +212,7 @@ spec:
   data:
 %s|} name ns refresh_interval store_ref store_kind name remote_refs
 
-let render_secret_key_refs secret_keys =
+let render_secret_key_refs ~name secret_keys =
   match secret_keys with
   | [] -> ""
   | keys ->
@@ -221,8 +221,8 @@ let render_secret_key_refs secret_keys =
       f {|        - name: %s
           valueFrom:
             secretKeyRef:
-              name: %s
-              key: %s|} key runtime_secret_name key
+              name: %s-secrets
+              key: %s|} key name key
     ) keys)
 
 let render_extra_labels labels =
@@ -262,7 +262,7 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
     if extra_labels = [] then ""
     else "\n" ^ render_extra_labels extra_labels
   in
-  let secret_env_section = render_secret_key_refs secret_keys in
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
   f {|---
 apiVersion: apps/v1
 kind: Deployment
@@ -365,7 +365,7 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~po
     if extra_labels = [] then ""
     else "\n" ^ render_extra_labels extra_labels
   in
-  let secret_env_section = render_secret_key_refs secret_keys in
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
   let strategy_block = match pd with
     | Sun_cli_toml.Canary { steps } -> render_canary_strategy steps
     | Sun_cli_toml.Blue_green       -> render_blue_green_strategy name
@@ -406,7 +406,7 @@ spec:
         - configMapRef:
             name: %s-env
         - secretRef:
-            name: %s
+            name: %s-secrets
         resources:
           requests:
             cpu: %s
@@ -416,7 +416,7 @@ spec:
             memory: %s
 %s
   strategy:
-%s|} name ns replicas name name extra_labels_section config_hash name name image ports_section secret_env_section name runtime_secret_name cpu memory cpu memory probe_section strategy_block
+%s|} name ns replicas name name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section strategy_block
 
 (** Two ClusterIP Services required by the blue-green strategy:
     [<name>-active] receives live traffic; [<name>-preview] receives canary traffic.
@@ -520,7 +520,7 @@ spec:
           kubernetes.io/metadata.name: monitoring|} name ns name
 
 let cronjob_doc ?(secret_keys = []) ns name image schedule =
-  let secret_env_section = render_secret_key_refs secret_keys in
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
   f {|---
 apiVersion: batch/v1
 kind: CronJob
