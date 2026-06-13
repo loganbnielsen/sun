@@ -19,4 +19,5 @@
   mtime
   caqti-eio
   caqti-driver-postgresql
+  otoml
   (alcotest :with-test)))
