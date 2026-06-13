@@ -643,6 +643,78 @@ steps = [10, 120]
   Sys.remove path;
   check_bool "invalid canary weight raises" true raised
 
+(* ── otoml-backed parser: standard TOML shapes the old parser couldn't handle *)
+
+let test_toml_rejects_malformed () =
+  (* otoml raises on malformed TOML; old parser silently returned empty *)
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc "replicas = \n";   (* missing value *)
+  close_out oc;
+  let raised =
+    try let _ = Sun_cli_toml.load path in false
+    with Failure _ -> true
+  in
+  Sys.remove path;
+  check_bool "malformed TOML raises Failure" true raised
+
+let test_toml_multiline_array_secrets () =
+  (* Standard TOML multi-line array — old line-oriented parser couldn't handle this *)
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.env]
+secrets = [
+  "DATABASE_URL",
+  "API_TOKEN",
+]
+|};
+  close_out oc;
+  let toml = Sun_cli_toml.load path in
+  Sys.remove path;
+  check_bool "multi-line secrets array parsed"
+    true (toml.Sun_cli_toml.secret_keys = ["DATABASE_URL"; "API_TOKEN"])
+
+let test_toml_dotted_section_headers () =
+  (* TOML allows [infra.scale] as a dotted key table header — verify otoml handles it *)
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.scale]
+replicas = 3
+cpu = "250m"
+memory = "256Mi"
+|};
+  close_out oc;
+  let toml = Sun_cli_toml.load path in
+  Sys.remove path;
+  check_bool "replicas from dotted header"
+    true (toml.Sun_cli_toml.replicas = Some 3);
+  check_bool "cpu from dotted header"
+    true (toml.Sun_cli_toml.cpu = Some "250m");
+  check_bool "memory from dotted header"
+    true (toml.Sun_cli_toml.memory = Some "256Mi")
+
+let test_toml_canary_pause_steps () =
+  (* Canary steps with pause = {} and pause = {duration = 60} inline tables *)
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.rollout]
+strategy = "canary"
+steps = [{weight = 20}, {pause = {}}, {weight = 60}, {pause = {duration = 60}}]
+|};
+  close_out oc;
+  let toml = Sun_cli_toml.load path in
+  Sys.remove path;
+  match toml.Sun_cli_toml.progressive_delivery with
+  | Some (Sun_cli_toml.Canary {
+      steps = [
+        Sun_cli_toml.Weight 20;
+        Sun_cli_toml.Pause None;
+        Sun_cli_toml.Weight 60;
+        Sun_cli_toml.Pause (Some 60);
+      ];
+    }) -> ()
+  | _ -> Alcotest.fail "expected canary steps with pause from [infra.rollout]"
+
 (* ── ExternalSecret backend tests ────────────────────────────────────────── *)
 
 (* Helper: build an ESO backend value *)
@@ -792,6 +864,10 @@ let () =
       ; Alcotest.test_case "invalid progressive strategy"  `Quick test_toml_invalid_progressive_strategy
       ; Alcotest.test_case "canary requires steps"         `Quick test_toml_canary_requires_steps
       ; Alcotest.test_case "canary rejects bad weight"     `Quick test_toml_canary_rejects_bad_weight
+      ; Alcotest.test_case "malformed TOML raises"         `Quick test_toml_rejects_malformed
+      ; Alcotest.test_case "multi-line secrets array"      `Quick test_toml_multiline_array_secrets
+      ; Alcotest.test_case "dotted section headers"        `Quick test_toml_dotted_section_headers
+      ; Alcotest.test_case "canary pause steps"            `Quick test_toml_canary_pause_steps
       ]
     ; "external_secrets", [
         Alcotest.test_case "external_secret_doc: no stringData"   `Quick test_external_secret_doc_no_stringdata
