@@ -5,7 +5,8 @@ open Sun_cli_manifest
 
 let run_cmd ?(echo = true) cmd = Sun_cli_process.run_shell ~echo cmd
 
-let cmd_ok cmd = run_cmd ~echo:false cmd = 0
+let cluster_up name =
+  (Sun_cli_process.run ~echo:false "k3d" ["cluster"; "get"; name]).exit_code = 0
 
 let check_tool name install_url =
   Sun_cli_process.check_tool name ~install_url
@@ -98,16 +99,16 @@ type set_val =
 
 let helm_install release chart ~namespace ?(values = []) () =
   let flag (k, v) = match v with
-    | Val s -> Printf.sprintf "--set %s=%s" k s
-    | Str s -> Printf.sprintf "--set-string %s=%s" k s
+    | Val s -> ["--set";        Printf.sprintf "%s=%s" k s]
+    | Str s -> ["--set-string"; Printf.sprintf "%s=%s" k s]
   in
-  let cmd = String.concat " " (
-    [ "helm upgrade --install"; release; chart ]
-    @ [ "--namespace"; namespace; "--create-namespace" ]
-    @ List.map flag values
-    @ [ "--wait --timeout 3m" ]
-  ) in
-  run_cmd cmd
+  let args =
+    ["upgrade"; "--install"; release; chart]
+    @ ["--namespace"; namespace; "--create-namespace"]
+    @ List.concat_map flag values
+    @ ["--wait"; "--timeout"; "3m"]
+  in
+  Sun_cli_process.exec "helm" args
 
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
 
@@ -121,15 +122,12 @@ let dev_up () =
 
   (* 1. Cluster *)
   Printf.printf "\n[1/4] Provisioning cluster...\n%!";
-  let cluster_exists =
-    cmd_ok (Printf.sprintf "k3d cluster get %s >/dev/null 2>&1" cluster_name)
-  in
-  if cluster_exists then
+  if cluster_up cluster_name then
     Printf.printf "  cluster %s already exists, skipping\n%!" cluster_name
   else begin
-    let rc = run_cmd (Printf.sprintf
-      "k3d cluster create %s --registry-create sun-registry:%d"
-      cluster_name registry_port)
+    let rc = Sun_cli_process.exec "k3d"
+      ["cluster"; "create"; cluster_name;
+       "--registry-create"; Printf.sprintf "sun-registry:%d" registry_port]
     in
     if rc <> 0 then (Printf.eprintf "error: cluster creation failed\n"; exit 1)
   end;
@@ -148,7 +146,7 @@ let dev_up () =
     ignore (run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");   (* shell: stderr redirection *)
     ignore (run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");      (* shell: stderr redirection *)
     ignore (run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null"); (* shell: stderr redirection *)
-    ignore (run_cmd "helm repo update");
+    ignore (Sun_cli_process.exec "helm" ["repo"; "update"]);
   end;
 
   if req.kafka then begin
@@ -256,7 +254,7 @@ let dev_down delete_cluster =
   if delete_cluster then begin
     check_tool "k3d" "https://k3d.io/";
     Printf.printf "Deleting cluster %s...\n%!" cluster_name;
-    ignore (run_cmd (Printf.sprintf "k3d cluster delete %s" cluster_name))
+    ignore (Sun_cli_process.exec "k3d" ["cluster"; "delete"; cluster_name])
   end else
     Printf.printf "Port-forwards stopped. Cluster %s is still running.\n" cluster_name
 
@@ -264,9 +262,7 @@ let dev_down delete_cluster =
 
 let dev_status () =
   check_tool "kubectl" "https://kubernetes.io/docs/tasks/tools/";
-  let cluster_running =
-    cmd_ok (Printf.sprintf "k3d cluster get %s >/dev/null 2>&1" cluster_name)
-  in
+  let cluster_running = cluster_up cluster_name in
   Printf.printf "\nCluster:  %s  %s\n" cluster_name
     (if cluster_running then "✓ running" else "✗ not found");
   if cluster_running then begin
