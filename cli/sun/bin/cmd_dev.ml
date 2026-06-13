@@ -102,18 +102,74 @@ type set_val =
   | Val of string  (** --set key=val  (YAML-parsed; use for booleans and floats) *)
   | Str of string  (** --set-string key=val  (always treated as string, avoids int/float coercion) *)
 
+(** Filter Helm output: suppress NOTES: blocks and WARNING: lines that come
+    from chart maintainers (deprecation notices, paid-subscription banners,
+    rolling-tag advisories).  Sun emits its own structured status lines instead.
+    Preserves the original Helm exit code so callers can still detect failures. *)
+let filter_helm_output raw =
+  let lines = String.split_on_char '\n' raw in
+  let in_notes = ref false in
+  List.iter (fun line ->
+    (* NOTES: header starts a block we suppress *)
+    if String.length line >= 6 && String.sub line 0 6 = "NOTES:" then
+      in_notes := true
+    (* A line starting with "---" closes the NOTES block (next chart section) *)
+    else if String.length line >= 3 && String.sub line 0 3 = "---" then
+      in_notes := false;
+    (* Suppress: anything inside a NOTES block, bare WARNING: lines, blank lines
+       from stripped sections are fine to keep for readability *)
+    if not !in_notes
+       && not (String.length line >= 8 && String.sub line 0 8 = "WARNING:")
+    then
+      (* Only print non-empty lines to avoid double blank lines *)
+      if String.trim line <> "" then
+        Printf.printf "    %s\n%!" line
+  ) lines
+
 let helm_install release chart ~namespace ?(values = []) () =
   let flag (k, v) = match v with
     | Val s -> Printf.sprintf "--set %s=%s" k s
     | Str s -> Printf.sprintf "--set-string %s=%s" k s
   in
-  let cmd = String.concat " " (
+  let base_cmd = String.concat " " (
     [ "helm upgrade --install"; release; chart ]
     @ [ "--namespace"; namespace; "--create-namespace" ]
     @ List.map flag values
     @ [ "--wait --timeout 3m" ]
   ) in
-  run_cmd cmd
+  (* Capture all Helm output (stdout+stderr) to a temp file so we can filter
+     it while still recovering the original exit code.  Using a shell one-liner:
+       { helm ...; echo $? > rc_file; } 2>&1 | tee out_file
+     would lose the exit code through the pipe.  The temp-file approach is
+     portable and avoids PIPESTATUS / bash-specific constructs. *)
+  let out_file = Filename.temp_file "sun-helm-" ".log" in
+  let rc_file  = Filename.temp_file "sun-helm-" ".rc" in
+  let wrapped = Printf.sprintf
+    "{ %s; echo $? > %s; } > %s 2>&1"
+    base_cmd
+    (Filename.quote rc_file)
+    (Filename.quote out_file)
+  in
+  ignore (run_cmd ~echo:false wrapped);
+  (* Read and filter the captured output *)
+  (try
+    let ic = open_in out_file in
+    let raw = In_channel.input_all ic in
+    close_in ic;
+    filter_helm_output raw
+  with _ -> ());
+  (* Read the real Helm exit code *)
+  let rc =
+    try
+      let ic = open_in rc_file in
+      let s  = String.trim (In_channel.input_all ic) in
+      close_in ic;
+      match int_of_string_opt s with Some n -> n | None -> 1
+    with _ -> 1
+  in
+  (try Sys.remove out_file with _ -> ());
+  (try Sys.remove rc_file  with _ -> ());
+  rc
 
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
 
@@ -193,11 +249,48 @@ let dev_up () =
   let need_grafana = req.loki || req.prometheus in
   if req.loki then begin
     Printf.printf "\n  Installing Loki...\n%!";
-    let grafana_val = if need_grafana then "true" else "false" in
-    let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
-      ~values:[("grafana.enabled", Val grafana_val)] ()
+    (* grafana/loki-stack is deprecated; use standalone grafana/loki instead.
+       Grafana is installed separately below when needed. *)
+    let rc = helm_install "loki" "grafana/loki" ~namespace:"monitoring"
+      ~values:[
+        ("deploymentMode",                  Str "SingleBinary");
+        ("loki.auth_enabled",               Val "false");
+        ("loki.commonConfig.replication_factor", Val "1");
+        ("loki.storage.type",               Str "filesystem");
+        ("singleBinary.replicas",           Val "1");
+        ("read.replicas",                   Val "0");
+        ("write.replicas",                  Val "0");
+        ("backend.replicas",                Val "0");
+      ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1)
+  end;
+
+  if need_grafana then begin
+    Printf.printf "\n  Installing Grafana...\n%!";
+    (* Provision a Loki datasource only when Loki is also being installed *)
+    let loki_ds_values =
+      if req.loki then
+        let url = "http://loki.monitoring.svc:3100" in
+        [ ("datasources.datasources\\.yaml.apiVersion",            Val "1");
+          ("datasources.datasources\\.yaml.datasources[0].name",   Str "Loki");
+          ("datasources.datasources\\.yaml.datasources[0].type",   Str "loki");
+          ("datasources.datasources\\.yaml.datasources[0].url",    Str url);
+          ("datasources.datasources\\.yaml.datasources[0].access", Str "proxy");
+          ("datasources.datasources\\.yaml.datasources[0].isDefault", Val "true");
+        ]
+      else []
+    in
+    let rc = helm_install "grafana" "grafana/grafana" ~namespace:"monitoring"
+      ~values:(
+        [ ("adminPassword",                              Str "dev");
+          ("grafana\\.ini.auth\\.anonymous.enabled",    Str "true");
+          ("grafana\\.ini.auth\\.anonymous.org_role",   Str "Admin");
+          ("grafana\\.ini.auth\\.disable_login_form",   Str "true");
+        ] @ loki_ds_values
+      ) ()
+    in
+    if rc <> 0 then (Printf.eprintf "error: Grafana install failed\n"; exit 1)
   end;
 
   if req.prometheus then begin
@@ -235,7 +328,7 @@ let dev_up () =
                          target = "svc/loki"; local_port = 3100; remote_port = 3100 };
   if need_grafana then
     start_port_forward { name = "grafana"; namespace = "monitoring";
-                         target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
+                         target = "svc/grafana"; local_port = 3000; remote_port = 80 };
   if req.prometheus then
     start_port_forward { name = "pushgateway"; namespace = "monitoring";
                          target = "svc/prometheus-prometheus-pushgateway";
