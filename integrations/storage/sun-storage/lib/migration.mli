@@ -4,13 +4,6 @@ type status = {
   applied_at : string option; (** None if not yet applied *)
 }
 
-(** [split_statements sql] splits [sql] into individual statements using a
-    PostgreSQL-aware lexer.  Semicolons inside single-quoted strings, line
-    comments, block comments, and dollar-quoted bodies are not treated as
-    statement terminators.  Each returned string is trimmed and ends with a
-    semicolon.  Exposed for testing. *)
-val split_statements : string -> string list
-
 (** [apply pool ~dir] applies all pending SQL migrations from [dir].
     Migrations are files named [NNNN_description.sql] (e.g. [0001_init.sql]).
     Each file is executed in a transaction; the applied version is recorded in
