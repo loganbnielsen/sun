@@ -11,6 +11,7 @@
 (* ------------------------------------------------------------------ *)
 
 let mock_port = 19301
+let mock_port_error = 19302
 
 (* Spin up a one-shot HTTP server on [mock_port].  Accepts a single POST,
    records the request body, sends 204, then the fiber exits.
@@ -49,6 +50,49 @@ let start_mock_server ~sw env =
         Eio.Promise.resolve resolver body;
         Eio.Flow.copy_string
           "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n" conn));
+  promise
+
+(* Spin up a one-shot HTTP server on [mock_port_error].  Accepts a single
+   POST, records the request body, sends [status_code] with [resp_body],
+   then exits.  Returns a promise resolving with the captured request body. *)
+let start_mock_error_server ~sw ~status_code ~resp_body env =
+  let (promise, resolver) = Eio.Promise.create () in
+  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, mock_port_error) in
+  let sock =
+    Eio.Net.listen ~sw ~reuse_addr:true ~backlog:1 env#net addr
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    let conn, _addr = Eio.Net.accept ~sw sock in
+    Fun.protect
+      ~finally:(fun () -> Eio.Net.close conn)
+      (fun () ->
+        let buf = Eio.Buf_read.of_flow ~max_size:(256 * 1024) conn in
+        ignore (Eio.Buf_read.line buf);
+        let content_length = ref 0 in
+        let rec read_headers () =
+          let line = Eio.Buf_read.line buf in
+          if line = "" then ()
+          else begin
+            let lower = String.lowercase_ascii line in
+            if String.length lower > 15
+            && String.sub lower 0 15 = "content-length:" then
+              (match int_of_string_opt
+                       (String.trim
+                          (String.sub line 15 (String.length line - 15))) with
+               | Some n -> content_length := n
+               | None   -> ());
+            read_headers ()
+          end
+        in
+        read_headers ();
+        let body = Eio.Buf_read.take !content_length buf in
+        Eio.Promise.resolve resolver body;
+        let resp_len = String.length resp_body in
+        Eio.Flow.copy_string
+          (Printf.sprintf
+             "HTTP/1.1 %d Error\r\nContent-Length: %d\r\n\r\n%s"
+             status_code resp_len resp_body)
+          conn));
   promise
 
 (* ------------------------------------------------------------------ *)
@@ -160,6 +204,66 @@ let test_loki_unreachable_does_not_raise () =
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
   Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Info "test")
   (* If this returns without raising, the test passes. *)
+
+(* Verify the JSON payload has the correct Loki push shape:
+   {"streams":[{"stream":{...},"values":[[ts,line],...]}]} *)
+let test_payload_json_shape () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let body_promise = start_mock_server ~sw env in
+  let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+               ~url:(Printf.sprintf "http://localhost:%d" mock_port) () in
+  let ot = Obs.create ~service:"shape-svc" ~mono_clock:env#mono_clock ~backend:loki in
+  Obs.with_span ot "check" (fun sp -> Obs.log sp Obs.Info "shape-test");
+  let body = Eio.Promise.await body_promise in
+  let json = Yojson.Safe.from_string body in
+  (match json with
+   | `Assoc fields ->
+     (match List.assoc_opt "streams" fields with
+      | Some (`List (stream :: _)) ->
+        (match stream with
+         | `Assoc s ->
+           Alcotest.(check bool) "stream key present" true
+             (List.mem_assoc "stream" s);
+           Alcotest.(check bool) "values key present" true
+             (List.mem_assoc "values" s);
+           (match List.assoc_opt "values" s with
+            | Some (`List (v :: _)) ->
+              (match v with
+               | `List [ `String _ts; `String _line ] ->
+                 Alcotest.(check bool) "value is [ts, line] tuple" true true
+               | _ ->
+                 Alcotest.(check bool) "value is [ts, line] tuple" true false)
+            | _ -> Alcotest.(check bool) "values is non-empty list" true false)
+         | _ -> Alcotest.(check bool) "stream is object" true false)
+      | _ -> Alcotest.(check bool) "streams is non-empty list" true false)
+   | _ -> Alcotest.(check bool) "top-level is object" true false)
+
+(* Verify that a non-2xx response is swallowed (logged to stderr, not raised). *)
+let test_non_2xx_does_not_raise () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let _body_promise =
+    start_mock_error_server ~sw ~status_code:500 ~resp_body:"internal error" env
+  in
+  let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+               ~url:(Printf.sprintf "http://localhost:%d" mock_port_error) () in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+  Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Info "test")
+  (* Must return without raising even though server returned 500. *)
+
+(* Verify that a non-2xx response with a short body is captured without error. *)
+let test_non_2xx_short_body () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let _body_promise =
+    start_mock_error_server ~sw ~status_code:400 ~resp_body:"bad request" env
+  in
+  let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+               ~url:(Printf.sprintf "http://localhost:%d" mock_port_error) () in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+  Obs.with_span ot "op" (fun sp -> Obs.log sp Obs.Warn "test")
+  (* Must return without raising even with short error body. *)
 
 (* ------------------------------------------------------------------ *)
 (* Live Loki tests (require LOKI_URL env var)                         *)
@@ -334,6 +438,9 @@ let () =
       test_case "context fields become labels"     `Quick test_context_fields_become_labels;
       test_case "multiple log calls all present"   `Quick test_multiple_log_calls;
       test_case "unreachable Loki does not raise"  `Quick test_loki_unreachable_does_not_raise;
+      test_case "payload JSON shape"               `Quick test_payload_json_shape;
+      test_case "non-2xx response does not raise"  `Quick test_non_2xx_does_not_raise;
+      test_case "non-2xx short body does not raise"`Quick test_non_2xx_short_body;
     ];
     "live", [
       test_case "log line ingested and queryable"  `Slow test_live_ingestion;
