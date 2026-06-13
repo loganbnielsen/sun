@@ -169,38 +169,10 @@ let pp_summary fmt t =
      Format.fprintf fmt "@\n";
      Format.fprintf fmt "consumer groups:  %s@\n" (String.concat ", " cgs))
 
-(** Scan [events/<domain>/] subdirectories for [*.ml] files and derive schema
-    subject names as ["<domain>.<EventName>"].  Also handles top-level
-    [events/<event>.ml] files (no domain prefix).  Returns a sorted,
-    deduplicated list. *)
+(** Thin wrapper around [Sun_cli_workspace_model.discover_schema_subjects].
+    Kept for backward-compatibility with callers that use the unit-argument form. *)
 let discover_schema_subjects () =
-  let events_dir = "events" in
-  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
-  else begin
-    let subjects = ref [] in
-    (try
-      Array.iter (fun entry ->
-        let path = Filename.concat events_dir entry in
-        if Sys.is_directory path && entry.[0] <> '.' then begin
-          (* events/<domain>/<event>.ml *)
-          (try
-            Array.iter (fun fname ->
-              if Filename.check_suffix fname ".ml" then begin
-                let stem = Filename.chop_suffix fname ".ml" in
-                let capitalized = String.capitalize_ascii stem in
-                subjects := (entry ^ "." ^ capitalized) :: !subjects
-              end
-            ) (Sys.readdir path)
-          with _ -> ())
-        end else if Filename.check_suffix entry ".ml" then begin
-          (* events/<event>.ml (top-level, no domain) *)
-          let stem = Filename.chop_suffix entry ".ml" in
-          subjects := stem :: !subjects
-        end
-      ) (Sys.readdir events_dir)
-    with _ -> ());
-    List.sort_uniq String.compare !subjects
-  end
+  fst (Sun_cli_workspace_model.discover_schema_subjects ~dir:".")
 
 (** Derive consumer group identifiers for all Worker service specs.
     Convention: ["<workspace>.<domain>.<worker_name>"]. *)
@@ -212,63 +184,15 @@ let derive_consumer_groups workspace services =
   ) services
   |> List.sort_uniq String.compare
 
-(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations.
-    Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
-    so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
+(** Thin wrapper around [Sun_cli_workspace_model.discover_topics].
+    Kept for backward-compatibility with callers that use the unit-argument form. *)
 let discover_topics () =
-  let events_dir = "events" in
-  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
-  else begin
-    let topics = ref [] in
-    let marker = {|let topic_name = "|} in
-    let ml = String.length marker in
-    let scan_file path =
-      try
-        let ic = open_in path in
-        let content = In_channel.input_all ic in
-        close_in ic;
-        let sl = String.length content in
-        for i = 0 to sl - ml - 1 do
-          if String.sub content i ml = marker then begin
-            let j = ref (i + ml) in
-            while !j < sl && content.[!j] <> '"' do incr j done;
-            let name = String.sub content (i + ml) (!j - i - ml) in
-            if name <> "" then topics := name :: !topics
-          end
-        done
-      with _ -> ()
-    in
-    (try
-      Array.iter (fun fname ->
-        let path = Filename.concat events_dir fname in
-        if Sys.is_directory path then begin
-          (* One level deep: scan events/<subdir>/*.ml *)
-          (try
-            Array.iter (fun child ->
-              let child_path = Filename.concat path child in
-              if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
-                scan_file child_path
-            ) (Sys.readdir path)
-          with _ -> ())
-        end else if Filename.check_suffix fname ".ml" then
-          scan_file path
-      ) (Sys.readdir events_dir)
-    with _ -> ());
-    List.sort_uniq String.compare (List.rev !topics)
-  end
+  fst (Sun_cli_workspace_model.discover_topics ~dir:".")
 
-(** Scan [db/migrations/] for SQL files, sorted by filename. *)
+(** Thin wrapper around [Sun_cli_workspace_model.discover_migrations].
+    Kept for backward-compatibility with callers that use the unit-argument form. *)
 let discover_migrations () =
-  let mig_dir = "db/migrations" in
-  if not (Sys.file_exists mig_dir && Sys.is_directory mig_dir) then []
-  else begin
-    (try
-      let files = Sys.readdir mig_dir in
-      Array.sort String.compare files;
-      Array.to_list files
-      |> List.filter (fun f -> Filename.check_suffix f ".sql")
-    with _ -> [])
-  end
+  fst (Sun_cli_workspace_model.discover_migrations ~dir:".")
 
 let k8s_name_of name =
   String.map (fun c -> if c = '_' then '-' else c)
@@ -319,12 +243,13 @@ let of_services ~workspace ~env services =
     }
   in
   let resolved_services = List.map to_spec services in
+  let inv = Sun_cli_workspace_model.scan ~dir:"." in
   { workspace
   ; environment    = env
   ; services       = resolved_services
-  ; topics         = discover_topics ()
-  ; migrations     = discover_migrations ()
-  ; schema_subjects = discover_schema_subjects ()
+  ; topics         = inv.topics
+  ; migrations     = inv.migrations
+  ; schema_subjects = inv.schema_subjects
   ; consumer_groups = derive_consumer_groups workspace resolved_services
   }
 
