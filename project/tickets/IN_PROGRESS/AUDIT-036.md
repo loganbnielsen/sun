@@ -3,6 +3,8 @@ id: AUDIT-036
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-12g_audit.md
+branch: AUDIT-036/tls-deps-dune-project
+worktree: ../sun-AUDIT-036-tls-deps-dune-project
 ---
 
 Add TLS package dependencies to Sun `dune-project`
