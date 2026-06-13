@@ -3,6 +3,8 @@ id: FRIC-005
 type: dogfood-finding
 severity: medium
 source: project/dogfood/RUN_2026-06-12e.md
+branch: FRIC-005/dev-up-helm-noise
+worktree: /home/lbendtly/Code/sun-FRIC-005-dev-up-helm-noise
 ---
 
 **Depends on:** None.
