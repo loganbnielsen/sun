@@ -410,18 +410,20 @@ let run filter_path dry_run tag confirm_group_change =
   (* The multi-stage Dockerfile compiles from source inside ubuntu-24.04, so
      vendor/ symlinks (which point outside the workspace) must be resolved into
      real files before docker build runs.  We create a temporary self-contained
-     copy with cp -rL (follow symlinks) and remove it when done. *)
+     copy with rsync --copy-links (follow symlinks, exclude _build and .git to
+     avoid stale dune internal symlinks that cp -rL cannot resolve) and remove
+     the copy when done. *)
   let ctx_dir = repo_root ^ ".docker-ctx" in
   if not dry_run then begin
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Preparing build context...\n%!";
-    if Sys.command (Printf.sprintf "cp -rL %s %s"
-         (Filename.quote repo_root) (Filename.quote ctx_dir)) <> 0 then begin
+    let rsync_cmd = Printf.sprintf
+      "rsync -a --copy-links --exclude='_build' --exclude='.git' %s/ %s"
+      (Filename.quote repo_root) (Filename.quote ctx_dir) in
+    if Sys.command rsync_cmd <> 0 then begin
       Printf.eprintf "error: failed to copy workspace for docker build context\n";
       exit 1
-    end;
-    ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
-      (Filename.quote ctx_dir) (Filename.quote ctx_dir)))
+    end
   end;
 
   (try

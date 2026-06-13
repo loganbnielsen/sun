@@ -423,14 +423,15 @@ jobs:
 
 let tpl_dockerfile = {tpl|# Stage 1: compile inside ubuntu-24.04 so the binary links against glibc 2.39.
 # sun up resolves vendor/ symlinks into the build context before running docker build.
-FROM ocaml/opam:ubuntu-24.04-ocaml-5.4.1 AS build
+FROM ocaml/opam:ubuntu-24.04-ocaml-5.4 AS build
 RUN sudo apt-get update && sudo apt-get install -y \
-    librdkafka-dev libpq-dev libssl-dev && \
+    librdkafka-dev libpq-dev libssl-dev libgmp-dev pkg-config && \
     sudo rm -rf /var/lib/apt/lists/*
 RUN opam install -y --no-self-upgrade \
     eio eio_main cohttp-eio yojson cmdliner base64 uri cstruct mtime \
+    tls-eio x509 domain-name \
     caqti-eio caqti-driver-postgresql
-COPY . /workspace
+COPY --chown=opam:opam . /workspace
 WORKDIR /workspace
 RUN opam exec -- dune build {{repo_dir}}/bin/main.exe
 
