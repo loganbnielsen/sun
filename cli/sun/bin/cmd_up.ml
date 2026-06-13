@@ -3,14 +3,16 @@ open Sun_cli_manifest
 
 (* ── Shell helpers ───────────────────────────────────────────────────────── *)
 
-let run_cmd ?(echo = true) cmd = Sun_cli_process.run_shell ~echo cmd
+let run_cmd ?(echo = true) cmd =
+  if echo then Printf.printf "  $ %s\n%!" cmd;
+  Sys.command cmd
 
 (* ── Port-forward helpers (mirrors cmd_dev.ml) ───────────────────────────── *)
 
 let state_dir = ".sun"
 
 let ensure_state_dir () =
-  ignore (Sun_cli_process.exec ~echo:false "mkdir" ["-p"; state_dir])
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" state_dir))
 
 let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
@@ -26,9 +28,13 @@ let contains haystack needle =
     go 0
 
 let read_cmdline pid =
-  match Sun_cli_process.capture "ps" ["-p"; string_of_int pid; "-o"; "args="] with
-  | Ok s  -> s
-  | Error _ -> ""
+  let tmp = Filename.temp_file "sun-ps-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  s
 
 let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
 let script_file name = Printf.sprintf "/tmp/sun-pf-%s.sh" name
@@ -43,11 +49,7 @@ let port_forward_running ~service:_ name =
     close_in ic;
     try
       let pid = int_of_string pid_s in
-      let alive =
-        (try Unix.kill pid 0; true
-         with Unix.Unix_error (Unix.ESRCH, _, _) -> false
-            | Unix.Unix_error _ -> true)
-      in
+      let alive = Sys.command (Printf.sprintf "kill -0 %d 2>/dev/null" pid) = 0 in
       let args = if alive then read_cmdline pid else "" in
       let ok = alive && contains args (Printf.sprintf "sun-pf-%s.sh" name) in
       if not ok then (try Sys.remove pf with _ -> ());
@@ -75,10 +77,10 @@ let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
   let oc = open_out sf in
   output_string oc content;
   close_out oc;
-  ignore (Sun_cli_process.exec ~echo:false "chmod" ["+x"; sf]);
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote sf)));
   (* setsid puts the loop in its own session so it outlives this process;
      the trailing & returns immediately to the OCaml caller. *)
-  ignore (run_cmd ~echo:false                          (* shell: background execution *)
+  ignore (run_cmd ~echo:false
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
 
 (** Read the last [n] lines of a file, or [""] if the file is missing/empty. *)
@@ -153,13 +155,14 @@ let pid_owning_port local_port =
   (* ss -tlnp prints lines like:
        LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("kubectl",pid=12345,...))
      We grab the users field and extract the pid. *)
-  let content =
-    match Sun_cli_process.capture "ss"
-            ["-tlnp"; Printf.sprintf "sport = :%d" local_port]
-    with
-    | Ok s  -> s
-    | Error _ -> ""
-  in
+  let tmp = Filename.temp_file "sun-ss-" ".tmp" in
+  ignore (Sys.command
+    (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let content = In_channel.input_all ic in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  (* Extract pid=<N> from the users:((...)) field — no Str dependency needed *)
   let digits = extract_after_prefix content "pid=" in
   if digits = "" then None
   else (try Some (int_of_string digits) with _ -> None)
@@ -175,9 +178,14 @@ let read_proc_cmdline pid =
     List.filter (fun s -> s <> "") (String.split_on_char '\x00' raw)
   with _ ->
     (* Fall back to ps if /proc is unavailable *)
-    match Sun_cli_process.capture "ps" ["-p"; string_of_int pid; "-o"; "args="] with
-    | Ok s  -> String.split_on_char ' ' s
-    | Error _ -> []
+    let tmp = Filename.temp_file "sun-ps-" ".tmp" in
+    ignore (Sys.command
+      (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+    let ic = open_in tmp in
+    let s = String.trim (In_channel.input_all ic) in
+    close_in ic;
+    (try Sys.remove tmp with _ -> ());
+    String.split_on_char ' ' s
 
 (** Parse the arg list from a [kubectl port-forward -n <ns> svc/<svc> ...]
     invocation.  Returns [(namespace, service)] or raises [Not_found]. *)
@@ -235,26 +243,31 @@ let detect_stale_port_forward local_port target_namespace target_service =
     end
 
 let wait_for_rollout ~namespace ~name =
-  let r = Sun_cli_process.run ~echo:false "kubectl"
-    ["rollout"; "status"; Printf.sprintf "deployment/%s" name;
-     "-n"; namespace; "--timeout=60s"]
+  let cmd = Printf.sprintf
+    "kubectl rollout status deployment/%s -n %s --timeout=60s"
+    (Filename.quote name) (Filename.quote namespace)
   in
-  if r.exit_code <> 0 then
-    raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s\n%s" namespace name r.stderr))
+  run_cmd ~echo:false cmd
+
+let run_cmd_to_string cmd =
+  let tmp = Filename.temp_file "sun-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "%s > %s 2>/dev/null" cmd tmp));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  s
 
 (* ── Workspace / git helpers ─────────────────────────────────────────────── *)
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
-  match Sun_cli_process.capture "git" ["rev-parse"; "--short"; "HEAD"] with
-  | Ok s -> s
-  | Error _ -> "dev"
+  let s = run_cmd_to_string "git rev-parse --short HEAD" in
+  if s = "" then "dev" else s
 
 let current_kube_context () =
-  match Sun_cli_process.capture "kubectl" ["config"; "current-context"] with
-  | Ok s -> s
-  | Error _ -> ""
+  run_cmd_to_string "kubectl config current-context"
 
 let is_known_local_dev_context () =
   current_kube_context () = "k3d-sun-local"
@@ -280,15 +293,25 @@ let deploy_state_configmap_name workspace =
    guard is advisory; missing state never blocks a first deploy. *)
 let load_deployed_groups workspace =
   let name = deploy_state_configmap_name workspace in
-  match Sun_cli_process.capture "kubectl"
-    ["get"; "configmap"; name; "-n"; "default";
-     "-o"; "jsonpath={.data.consumer_groups}"]
-  with
-  | Error _ -> []
-  | Ok content ->
-    String.split_on_char '\n' content
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
+  let path = Filename.temp_file "sun-groups-" ".txt" in
+  let cmd = Printf.sprintf
+    "kubectl get configmap %s -n default \
+     -o jsonpath='{.data.consumer_groups}' 2>/dev/null > %s"
+    (Filename.quote name) (Filename.quote path)
+  in
+  let groups =
+    if Sys.command cmd <> 0 then []
+    else begin
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      String.split_on_char '\n' content
+      |> List.map String.trim
+      |> List.filter (fun s -> s <> "")
+    end
+  in
+  (try Sys.remove path with _ -> ());
+  groups
 
 (* Persist the current consumer groups to the sun-deploy-state ConfigMap. *)
 let save_deployed_groups workspace groups =
@@ -302,7 +325,8 @@ let save_deployed_groups workspace groups =
   let oc = open_out path in
   output_string oc apply_json;
   close_out oc;
-  ignore (Sun_cli_process.run ~echo:false "kubectl" ["apply"; "-f"; path]);
+  ignore (Sys.command (Printf.sprintf "kubectl apply -f %s >/dev/null 2>&1"
+    (Filename.quote path)));
   (try Sys.remove path with _ -> ())
 
 (* Check for consumer group renames/removals between the last deployed state
@@ -391,15 +415,13 @@ let run filter_path dry_run tag confirm_group_change =
      the copy when done. *)
   let ctx_dir = repo_root ^ ".docker-ctx" in
   if not dry_run then begin
-    ignore (Sun_cli_process.run ~echo:false "rm" ["-rf"; ctx_dir]);
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Preparing build context...\n%!";
-    let r = Sun_cli_process.run ~echo:true "rsync"
-      ["-a"; "--copy-links"; "--exclude=_build"; "--exclude=.git";
-       repo_root ^ "/"; ctx_dir]
-    in
-    if r.exit_code <> 0 then begin
+    let rsync_cmd = Printf.sprintf
+      "rsync -a --copy-links --exclude='_build' --exclude='.git' %s/ %s"
+      (Filename.quote repo_root) (Filename.quote ctx_dir) in
+    if Sys.command rsync_cmd <> 0 then begin
       Printf.eprintf "error: failed to copy workspace for docker build context\n";
-      if r.stderr <> "" then Printf.eprintf "%s\n" r.stderr;
       exit 1
     end
   end;
@@ -427,15 +449,13 @@ let run filter_path dry_run tag confirm_group_change =
 
       if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
-        let br = Sun_cli_process.run ~echo:false "docker"
-          ["build"; "-t"; push_image; "-f"; dockerfile; ctx_dir]
-        in
-        if br.exit_code <> 0 then
-          raise (Deploy_failed (Printf.sprintf "docker build failed: %s\n%s" spec.source_dir br.stderr));
+        let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
+          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
+        if run_cmd ~echo:false docker_cmd <> 0 then
+          raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
-        let pr = Sun_cli_process.run ~echo:false "docker" ["push"; push_image] in
-        if pr.exit_code <> 0 then
-          raise (Deploy_failed (Printf.sprintf "docker push failed: %s\n%s" push_image pr.stderr))
+        if run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
+          raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
       (* dry-run shows push_image (what actually gets pushed);
@@ -452,7 +472,8 @@ let run filter_path dry_run tag confirm_group_change =
          | Sun_cli_deployment_plan.Svc
          | Sun_cli_deployment_plan.Worker ->
            Printf.printf "  waiting for rollout...\n%!";
-           wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name
+           if wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name <> 0 then
+             raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s" spec.namespace spec.k8s_name))
          | Sun_cli_deployment_plan.Fn -> ());
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc ->
@@ -491,12 +512,12 @@ let run filter_path dry_run tag confirm_group_change =
 
     ) plan.Sun_cli_deployment_plan.services
   with Deploy_failed msg ->
-    ignore (Sun_cli_process.run ~echo:false "rm" ["-rf"; ctx_dir]);
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);
 
   if not dry_run then begin
-    ignore (Sun_cli_process.run ~echo:false "rm" ["-rf"; ctx_dir]);
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
     Printf.printf "Run 'sun status' to check pod health.\n";
     (* Warn if unapplied migration files exist *)
