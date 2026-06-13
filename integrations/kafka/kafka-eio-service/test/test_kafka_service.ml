@@ -65,26 +65,40 @@ let test_wire_too_short () =
     true (Result.is_error (decode_wire bad))
 
 (* ------------------------------------------------------------------ *)
-(* JSON base_url parser                                                *)
+(* URL construction via Uri (replaces hand-written parse_base_url)    *)
 (* ------------------------------------------------------------------ *)
 
-let check_url msg expected url =
-  let (eh, ep, et) = expected in
-  let (ah, ap, at_) = Kafka_service.parse_base_url url in
-  Alcotest.(check string) (msg ^ " host")   eh ah;
-  Alcotest.(check int)    (msg ^ " port")   ep ap;
-  Alcotest.(check bool)   (msg ^ " use_tls") et at_
+(* Verify that Uri.of_string correctly parses the URLs we pass to the
+   HTTP client.  This exercises the same parsing path used in production
+   since http_do_once calls Uri.of_string (base_url ^ path). *)
+
+let check_uri msg ~expected_host ~expected_port ~expected_scheme url =
+  let u = Uri.of_string url in
+  Alcotest.(check (option string)) (msg ^ " host")
+    (Some expected_host) (Uri.host u);
+  Alcotest.(check (option int))   (msg ^ " port")
+    expected_port (Uri.port u);
+  Alcotest.(check (option string)) (msg ^ " scheme")
+    (Some expected_scheme) (Uri.scheme u)
 
 let test_parse_url () =
-  check_url "http://localhost:8081"  ("localhost", 8081, false) "http://localhost:8081";
-  check_url "http://localhost:9644"  ("localhost", 9644, false) "http://localhost:9644";
-  check_url "http no port"           ("localhost", 80,   false) "http://localhost"
+  check_uri "http://localhost:8081"
+    ~expected_host:"localhost" ~expected_port:(Some 8081) ~expected_scheme:"http"
+    "http://localhost:8081";
+  check_uri "http://localhost:9644"
+    ~expected_host:"localhost" ~expected_port:(Some 9644) ~expected_scheme:"http"
+    "http://localhost:9644";
+  check_uri "http no explicit port"
+    ~expected_host:"localhost" ~expected_port:None ~expected_scheme:"http"
+    "http://localhost"
 
 let test_parse_url_https () =
-  check_url "https:// with port"
-    ("registry.example.com", 8081, true) "https://registry.example.com:8081";
-  check_url "https:// default 443"
-    ("registry.confluent.io", 443, true)  "https://registry.confluent.io"
+  check_uri "https:// with explicit port"
+    ~expected_host:"registry.example.com" ~expected_port:(Some 8081) ~expected_scheme:"https"
+    "https://registry.example.com:8081";
+  check_uri "https:// no explicit port"
+    ~expected_host:"registry.confluent.io" ~expected_port:None ~expected_scheme:"https"
+    "https://registry.confluent.io"
 
 (* ------------------------------------------------------------------ *)
 (* Runner                                                              *)

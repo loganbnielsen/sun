@@ -1,7 +1,7 @@
 (test
  (name test_kafka_service)
  (modules test_kafka_service)
- (libraries kafka_eio_service kafka_eio_core alcotest yojson))
+ (libraries kafka_eio_service kafka_eio_core alcotest yojson uri))
 
 (test
  (name test_kafka_service_integration)

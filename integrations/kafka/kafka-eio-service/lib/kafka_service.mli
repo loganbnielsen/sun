@@ -52,10 +52,6 @@ type config = {
       Production: set [KAFKA_SECURITY_PROTOCOL=sasl_ssl] and supply SASL credentials via env. *)
 }
 
-val parse_base_url : string -> string * int * bool
-(** Parse a schema registry/admin base URL into host, port, and TLS flag.
-    Intended for the built-in HTTP client and unit tests. *)
-
 val config_of_env : unit -> config
 (** Build a [config] from environment variables with sensible local-dev defaults.
     - [KAFKA_BROKERS]           — comma-separated broker addresses (default: ["localhost:9092"])
