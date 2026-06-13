@@ -533,6 +533,9 @@ spec:
     spec:
       backoffLimit: 3
       template:
+        metadata:
+          labels:
+            app: %s
         spec:
           serviceAccountName: %s
           restartPolicy: OnFailure
@@ -561,7 +564,7 @@ spec:
                 memory: 128Mi
               limits:
                 cpu: 250m
-                memory: 256Mi|} name ns schedule name name image secret_env_section name name
+                memory: 256Mi|} name ns schedule name name name image secret_env_section name name
 
 let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
   let replicas         = Option.value toml.replicas ~default:1 in

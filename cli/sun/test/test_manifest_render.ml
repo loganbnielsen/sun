@@ -324,6 +324,13 @@ let test_fn_default_schedule () =
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
   assert_contains "fn default schedule" workload {|schedule: "0 * * * *"|}
 
+(* AUDIT-040: CronJob pod template must carry app: <k8s_name> so that the
+   generated NetworkPolicy (which selects on app: <name>) matches fn pods. *)
+let test_fn_cronjob_pod_template_has_app_label () =
+  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let cronjob_block = extract_kind_block workload "kind: CronJob" in
+  assert_contains "fn cronjob pod template app label" cronjob_block "app: invoice-fn"
+
 (* ── resource stability: render_spec and render produce the same YAML ───── *)
 
 (* Ensure that render_spec generates the same output as the legacy render path
@@ -835,6 +842,7 @@ let () =
       ; Alcotest.test_case "no Deployment"          `Quick test_fn_no_deployment
       ; Alcotest.test_case "default schedule"       `Quick test_fn_default_schedule
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_fn_user_secret_key_in_secret_resource
+      ; Alcotest.test_case "pod template has app label (AUDIT-040)" `Quick test_fn_cronjob_pod_template_has_app_label
       ]
     ; "parity", [
         Alcotest.test_case "render_spec == render (plain svc)" `Quick test_svc_render_spec_matches_render
