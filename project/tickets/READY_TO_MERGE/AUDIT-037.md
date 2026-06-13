@@ -38,3 +38,6 @@ RUN opam install -y --no-self-upgrade \
 ```
 
 Add `ptime` and `otoml` between `domain-name` and `caqti-eio`.
+
+## Review — automated checks passed
+tpl_dockerfile gains ptime+otoml; tpl_github_deploy upgraded to setup-ocaml@v3 and ocaml-compiler 5.4.1; build and tests clean

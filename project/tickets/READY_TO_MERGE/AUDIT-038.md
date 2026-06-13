@@ -38,3 +38,6 @@ In `cli/sun/lib/sun_cli_cmd_new.ml`, update `tpl_github_deploy` (around line 357
 ```
 
 Match exactly the values used in `tpl_github_ci`.
+
+## Review — automated checks passed
+tpl_dockerfile gains ptime+otoml; tpl_github_deploy upgraded to setup-ocaml@v3 and ocaml-compiler 5.4.1; build and tests clean
