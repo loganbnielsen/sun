@@ -78,7 +78,7 @@ let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
   ignore (Sun_cli_process.exec ~echo:false "chmod" ["+x"; sf]);
   (* setsid puts the loop in its own session so it outlives this process;
      the trailing & returns immediately to the OCaml caller. *)
-  ignore (run_cmd ~echo:false
+  ignore (run_cmd ~echo:false                          (* shell: background execution *)
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
 
 (** Read the last [n] lines of a file, or [""] if the file is missing/empty. *)
@@ -235,11 +235,12 @@ let detect_stale_port_forward local_port target_namespace target_service =
     end
 
 let wait_for_rollout ~namespace ~name =
-  let cmd = Printf.sprintf
-    "kubectl rollout status deployment/%s -n %s --timeout=60s"
-    (Filename.quote name) (Filename.quote namespace)
+  let r = Sun_cli_process.run ~echo:false "kubectl"
+    ["rollout"; "status"; Printf.sprintf "deployment/%s" name;
+     "-n"; namespace; "--timeout=60s"]
   in
-  run_cmd ~echo:false cmd
+  if r.exit_code <> 0 then
+    raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s\n%s" namespace name r.stderr))
 
 (* ── Workspace / git helpers ─────────────────────────────────────────────── *)
 
@@ -426,13 +427,15 @@ let run filter_path dry_run tag confirm_group_change =
 
       if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
-        let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
-          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
-        if run_cmd ~echo:false docker_cmd <> 0 then
-          raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
+        let br = Sun_cli_process.run ~echo:false "docker"
+          ["build"; "-t"; push_image; "-f"; dockerfile; ctx_dir]
+        in
+        if br.exit_code <> 0 then
+          raise (Deploy_failed (Printf.sprintf "docker build failed: %s\n%s" spec.source_dir br.stderr));
         Printf.printf "  pushing...\n%!";
-        if run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
-          raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
+        let pr = Sun_cli_process.run ~echo:false "docker" ["push"; push_image] in
+        if pr.exit_code <> 0 then
+          raise (Deploy_failed (Printf.sprintf "docker push failed: %s\n%s" push_image pr.stderr))
       end;
 
       (* dry-run shows push_image (what actually gets pushed);
@@ -449,8 +452,7 @@ let run filter_path dry_run tag confirm_group_change =
          | Sun_cli_deployment_plan.Svc
          | Sun_cli_deployment_plan.Worker ->
            Printf.printf "  waiting for rollout...\n%!";
-           if wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name <> 0 then
-             raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s" spec.namespace spec.k8s_name))
+           wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name
          | Sun_cli_deployment_plan.Fn -> ());
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc ->

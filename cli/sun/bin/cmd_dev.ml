@@ -32,7 +32,7 @@ let cluster_name = "sun-local"
 let registry_port = 5000
 
 let ensure_state_dir () =
-  ignore (Sun_cli_process.run_shell ~echo:false (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
+  ignore (Sun_cli_process.exec ~echo:false "mkdir" ["-p"; state_dir])
 
 let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
@@ -82,7 +82,7 @@ let stop_port_forwards () =
           let pid_s = String.trim (In_channel.input_all ic) in
           close_in ic;
           (match int_of_string_opt pid_s with
-           | Some pid -> ignore (run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid))
+           | Some pid -> ignore (run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid)) (* shell: stderr redirection *)
            | None -> ());
           Sys.remove path
         with _ -> ())
