@@ -32,3 +32,6 @@ Both modules then call `Cohttp_eio.Client.make` and wrap requests with `Eio.Time
 - `kafka_service.ml` and `obs_loki.ml` no longer contain `tls_authenticator` or `make_https_wrapper` definitions.
 - The shared CA-bundle path list exists in exactly one place.
 - `dune build` and all existing tests pass.
+
+## Review — automated checks passed
+Refactor successfully extracts duplicated TLS/HTTPS block into shared Eio_http module; build passes, tests pass, all acceptance criteria met
