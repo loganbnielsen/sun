@@ -37,3 +37,6 @@ When `~https:None` is passed, Cohttp_eio refuses HTTPS URIs at connection time �
 4. Plain `http://` URIs continue to work — Cohttp_eio only invokes the https wrapper for HTTPS scheme URIs.
 
 5. Add tests that verify an `https://` LOKI_URL and `https://` PUSHGATEWAY_URL do not immediately raise or error before the connection attempt. The required packages (`tls-eio`, `x509`, `domain-name`, `ptime`) are already in `dune-project` and the Dockerfile template opam install line.
+
+## Review — automated checks passed
+Build clean. Tests pass. Diff confined to 4 expected files (obs_loki.ml, obs-eio-loki/lib/dune, obs_prometheus.ml, obs-eio-prometheus/lib/dune). No project/tickets/ changes. Both backends now pass ~https:(Some (Lazy.force https_wrapper)) to Cohttp_eio.Client.make. TLS wrapper uses system CA bundle via X509/tls-eio, fails closed if no bundle found. http:// URIs unaffected. All required libraries (tls-eio x509 domain-name ptime) present in both dune stanzas. Both library stanzas have (wrapped false). Pattern is consistent with kafka_service.ml.
