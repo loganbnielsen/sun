@@ -1,42 +1,14 @@
 (** Unit tests for kafka-eio-service. No broker required. *)
 
 (* ------------------------------------------------------------------ *)
-(* Wire format                                                         *)
+(* Wire format — uses the production Confluent_wire codec              *)
 (* ------------------------------------------------------------------ *)
-
-(* Access internal functions via the compiled module — we test the
-   observable encode/decode round-trip through publish/consume, but
-   for unit tests we expose the wire format directly via a test shim. *)
-
-let encode_wire ~schema_id json =
-  let json_str = Yojson.Safe.to_string json in
-  let json_len = String.length json_str in
-  let buf = Bytes.create (5 + json_len) in
-  Bytes.set buf 0 '\x00';
-  Bytes.set buf 1 (Char.chr ((schema_id lsr 24) land 0xFF));
-  Bytes.set buf 2 (Char.chr ((schema_id lsr 16) land 0xFF));
-  Bytes.set buf 3 (Char.chr ((schema_id lsr  8) land 0xFF));
-  Bytes.set buf 4 (Char.chr ( schema_id         land 0xFF));
-  Bytes.blit_string json_str 0 buf 5 json_len;
-  buf
-
-let decode_wire bytes =
-  if Bytes.length bytes < 5 then Error "too short"
-  else if Bytes.get bytes 0 <> '\x00' then Error "bad magic"
-  else
-    let schema_id =
-      (Char.code (Bytes.get bytes 1) lsl 24) lor
-      (Char.code (Bytes.get bytes 2) lsl 16) lor
-      (Char.code (Bytes.get bytes 3) lsl  8) lor
-       Char.code (Bytes.get bytes 4)
-    in
-    Ok (schema_id, Bytes.sub_string bytes 5 (Bytes.length bytes - 5))
 
 let test_wire_roundtrip () =
   let json = `Assoc [("amount", `Int 100); ("currency", `String "USD")] in
   let schema_id = 42 in
-  let encoded = encode_wire ~schema_id json in
-  match decode_wire encoded with
+  let encoded = Kafka_service.Confluent_wire.encode ~schema_id json in
+  match Kafka_service.Confluent_wire.decode encoded with
   | Error e -> Alcotest.failf "decode failed: %s" e
   | Ok (got_id, json_str) ->
     Alcotest.(check int) "schema id roundtrips" schema_id got_id;
@@ -48,8 +20,8 @@ let test_wire_roundtrip () =
 let test_wire_large_schema_id () =
   let schema_id = 0x00FFFFFF in
   let json = `String "hello" in
-  let encoded = encode_wire ~schema_id json in
-  match decode_wire encoded with
+  let encoded = Kafka_service.Confluent_wire.encode ~schema_id json in
+  match Kafka_service.Confluent_wire.decode encoded with
   | Error e -> Alcotest.failf "decode failed: %s" e
   | Ok (got_id, _) ->
     Alcotest.(check int) "large schema id roundtrips" schema_id got_id
@@ -57,12 +29,25 @@ let test_wire_large_schema_id () =
 let test_wire_bad_magic () =
   let bad = Bytes.of_string "\x01\x00\x00\x00\x01{}" in
   Alcotest.(check bool) "bad magic returns error"
-    true (Result.is_error (decode_wire bad))
+    true (Result.is_error (Kafka_service.Confluent_wire.decode bad))
 
 let test_wire_too_short () =
   let bad = Bytes.of_string "\x00\x00" in
   Alcotest.(check bool) "too short returns error"
-    true (Result.is_error (decode_wire bad))
+    true (Result.is_error (Kafka_service.Confluent_wire.decode bad))
+
+let test_wire_magic_byte () =
+  (* Verify the first byte of any encoded message is 0x00 *)
+  let encoded = Kafka_service.Confluent_wire.encode ~schema_id:1 (`String "x") in
+  Alcotest.(check char) "magic byte is 0x00" '\x00' (Bytes.get encoded 0)
+
+let test_wire_schema_id_big_endian () =
+  (* schema_id 0x01020304 must appear at bytes 1..4 in big-endian order *)
+  let encoded = Kafka_service.Confluent_wire.encode ~schema_id:0x01020304 (`String "x") in
+  Alcotest.(check char) "byte 1" '\x01' (Bytes.get encoded 1);
+  Alcotest.(check char) "byte 2" '\x02' (Bytes.get encoded 2);
+  Alcotest.(check char) "byte 3" '\x03' (Bytes.get encoded 3);
+  Alcotest.(check char) "byte 4" '\x04' (Bytes.get encoded 4)
 
 (* ------------------------------------------------------------------ *)
 (* JSON base_url parser                                                *)
@@ -94,10 +79,12 @@ let () =
   let open Alcotest in
   run "kafka_service" [
     "wire_format", [
-      test_case "roundtrip"         `Quick test_wire_roundtrip;
-      test_case "large schema id"   `Quick test_wire_large_schema_id;
-      test_case "bad magic byte"    `Quick test_wire_bad_magic;
-      test_case "too short"         `Quick test_wire_too_short;
+      test_case "roundtrip"              `Quick test_wire_roundtrip;
+      test_case "large schema id"        `Quick test_wire_large_schema_id;
+      test_case "bad magic byte"         `Quick test_wire_bad_magic;
+      test_case "too short"              `Quick test_wire_too_short;
+      test_case "magic byte is 0x00"     `Quick test_wire_magic_byte;
+      test_case "schema id big-endian"   `Quick test_wire_schema_id_big_endian;
     ];
     "url_parser", [
       test_case "parse base url"       `Quick test_parse_url;

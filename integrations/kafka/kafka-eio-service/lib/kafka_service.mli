@@ -52,6 +52,26 @@ type config = {
       Production: set [KAFKA_SECURITY_PROTOCOL=sasl_ssl] and supply SASL credentials via env. *)
 }
 
+(** Confluent wire-format codec.
+
+    Wire layout: [0x00] (magic byte) ++ 4 bytes big-endian schema ID ++ JSON payload.
+
+    Exposed so that tests can exercise the production codec directly instead of
+    duplicating encode/decode logic. *)
+module Confluent_wire : sig
+
+  (** Encode a JSON value into Confluent wire format.
+      Returns a [bytes] value ready to pass to the Kafka producer. *)
+  val encode : schema_id:int -> Yojson.Safe.t -> bytes
+
+  (** Decode a Confluent wire-format message.
+      - [Error "wire format: message too short"] if the payload is fewer than 5 bytes.
+      - [Error "wire format: invalid magic byte"] if the first byte is not [0x00].
+      - [Ok (schema_id, json_string)] on success. *)
+  val decode : bytes -> (int * string, string) result
+
+end
+
 val parse_base_url : string -> string * int * bool
 (** Parse a schema registry/admin base URL into host, port, and TLS flag.
     Intended for the built-in HTTP client and unit tests. *)
