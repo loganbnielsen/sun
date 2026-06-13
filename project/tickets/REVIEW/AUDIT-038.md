@@ -2,7 +2,11 @@
 id: AUDIT-038
 type: audit-finding
 severity: medium
+branch: AUDIT-037/dockerfile-opam-deps
+worktree: /home/lbendtly/Code/sun-AUDIT-037-dockerfile-opam-deps
 source: 2026-06-12h_audit.md
+branch: AUDIT-037/dockerfile-opam-deps
+worktree: /home/lbendtly/Code/sun-AUDIT-037-dockerfile-opam-deps
 ---
 
 # AUDIT-038 — `tpl_github_deploy` uses stale `ocaml/setup-ocaml@v2` and imprecise OCaml version pin

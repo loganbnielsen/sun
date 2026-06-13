@@ -2,7 +2,11 @@
 id: AUDIT-037
 type: audit-finding
 severity: high
+branch: AUDIT-037/dockerfile-opam-deps
+worktree: /home/lbendtly/Code/sun-AUDIT-037-dockerfile-opam-deps
 source: 2026-06-12h_audit.md
+branch: AUDIT-037/dockerfile-opam-deps
+worktree: /home/lbendtly/Code/sun-AUDIT-037-dockerfile-opam-deps
 ---
 
 # AUDIT-037 — Dockerfile template missing `otoml` and `ptime` from opam install
