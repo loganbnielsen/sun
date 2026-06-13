@@ -3,6 +3,8 @@ id: AUDIT-035
 type: audit-finding
 severity: medium
 source: project/audits/2026-06-12e_homemade_code_audit.md
+branch: AUDIT-035/cohttp-test-helpers
+worktree: /home/lbendtly/Code/sun-AUDIT-035-cohttp-test-helpers
 ---
 
 Replace duplicated raw HTTP test clients and servers with `cohttp-eio` test helpers
