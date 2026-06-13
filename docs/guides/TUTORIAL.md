@@ -130,12 +130,13 @@ cd pluto
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
-This generates 22 files. Here is what was created and why:
+This generates 26 files. Here is what was created and why:
 
 ```
 pluto/
   dune-project                    ← root dune project (required)
   .ocamlformat                    ← OCaml formatter config
+  .dockerignore                   ← excludes _build/ and .git/ from Docker build context
   README.md                       ← workspace-level docs
 
   .github/workflows/
@@ -168,6 +169,11 @@ pluto/
 
   db/migrations/
     0001_notifications.sql        ← initial schema
+    0001_notifications.down.sql   ← companion rollback migration (used by `sun migrate rollback`)
+
+  test/
+    test_schemas.ml               ← schema backward-compatibility CI gate
+    dune
 ```
 
 Two domain teams are wired together out of the box:
