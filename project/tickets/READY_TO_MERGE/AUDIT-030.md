@@ -21,3 +21,6 @@ Replace schema registry/admin hand-written HTTP client with `cohttp-eio`
 5. Remove direct `Eio.Net.with_tcp_connect`, raw HTTP request strings, manual chunk decoding, and manual CA file reads from `kafka_service.ml`.
 6. Update tests so HTTPS URL parsing/behavior is covered through the production HTTP path or through a small production helper backed by `Uri`, not by copied parsing code.
 7. Run `eval $(opam env) && dune build` and the `kafka-eio-service` unit tests.
+
+## Review — automated checks passed
+Raw TCP/HTTP framing replaced with cohttp-eio; TLS preserved fail-closed; public API unchanged; build and unit tests pass; diff confined to kafka-eio-service lib and test files only

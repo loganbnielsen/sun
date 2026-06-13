@@ -21,3 +21,6 @@ Replace ad hoc `sun.toml` parser with a maintained TOML package
 5. Add coverage for standard TOML formatting that the current parser cannot handle safely: multiline whitespace, quoted keys, inline tables, arrays, comments, and reordered sections.
 6. Update `dune-project` and `cli/sun/lib/dune` with the selected TOML dependency.
 7. Run `eval $(opam env) && dune test cli/sun/test`.
+
+## Review — automated checks passed
+otoml replacement complete — hand-rolled parser fully removed, all fields preserved, Parse_error on bad input, sun.dev/ guard intact, canary steps correct, tests pass

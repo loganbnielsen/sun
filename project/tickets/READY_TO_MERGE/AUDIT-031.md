@@ -21,3 +21,6 @@ Replace Loki hand-written HTTP and JSON construction with maintained libraries
 5. Add or update tests for labels, trace fields, payload JSON shape, non-2xx error reporting, and short error bodies.
 6. Remove raw `Eio.Net.with_tcp_connect`, `Eio.Flow.copy_string` HTTP request construction, status-line parsing, and manual JSON object construction from `obs_loki.ml`.
 7. Run `eval $(opam env) && dune test integrations/observability/obs-eio-loki/test`.
+
+## Review — automated checks passed
+cohttp-eio + Yojson migration complete; build clean, all tests pass, no legacy TCP/jstr/jobj patterns remain
