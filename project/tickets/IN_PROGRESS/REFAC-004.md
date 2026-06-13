@@ -3,6 +3,8 @@ id: REFAC-004
 type: refactor
 severity: low
 source: codebase simplification review 2026-06-13
+branch: REFAC-004/lookup-table
+worktree: ../sun-REFAC-004-lookup-table
 ---
 
 Replace the dual 125-branch pattern matches in `kafka_error.ml` with a single lookup table
