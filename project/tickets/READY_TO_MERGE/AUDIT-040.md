@@ -24,3 +24,6 @@ worktree: /home/lbendtly/Code/sun-AUDIT-040-cronjob-pod-labels
 ```
 
 Add `name` as the positional argument for this new `%s`. Add a test in `cli/sun/test/test_manifest_render.ml` that asserts the rendered CronJob YAML contains `app: <service-name>` in the pod template labels section, matching the pattern checked for Deployment workloads.
+
+## Review — automated checks passed
+Build clean, all tests pass. Diff touches only cli/sun/lib/sun_cli_manifest.ml and cli/sun/test/test_manifest_render.ml — project/tickets/ untouched. The metadata/labels block is inserted at the correct nesting level (jobTemplate.spec.template.metadata.labels) with app: %s and the extra name positional arg placed correctly as the 4th argument in the format string. The fix mirrors the pattern used in deployment_doc and rollout_doc. The new test in the fn suite uses extract_kind_block to scope the assertion to the CronJob and checks for app: invoice-fn. No wrapped true libraries introduced.
