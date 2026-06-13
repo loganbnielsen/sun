@@ -121,146 +121,256 @@ type t =
   | Application
   | Err_unknown of int
 
-(* Single source-of-truth mapping between variants and rd_kafka_resp_err_t codes.
-   Positive codes = Kafka protocol errors; negative = librdkafka internal errors. *)
-let table : (t * int) list = [
-  No_error,                              0;
-  Offset_out_of_range,                   1;
-  Invalid_msg,                           2;
-  Unknown_topic_or_part,                 3;
-  Invalid_msg_size,                      4;
-  Leader_not_available,                  5;
-  Not_leader_for_partition,              6;
-  Request_timed_out,                     7;
-  Broker_not_available,                  8;
-  Replica_not_available,                 9;
-  Msg_size_too_large,                   10;
-  Stale_ctrl_epoch,                     11;
-  Offset_metadata_too_large,            12;
-  Network_exception,                    13;
-  Coordinator_load_in_progress,         14;
-  Coordinator_not_available,            15;
-  Not_coordinator,                      16;
-  Topic_exception,                      17;
-  Record_list_too_large,                18;
-  Not_enough_replicas,                  19;
-  Not_enough_replicas_after_append,     20;
-  Invalid_required_acks,                21;
-  Illegal_generation,                   22;
-  Inconsistent_group_protocol,          23;
-  Invalid_group_id,                     24;
-  Unknown_member_id,                    25;
-  Invalid_session_timeout,              26;
-  Rebalance_in_progress,                27;
-  Invalid_commit_offset_size,           28;
-  Topic_authorization_failed,           29;
-  Group_authorization_failed,           30;
-  Cluster_authorization_failed,         31;
-  Invalid_timestamp,                    32;
-  Unsupported_sasl_mechanism,           33;
-  Illegal_sasl_state,                   34;
-  Unsupported_version,                  35;
-  Topic_already_exists,                 36;
-  Invalid_partitions,                   37;
-  Invalid_replication_factor,           38;
-  Invalid_replica_assignment,           39;
-  Invalid_config,                       40;
-  Not_controller,                       41;
-  Invalid_request,                      42;
-  Unsupported_for_message_format,       43;
-  Policy_violation,                     44;
-  Out_of_order_sequence_number,         45;
-  Duplicate_sequence_number,            46;
-  Invalid_producer_epoch,               47;
-  Invalid_txn_state,                    48;
-  Invalid_producer_id_mapping,          49;
-  Invalid_transaction_timeout,          50;
-  Concurrent_transactions,              51;
-  Transaction_coordinator_fenced,       52;
-  Transactional_id_authorization_failed, 53;
-  Security_disabled,                    54;
-  Operation_not_attempted,              55;
-  Kafka_storage_error,                  56;
-  Log_dir_not_found,                    57;
-  Sasl_authentication_failed,           58;
-  Unknown_producer_id,                  59;
-  Reassignment_in_progress,             60;
-  Unknown,                              -1;
-  Begin,                              -200;
-  Bad_msg,                            -199;
-  Bad_compression,                    -198;
-  Destroy,                            -197;
-  Fail,                               -196;
-  Transport,                          -195;
-  Crit_sys_resource,                  -194;
-  Resolve,                            -193;
-  Msg_timed_out,                      -192;
-  Partition_eof,                      -191;
-  Unknown_partition,                  -190;
-  Fs,                                 -189;
-  Unknown_topic,                      -188;
-  All_brokers_down,                   -187;
-  Invalid_arg,                        -186;
-  Timed_out,                          -185;
-  Queue_full,                         -184;
-  Isr_insuff,                         -183;
-  Node_update,                        -182;
-  Ssl,                                -181;
-  Wait_coord,                         -180;
-  Unknown_group,                      -179;
-  In_progress,                        -178;
-  Prev_in_progress,                   -177;
-  Existing_subscription,              -176;
-  Assign_partitions,                  -175;
-  Revoke_partitions,                  -174;
-  Conflict,                           -173;
-  State,                              -172;
-  Unknown_protocol,                   -171;
-  Not_implemented,                    -170;
-  Authentication,                     -169;
-  No_offset,                          -168;
-  Outdated,                           -167;
-  Timed_out_queue,                    -166;
-  Unsupported_feature,                -165;
-  Wait_cache,                         -164;
-  Intr,                               -163;
-  Key_serialization,                  -162;
-  Value_serialization,                -161;
-  Key_deserialization,                -160;
-  Value_deserialization,              -159;
-  Partial,                            -158;
-  Read_only,                          -157;
-  Noent,                              -156;
-  Underflow,                          -155;
-  Invalid_type,                       -154;
-  Retry,                              -153;
-  Purge_queue,                        -152;
-  Purge_inflight,                     -151;
-  Fatal,                              -150;
-  Inconsistent,                       -149;
-  Gapless_guarantees,                 -148;
-  Max_poll_exceeded,                  -147;
-  Unknown_broker,                     -146;
-  Not_configured,                     -145;
-  Fenced,                             -144;
-  Application,                        -143;
-]
+(* rd_kafka_resp_err_t integer mapping.
+   Positive = Kafka protocol errors. Negative = librdkafka internal errors. *)
+let of_int = function
+  (* Kafka protocol errors (positive) *)
+  | 0   -> No_error
+  | 1   -> Offset_out_of_range
+  | 2   -> Invalid_msg
+  | 3   -> Unknown_topic_or_part
+  | 4   -> Invalid_msg_size
+  | 5   -> Leader_not_available
+  | 6   -> Not_leader_for_partition
+  | 7   -> Request_timed_out
+  | 8   -> Broker_not_available
+  | 9   -> Replica_not_available
+  | 10  -> Msg_size_too_large
+  | 11  -> Stale_ctrl_epoch
+  | 12  -> Offset_metadata_too_large
+  | 13  -> Network_exception
+  | 14  -> Coordinator_load_in_progress
+  | 15  -> Coordinator_not_available
+  | 16  -> Not_coordinator
+  | 17  -> Topic_exception
+  | 18  -> Record_list_too_large
+  | 19  -> Not_enough_replicas
+  | 20  -> Not_enough_replicas_after_append
+  | 21  -> Invalid_required_acks
+  | 22  -> Illegal_generation
+  | 23  -> Inconsistent_group_protocol
+  | 24  -> Invalid_group_id
+  | 25  -> Unknown_member_id
+  | 26  -> Invalid_session_timeout
+  | 27  -> Rebalance_in_progress
+  | 28  -> Invalid_commit_offset_size
+  | 29  -> Topic_authorization_failed
+  | 30  -> Group_authorization_failed
+  | 31  -> Cluster_authorization_failed
+  | 32  -> Invalid_timestamp
+  | 33  -> Unsupported_sasl_mechanism
+  | 34  -> Illegal_sasl_state
+  | 35  -> Unsupported_version
+  | 36  -> Topic_already_exists
+  | 37  -> Invalid_partitions
+  | 38  -> Invalid_replication_factor
+  | 39  -> Invalid_replica_assignment
+  | 40  -> Invalid_config
+  | 41  -> Not_controller
+  | 42  -> Invalid_request
+  | 43  -> Unsupported_for_message_format
+  | 44  -> Policy_violation
+  | 45  -> Out_of_order_sequence_number
+  | 46  -> Duplicate_sequence_number
+  | 47  -> Invalid_producer_epoch
+  | 48  -> Invalid_txn_state
+  | 49  -> Invalid_producer_id_mapping
+  | 50  -> Invalid_transaction_timeout
+  | 51  -> Concurrent_transactions
+  | 52  -> Transaction_coordinator_fenced
+  | 53  -> Transactional_id_authorization_failed
+  | 54  -> Security_disabled
+  | 55  -> Operation_not_attempted
+  | 56  -> Kafka_storage_error
+  | 57  -> Log_dir_not_found
+  | 58  -> Sasl_authentication_failed
+  | 59  -> Unknown_producer_id
+  | 60  -> Reassignment_in_progress
+  (* librdkafka internal errors (negative) *)
+  | -1  -> Unknown
+  | -200 -> Begin
+  | -199 -> Bad_msg
+  | -198 -> Bad_compression
+  | -197 -> Destroy
+  | -196 -> Fail
+  | -195 -> Transport
+  | -194 -> Crit_sys_resource
+  | -193 -> Resolve
+  | -192 -> Msg_timed_out
+  | -191 -> Partition_eof
+  | -190 -> Unknown_partition
+  | -189 -> Fs
+  | -188 -> Unknown_topic
+  | -187 -> All_brokers_down
+  | -186 -> Invalid_arg
+  | -185 -> Timed_out
+  | -184 -> Queue_full
+  | -183 -> Isr_insuff
+  | -182 -> Node_update
+  | -181 -> Ssl
+  | -180 -> Wait_coord
+  | -179 -> Unknown_group
+  | -178 -> In_progress
+  | -177 -> Prev_in_progress
+  | -176 -> Existing_subscription
+  | -175 -> Assign_partitions
+  | -174 -> Revoke_partitions
+  | -173 -> Conflict
+  | -172 -> State
+  | -171 -> Unknown_protocol
+  | -170 -> Not_implemented
+  | -169 -> Authentication
+  | -168 -> No_offset
+  | -167 -> Outdated
+  | -166 -> Timed_out_queue
+  | -165 -> Unsupported_feature
+  | -164 -> Wait_cache
+  | -163 -> Intr
+  | -162 -> Key_serialization
+  | -161 -> Value_serialization
+  | -160 -> Key_deserialization
+  | -159 -> Value_deserialization
+  | -158 -> Partial
+  | -157 -> Read_only
+  | -156 -> Noent
+  | -155 -> Underflow
+  | -154 -> Invalid_type
+  | -153 -> Retry
+  | -152 -> Purge_queue
+  | -151 -> Purge_inflight
+  | -150 -> Fatal
+  | -149 -> Inconsistent
+  | -148 -> Gapless_guarantees
+  | -147 -> Max_poll_exceeded
+  | -146 -> Unknown_broker
+  | -145 -> Not_configured
+  | -144 -> Fenced
+  | -143 -> Application
+  | n    -> Err_unknown n
 
-let of_int code =
-  match List.find_opt (fun (_, c) -> c = code) table with
-  | Some (v, _) -> v
-  | None        -> Err_unknown code
-
-(* to_string delegates to rd_kafka_err2str via FFI, which is the canonical
-   source for human-readable error messages. We convert the variant back to
-   its integer code using the same table. *)
-let to_string t =
-  let code = match t with
-    | Err_unknown n -> n
-    | _             ->
-      (match List.find_opt (fun (v, _) -> v = t) table with
-       | Some (_, c) -> c
-       | None        -> -1)
+let to_string err =
+  let code = match err with
+    | No_error                        -> 0
+    | Offset_out_of_range             -> 1
+    | Invalid_msg                     -> 2
+    | Unknown_topic_or_part           -> 3
+    | Invalid_msg_size                -> 4
+    | Leader_not_available            -> 5
+    | Not_leader_for_partition        -> 6
+    | Request_timed_out               -> 7
+    | Broker_not_available            -> 8
+    | Replica_not_available           -> 9
+    | Msg_size_too_large              -> 10
+    | Stale_ctrl_epoch                -> 11
+    | Offset_metadata_too_large       -> 12
+    | Network_exception               -> 13
+    | Coordinator_load_in_progress    -> 14
+    | Coordinator_not_available       -> 15
+    | Not_coordinator                 -> 16
+    | Topic_exception                 -> 17
+    | Record_list_too_large           -> 18
+    | Not_enough_replicas             -> 19
+    | Not_enough_replicas_after_append -> 20
+    | Invalid_required_acks           -> 21
+    | Illegal_generation              -> 22
+    | Inconsistent_group_protocol     -> 23
+    | Invalid_group_id                -> 24
+    | Unknown_member_id               -> 25
+    | Invalid_session_timeout         -> 26
+    | Rebalance_in_progress           -> 27
+    | Invalid_commit_offset_size      -> 28
+    | Topic_authorization_failed      -> 29
+    | Group_authorization_failed      -> 30
+    | Cluster_authorization_failed    -> 31
+    | Invalid_timestamp               -> 32
+    | Unsupported_sasl_mechanism      -> 33
+    | Illegal_sasl_state              -> 34
+    | Unsupported_version             -> 35
+    | Topic_already_exists            -> 36
+    | Invalid_partitions              -> 37
+    | Invalid_replication_factor      -> 38
+    | Invalid_replica_assignment      -> 39
+    | Invalid_config                  -> 40
+    | Not_controller                  -> 41
+    | Invalid_request                 -> 42
+    | Unsupported_for_message_format  -> 43
+    | Policy_violation                -> 44
+    | Out_of_order_sequence_number    -> 45
+    | Duplicate_sequence_number       -> 46
+    | Invalid_producer_epoch          -> 47
+    | Invalid_txn_state               -> 48
+    | Invalid_producer_id_mapping     -> 49
+    | Invalid_transaction_timeout     -> 50
+    | Concurrent_transactions         -> 51
+    | Transaction_coordinator_fenced  -> 52
+    | Transactional_id_authorization_failed -> 53
+    | Security_disabled               -> 54
+    | Operation_not_attempted         -> 55
+    | Kafka_storage_error             -> 56
+    | Log_dir_not_found               -> 57
+    | Sasl_authentication_failed      -> 58
+    | Unknown_producer_id             -> 59
+    | Reassignment_in_progress        -> 60
+    | Unknown                         -> -1
+    | Begin                           -> -200
+    | Bad_msg                         -> -199
+    | Bad_compression                 -> -198
+    | Destroy                         -> -197
+    | Fail                            -> -196
+    | Transport                       -> -195
+    | Crit_sys_resource               -> -194
+    | Resolve                         -> -193
+    | Msg_timed_out                   -> -192
+    | Partition_eof                   -> -191
+    | Unknown_partition               -> -190
+    | Fs                              -> -189
+    | Unknown_topic                   -> -188
+    | All_brokers_down                -> -187
+    | Invalid_arg                     -> -186
+    | Timed_out                       -> -185
+    | Queue_full                      -> -184
+    | Isr_insuff                      -> -183
+    | Node_update                     -> -182
+    | Ssl                             -> -181
+    | Wait_coord                      -> -180
+    | Unknown_group                   -> -179
+    | In_progress                     -> -178
+    | Prev_in_progress                -> -177
+    | Existing_subscription           -> -176
+    | Assign_partitions               -> -175
+    | Revoke_partitions               -> -174
+    | Conflict                        -> -173
+    | State                           -> -172
+    | Unknown_protocol                -> -171
+    | Not_implemented                 -> -170
+    | Authentication                  -> -169
+    | No_offset                       -> -168
+    | Outdated                        -> -167
+    | Timed_out_queue                 -> -166
+    | Unsupported_feature             -> -165
+    | Wait_cache                      -> -164
+    | Intr                            -> -163
+    | Key_serialization               -> -162
+    | Value_serialization             -> -161
+    | Key_deserialization             -> -160
+    | Value_deserialization           -> -159
+    | Partial                         -> -158
+    | Read_only                       -> -157
+    | Noent                           -> -156
+    | Underflow                       -> -155
+    | Invalid_type                    -> -154
+    | Retry                           -> -153
+    | Purge_queue                     -> -152
+    | Purge_inflight                  -> -151
+    | Fatal                           -> -150
+    | Inconsistent                    -> -149
+    | Gapless_guarantees              -> -148
+    | Max_poll_exceeded               -> -147
+    | Unknown_broker                  -> -146
+    | Not_configured                  -> -145
+    | Fenced                          -> -144
+    | Application                     -> -143
+    | Err_unknown n                   -> n
   in
   Kafka_raw.err2str code
 
