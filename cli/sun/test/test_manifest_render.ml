@@ -194,7 +194,7 @@ let test_svc_secret_refs_without_values () =
   assert_contains "api token secret ref" workload "key: API_TOKEN";
   assert_absent "database value absent" workload "postgres://secret";
   assert_absent "token value absent" workload "token-value";
-  assert_contains "shared secret name" workload "name: sun-secrets"
+  assert_contains "shared secret name" workload "name: charge-svc-secrets"
 
 let test_svc_namespace_in_workload () =
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
@@ -437,10 +437,10 @@ let test_progressive_blue_green_rollout () =
   assert_contains "ingress points at active" workload "name: charge-svc-active";
   assert_absent   "no Deployment" workload "kind: Deployment"
 
-(* ── AUDIT-019: Argo Rollout uses sun-secrets, not <name>-secrets ─────────── *)
+(* ── AUDIT-039: Argo Rollout uses <name>-secrets, not sun-secrets ─────────── *)
 
-(* Canary Rollout with secrets must reference sun-secrets (not charge-svc-secrets)
-   in the secretKeyRef block, and must NOT contain any per-service secret name. *)
+(* Canary Rollout with secrets must reference charge-svc-secrets (not sun-secrets)
+   in the secretKeyRef block. *)
 let test_rollout_canary_secrets_use_sun_secrets () =
   let spec = {
     svc_spec with
@@ -452,12 +452,12 @@ let test_rollout_canary_secrets_use_sun_secrets () =
   } in
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
   let rollout_block = extract_kind_block workload "kind: Rollout" in
-  assert_contains "rollout uses sun-secrets ref"       rollout_block "name: sun-secrets";
-  assert_contains "rollout has STRIPE_KEY ref"         rollout_block "key: STRIPE_KEY";
-  assert_contains "rollout has DATABASE_URL ref"       rollout_block "key: DATABASE_URL";
-  assert_absent   "no per-service secret name"         rollout_block "name: charge-svc-secrets"
+  assert_contains "rollout uses charge-svc-secrets ref" rollout_block "name: charge-svc-secrets";
+  assert_contains "rollout has STRIPE_KEY ref"          rollout_block "key: STRIPE_KEY";
+  assert_contains "rollout has DATABASE_URL ref"        rollout_block "key: DATABASE_URL";
+  assert_absent   "no global sun-secrets name"          rollout_block "name: sun-secrets"
 
-(* Blue-green Rollout with secrets must also reference sun-secrets. *)
+(* Blue-green Rollout with secrets must also reference charge-svc-secrets. *)
 let test_rollout_blue_green_secrets_use_sun_secrets () =
   let spec = {
     svc_spec with
@@ -466,9 +466,9 @@ let test_rollout_blue_green_secrets_use_sun_secrets () =
   } in
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
   let rollout_block = extract_kind_block workload "kind: Rollout" in
-  assert_contains "blue-green rollout uses sun-secrets" rollout_block "name: sun-secrets";
-  assert_contains "blue-green rollout has API_TOKEN ref" rollout_block "key: API_TOKEN";
-  assert_absent   "no per-service secret name"          rollout_block "name: charge-svc-secrets"
+  assert_contains "blue-green rollout uses charge-svc-secrets" rollout_block "name: charge-svc-secrets";
+  assert_contains "blue-green rollout has API_TOKEN ref"       rollout_block "key: API_TOKEN";
+  assert_absent   "no global sun-secrets name"                 rollout_block "name: sun-secrets"
 
 let test_ingress_host_override () =
   (* ingress_host override must appear in the Ingress rule *)
@@ -847,8 +847,8 @@ let () =
       ; Alcotest.test_case "progressive canary Rollout"    `Quick test_progressive_canary_rollout
       ; Alcotest.test_case "progressive worker canary"     `Quick test_progressive_canary_worker_no_service
       ; Alcotest.test_case "progressive blue-green Rollout" `Quick test_progressive_blue_green_rollout
-      ; Alcotest.test_case "rollout canary secrets use sun-secrets"     `Quick test_rollout_canary_secrets_use_sun_secrets
-      ; Alcotest.test_case "rollout blue-green secrets use sun-secrets" `Quick test_rollout_blue_green_secrets_use_sun_secrets
+      ; Alcotest.test_case "rollout canary secrets use name-secrets"     `Quick test_rollout_canary_secrets_use_sun_secrets
+      ; Alcotest.test_case "rollout blue-green secrets use name-secrets" `Quick test_rollout_blue_green_secrets_use_sun_secrets
       ; Alcotest.test_case "ingress host override"         `Quick test_ingress_host_override
       ; Alcotest.test_case "ingress path override"         `Quick test_ingress_path_override
       ; Alcotest.test_case "ingress default path"          `Quick test_ingress_default_path
