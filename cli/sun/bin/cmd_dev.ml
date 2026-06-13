@@ -68,7 +68,7 @@ let start_port_forward pf =
   output_string oc content;
   close_out oc;
   ignore (Sun_cli_process.run_shell ~echo:false (Printf.sprintf "chmod +x %s" (Filename.quote script_file))); (* shell: simple chmod via run_shell *)
-  ignore (run_cmd ~echo:false
+  ignore (run_cmd ~echo:false                            (* shell: background execution *)
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
 let stop_port_forwards () =
@@ -144,10 +144,10 @@ let dev_up () =
   Printf.printf "\n[3/4] Deploying infra...\n%!";
   let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
   if need_any then begin
-    ignore (run_cmd "helm repo add redpanda              https://charts.redpanda.com 2>/dev/null");
-    ignore (run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");
-    ignore (run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");
-    ignore (run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null");
+    ignore (run_cmd "helm repo add redpanda              https://charts.redpanda.com 2>/dev/null");             (* shell: stderr redirection *)
+    ignore (run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");   (* shell: stderr redirection *)
+    ignore (run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");      (* shell: stderr redirection *)
+    ignore (run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null"); (* shell: stderr redirection *)
     ignore (run_cmd "helm repo update");
   end;
 
@@ -271,7 +271,7 @@ let dev_status () =
     (if cluster_running then "✓ running" else "✗ not found");
   if cluster_running then begin
     Printf.printf "\nPods:\n%!";
-    ignore (run_cmd ~echo:false "kubectl get pods -A 2>/dev/null");
+    ignore (run_cmd ~echo:false "kubectl get pods -A 2>/dev/null"); (* shell: stderr redirection *)
     Printf.printf "\nPort-forwards:\n%!";
     if Sys.file_exists state_dir then begin
       let entries = try Sys.readdir state_dir with _ -> [||] in
