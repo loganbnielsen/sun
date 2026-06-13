@@ -53,3 +53,6 @@ The `to_string` function currently delegates to `rd_kafka_err2str` via FFI for s
 - `of_int` and `to_string` are derived from the same source-of-truth table.
 - All existing `kafka_error` unit tests pass.
 - `dune build` succeeds.
+
+## Review — automated checks passed
+Build succeeds, all kafka-eio-core unit tests pass, only kafka_error.ml is modified, and a single lookup table now drives both of_int and to_string with no duplicate match arms

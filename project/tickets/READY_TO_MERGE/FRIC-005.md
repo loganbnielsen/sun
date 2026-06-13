@@ -22,3 +22,6 @@ Both issues have recurred across at least three dogfood runs: `RUN_2026-06-10-fu
 **Remediation:**
 1. In `cli/sun/bin/cmd_dev.ml`, capture stdout/stderr from each `helm upgrade --install` invocation and suppress chart `NOTES:` blocks and bare `WARNING:` lines before printing. Only emit Sun's own structured status line (e.g., `Installing Loki... ✓`). Non-zero exit codes should still be surfaced as errors.
 2. Migrate the Loki install in `cmd_dev.ml` from the deprecated `grafana/loki-stack` chart (line 197) to `grafana/loki` (standalone Loki chart, actively maintained) paired with `grafana/grafana`. The `grafana/loki-stack` chart was the all-in-one convenience chart and is now deprecated; the replacement is to install `grafana/loki` and `grafana/grafana` as separate releases. Update the port-forward targets accordingly (`svc/loki` and `svc/grafana` instead of `svc/loki` and `svc/loki-grafana`).
+
+## Review — automated checks passed
+FRIC-005 correctly suppresses Helm NOTES: and WARNING: output via temp-file capture+filter, migrates Loki from deprecated grafana/loki-stack to standalone grafana/loki + grafana/grafana, and updates the Grafana port-forward target from svc/loki-grafana to svc/grafana; build and tests pass, only cli/sun/bin/cmd_dev.ml changed, project/tickets/ untouched

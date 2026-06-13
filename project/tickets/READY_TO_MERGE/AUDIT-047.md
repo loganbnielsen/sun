@@ -37,3 +37,6 @@ and then executes each trimmed segment with a semicolon appended. This is a hand
 - The corresponding `.down.sql` rollback also succeeds.
 - Statement execution still happens transactionally.
 - Existing simple migration tests continue to pass.
+
+## Review — automated checks passed
+PostgreSQL-aware split_statements lexer fully replaces naive semicolon splitting; mli exposes the function; unit tests cover all required edge cases; build is clean.

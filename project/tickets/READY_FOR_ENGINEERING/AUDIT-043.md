@@ -38,3 +38,11 @@ This makes command behavior hard to audit. Some call sites discard stderr, some 
 - At least `cmd_up.ml` and `cmd_dev.ml` share one implementation for tool checks, command execution, and capture.
 - Non-zero `kubectl`, `helm`, `docker`, and `git` failures surface stderr in user-facing errors.
 - Tests can exercise deploy/status behavior without invoking real external tools.
+
+## Review — returned for revision
+- `cli/sun/bin/cmd_up.ml:431` — docker build failure uses run_cmd -> run_shell; stderr not captured or surfaced. AC requires docker failures surface stderr. Use Sun_cli_process.run and report r.stderr on r.exit_code <> 0.
+- `cli/sun/bin/cmd_up.ml:434` — docker push failure uses run_cmd -> run_shell; stderr not captured. Same fix as docker build.
+- `cli/sun/bin/cmd_up.ml:242` — wait_for_rollout calls run_shell for kubectl rollout status — no shell features used, stderr not captured. Non-zero exit raises Deploy_failed with a static string, not the kubectl error output.
+- `cli/sun/bin/cmd_up.ml:81` — setsid ... & (shell: background execution) lacks (* shell: <reason> *) comment required by Sun_cli_process module contract.
+- `cli/sun/bin/cmd_dev.ml:35` — ensure_state_dir calls run_shell for plain mkdir -p with no shell features; should use Sun_cli_process.exec "mkdir" ["-p"; state_dir] as cmd_up.ml line 13 correctly does.
+- `cli/sun/bin/cmd_dev.ml:85` — kill via run_shell with 2>/dev/null redirection is legitimate shell use but lacks the required (* shell: <reason> *) annotation per module contract.
