@@ -1,0 +1,5 @@
+(library
+ (name obs_eio_http)
+ (wrapped false)
+ (modules Eio_http)
+ (libraries eio unix cohttp-eio uri http tls-eio x509 domain-name ptime))
