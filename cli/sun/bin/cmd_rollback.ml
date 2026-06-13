@@ -8,6 +8,13 @@ let workspace_name () = Filename.basename (Sys.getcwd ())
 let run_cmd cmd =
   Sys.command cmd
 
+(** Check whether the kubectl-argo-rollouts plugin is available.
+    Tries both the hyphenated binary name (kubectl-argo-rollouts) and
+    the sub-command form (kubectl argo rollouts version). *)
+let argo_plugin_available () =
+  Sys.command "kubectl-argo-rollouts version >/dev/null 2>&1" = 0
+  || Sys.command "kubectl argo rollouts version >/dev/null 2>&1" = 0
+
 let run filter_path =
   let workspace = workspace_name () in
   let services  = discover_services ~filter_path in
@@ -27,26 +34,55 @@ let run filter_path =
 
     Printf.printf "[%s] %s/%s\n%!" (prim_label svc.prim) svc.domain svc.name;
 
-    let undo_cmd = Printf.sprintf
-      "kubectl rollout undo deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
-    let rc = run_cmd undo_cmd in
-    if rc <> 0 then begin
-      Printf.eprintf "  error: kubectl rollout undo failed for %s/%s (exit %d)\n%!"
-        svc.domain svc.name rc;
-      incr errors
-    end else begin
-      Printf.printf "  ✓  rolled back %s/%s\n%!" svc.domain svc.name;
+    (* Load sun.toml from the service directory to detect progressive delivery. *)
+    let toml = Sun_cli_toml.load (Filename.concat svc.dir "sun.toml") in
 
-      (* Wait for the rolled-back revision to become healthy *)
-      let status_cmd = Printf.sprintf
-        "kubectl rollout status deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
-      let src = run_cmd status_cmd in
-      if src <> 0 then begin
-        Printf.eprintf "  warning: rollout status check failed for %s/%s (exit %d)\n%!"
-          svc.domain svc.name src;
+    (match toml.Sun_cli_toml.progressive_delivery with
+    | Some _ ->
+      (* Service uses Argo Rollouts — use the kubectl-argo-rollouts plugin. *)
+      if argo_plugin_available () then begin
+        let undo_cmd = Printf.sprintf
+          "kubectl argo rollouts undo %s -n %s"
+          (Filename.quote k8s_name) (Filename.quote ns)
+        in
+        let rc = run_cmd undo_cmd in
+        if rc <> 0 then begin
+          Printf.eprintf "  error: kubectl argo rollouts undo failed for %s/%s (exit %d)\n%!"
+            svc.domain svc.name rc;
+          incr errors
+        end else
+          Printf.printf "  ✓  rolled back %s/%s (Argo Rollout)\n%!" svc.domain svc.name
+      end else begin
+        Printf.eprintf
+          "  error: service %s/%s uses Argo Rollouts — install the Argo Rollouts kubectl plugin to roll back.\n\
+          \    Install: https://argoproj.github.io/argo-rollouts/installation/#kubectl-plugin\n\
+          \    Manual:  kubectl argo rollouts undo %s -n %s\n%!"
+          svc.domain svc.name
+          (Filename.quote k8s_name) (Filename.quote ns);
         incr errors
       end
-    end;
+    | None ->
+      (* Standard Deployment — use kubectl rollout undo. *)
+      let undo_cmd = Printf.sprintf
+        "kubectl rollout undo deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
+      let rc = run_cmd undo_cmd in
+      if rc <> 0 then begin
+        Printf.eprintf "  error: kubectl rollout undo failed for %s/%s (exit %d)\n%!"
+          svc.domain svc.name rc;
+        incr errors
+      end else begin
+        Printf.printf "  ✓  rolled back %s/%s\n%!" svc.domain svc.name;
+
+        (* Wait for the rolled-back revision to become healthy *)
+        let status_cmd = Printf.sprintf
+          "kubectl rollout status deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
+        let src = run_cmd status_cmd in
+        if src <> 0 then begin
+          Printf.eprintf "  warning: rollout status check failed for %s/%s (exit %d)\n%!"
+            svc.domain svc.name src;
+          incr errors
+        end
+      end);
     Printf.printf "\n%!"
   ) services;
 

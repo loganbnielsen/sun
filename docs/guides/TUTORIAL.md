@@ -518,7 +518,9 @@ The generated files contain the full manifest (Namespace, ServiceAccount, Config
 
 ### Day-2 operations
 
-If a deploy introduces a regression, `sun rollback [domain/service]` runs `kubectl rollout undo` for one or all services and waits for the previous revision to become healthy — no kubectl knowledge required.
+If a deploy introduces a regression, `sun rollback [domain/service]` rolls back one or all services and waits for the previous revision to become healthy — no kubectl knowledge required.
+
+For services using a standard `Deployment` (no `[infra.rollout]` in `sun.toml`), this calls `kubectl rollout undo deployment/<name>`. For services configured with `[infra.rollout]` (Argo Rollouts), `sun rollback` automatically calls `kubectl argo rollouts undo <name>` instead. This requires the [Argo Rollouts kubectl plugin](https://argoproj.github.io/argo-rollouts/installation/#kubectl-plugin); if the plugin is not installed, `sun rollback` prints the manual command and exits 1.
 
 To inspect what a running service is doing, `sun logs <service>` streams live output directly from the cluster pod, following Sun's namespace convention automatically.
 
