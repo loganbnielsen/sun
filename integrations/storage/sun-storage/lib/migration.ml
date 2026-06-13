@@ -33,11 +33,127 @@ let read_migrations dir =
     let sorted = List.sort (fun (a, _, _) (b, _, _) -> compare a b) parsed in
     Ok sorted
 
+(* ── PostgreSQL-aware statement splitter ─────────────────────────────────── *)
+(*
+   Splits a SQL string into individual statements terminated by a top-level
+   semicolon.  Correctly skips semicolons that appear inside:
+     - Single-quoted string literals  ('...' with '' escape sequences)
+     - Line comments                  (-- ... newline)
+     - Block comments                 (/* ... */, non-nested)
+     - Dollar-quoted body sections    ($tag$...$tag$, e.g. $$ or $body$)
+
+   Each returned statement is trimmed; empty segments are dropped.
+*)
+
 let split_statements sql =
-  String.split_on_char ';' sql
-  |> List.filter_map (fun s ->
-    let s = String.trim s in
-    if String.length s = 0 then None else Some (s ^ ";"))
+  let n     = String.length sql in
+  let buf   = Buffer.create 256 in
+  let stmts = ref [] in
+  let i     = ref 0 in
+
+  let at d  = if !i + d < n then sql.[!i + d] else '\x00' in
+  let adv k = i := !i + k in
+  let emit  () = Buffer.add_char buf sql.[!i]; adv 1 in
+
+  (* Consume a single-quoted string; opening quote already emitted by caller. *)
+  let read_single_quoted () =
+    let continue = ref true in
+    while !continue && !i < n do
+      match sql.[!i] with
+      | '\'' ->
+        emit ();
+        if !i < n && sql.[!i] = '\'' then emit ()  (* '' escape *)
+        else continue := false
+      | _ -> emit ()
+    done
+  in
+
+  (* Consume a line comment (--) through end-of-line. *)
+  let read_line_comment () =
+    while !i < n && sql.[!i] <> '\n' do emit () done
+  in
+
+  (* Consume a block comment (/* ... */) — non-nested. *)
+  let read_block_comment () =
+    let continue = ref true in
+    while !continue && !i < n do
+      if sql.[!i] = '*' && at 1 = '/' then begin
+        emit (); emit ();
+        continue := false
+      end else
+        emit ()
+    done
+  in
+
+  (* Try to consume a dollar-quoted section starting at !i (positioned on '$').
+     Returns true and leaves !i after the closing tag if successful.
+     Returns false and leaves !i unchanged if '$' is not a valid dollar-quote
+     opener (e.g. it is a positional parameter like $1). *)
+  let read_dollar_quoted () =
+    let start = !i in
+    let j = ref (start + 1) in
+    (* Tag characters: letters, digits, underscore; terminated by '$'. *)
+    while !j < n && sql.[!j] <> '$'
+                  && sql.[!j] <> '\n'
+                  && sql.[!j] <> ' '
+                  && sql.[!j] <> '\t' do
+      incr j
+    done;
+    if !j >= n || sql.[!j] <> '$' then begin
+      (* Not a dollar-quote — emit the '$' literally. *)
+      emit ();
+      false
+    end else begin
+      let tag  = String.sub sql start (!j - start + 1) in
+      let tlen = String.length tag in
+      (* Emit the opening tag. *)
+      Buffer.add_string buf tag;
+      i := !j + 1;
+      (* Scan for the matching closing tag. *)
+      let found = ref false in
+      while not !found && !i < n do
+        if !i + tlen <= n && String.sub sql !i tlen = tag then begin
+          Buffer.add_string buf tag;
+          i := !i + tlen;
+          found := true
+        end else begin
+          Buffer.add_char buf sql.[!i];
+          incr i
+        end
+      done;
+      true
+    end
+  in
+
+  while !i < n do
+    match sql.[!i] with
+    | '\'' ->
+      emit ();
+      read_single_quoted ()
+
+    | '-' when at 1 = '-' ->
+      emit (); emit ();
+      read_line_comment ()
+
+    | '/' when at 1 = '*' ->
+      emit (); emit ();
+      read_block_comment ()
+
+    | '$' ->
+      ignore (read_dollar_quoted ())
+
+    | ';' ->
+      let s = String.trim (Buffer.contents buf) in
+      if String.length s > 0 then stmts := s :: !stmts;
+      Buffer.clear buf;
+      adv 1
+
+    | _ -> emit ()
+  done;
+  (* Flush any trailing content after the last semicolon. *)
+  let trailing = String.trim (Buffer.contents buf) in
+  if String.length trailing > 0 then stmts := trailing :: !stmts;
+  List.rev_map (fun s -> s ^ ";") !stmts
 
 (* ── Per-table helpers (table name injected at call time) ───────────────── *)
 
