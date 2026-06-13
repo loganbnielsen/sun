@@ -289,11 +289,18 @@ sun rollback                        # all services in the workspace
 sun rollback payments/charge_svc    # one service only
 ```
 
-`sun rollback` runs `kubectl rollout undo` for each matching service and waits
-for the previous revision to become healthy before reporting success. The
-namespace and deployment names are derived from the workspace and service path
-using the same conventions as `sun up` and `sun deploy`, so no extra flags are
-needed.
+`sun rollback` rolls back each matching service and waits for the previous
+revision to become healthy before reporting success. The namespace and
+deployment names are derived from the workspace and service path using the
+same conventions as `sun up` and `sun deploy`, so no extra flags are needed.
+
+For services using a standard `Deployment` (no `[infra.rollout]` in `sun.toml`),
+`sun rollback` calls `kubectl rollout undo deployment/<name>`. For services
+configured with `[infra.rollout]` (Argo Rollouts), it automatically calls
+`kubectl argo rollouts undo <name>` instead — this requires the
+[Argo Rollouts kubectl plugin](https://argoproj.github.io/argo-rollouts/installation/#kubectl-plugin)
+to be installed. If the plugin is not found, `sun rollback` prints an actionable
+error with the manual command and exits 1.
 
 ---
 
