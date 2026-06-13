@@ -152,7 +152,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Sun CLI — secrets (`sun secret set/list/delete`) | Complete |
 | Production deployment pipeline (`sun deploy`, Terraform, Argo CD) | Complete |
 | Progressive delivery (`[infra.rollout]`, Argo Rollouts) | Complete |
-| Sun-hosted executor (`sun cloud deploy`) | Build-and-push pipeline: builds Docker image, pushes to `--registry`, records release history |
+| Sun-hosted executor (`sun cloud init/deploy/releases/logs`) | `sun cloud init` provisions AWS/GCP infrastructure; `sun cloud deploy` builds Docker images, pushes to `--registry`, and records release history; `sun cloud releases` and `sun cloud logs` surface that history |
 
 ---
 
@@ -446,7 +446,18 @@ four-level escape-hatch hierarchy.
 
 ---
 
-## Cloud Infrastructure — `sun cloud init`
+## Cloud Infrastructure — `sun cloud`
+
+The `sun cloud` group of subcommands provisions infrastructure and manages hosted releases.
+
+| Command | Description |
+|---------|-------------|
+| `sun cloud init --aws\|--gcp [--var-file FILE] [--dry-run]` | Provision cloud infrastructure via Terraform |
+| `sun cloud deploy [--environment ENV] [--registry URL]` | Build, push, and record a hosted release |
+| `sun cloud releases [--page N]` | List recent hosted releases |
+| `sun cloud logs --release ID` | Stream the deploy log for a release |
+
+### `sun cloud init` — provision cloud infrastructure
 
 `sun cloud init` provisions production-grade cloud infrastructure using the Terraform modules in `platform/infra/aws/` and `platform/infra/gcp/`. It runs `terraform init` followed by `terraform apply -auto-approve` and prints the provisioned endpoints on completion.
 
@@ -490,6 +501,31 @@ On success the command prints the key provisioned endpoints, for example:
 ```
 
 Sensitive outputs (database passwords, connection strings) are never printed; retrieve them with `terraform output -raw <name>` if needed.
+
+### `sun cloud deploy` — build and record a hosted release
+
+```bash
+# Build images, push to a registry, and record a release
+sun cloud deploy --environment production --registry ghcr.io/your-org
+
+# Dry-run: print project/env/tag without building or recording
+sun cloud deploy --environment staging --registry ghcr.io/your-org --dry-run
+```
+
+`CLOUD_REGISTRY` may be set in the environment instead of passing `--registry` on every invocation.
+
+### `sun cloud releases` — list recent releases
+
+```bash
+sun cloud releases          # page 1 (default page size: 20)
+sun cloud releases --page 2
+```
+
+### `sun cloud logs` — stream a release's deploy log
+
+```bash
+sun cloud logs --release rel-myworkspace-1718200000000
+```
 
 ---
 
