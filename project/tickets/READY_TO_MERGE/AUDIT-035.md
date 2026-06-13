@@ -25,3 +25,6 @@ Replace duplicated raw HTTP test clients and servers with `cohttp-eio` test help
    - `eval $(opam env) && dune test integrations/observability/obs-eio-loki/test`
    - `eval $(opam env) && dune test integrations/observability/obs-eio-prometheus/test`
    - `eval $(opam env) && dune test integrations/kafka/kafka-eio-service/test`
+
+## Review — automated checks passed
+All three test suites pass; raw TCP/HTTP framing replaced with Cohttp_eio.Client/Server throughout; no ticket files touched; no wrapped-true violations.
