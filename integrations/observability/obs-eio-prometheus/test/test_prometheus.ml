@@ -305,55 +305,15 @@ let test_push_500_response () =
 
 (* Simple Prometheus instant-query helper — GET /api/v1/query?query=<metric> *)
 let prometheus_query ~net ~url ~query =
-  let pct q =
-    let buf = Buffer.create (String.length q) in
-    String.iter (fun c ->
-      match c with
-      | 'A'..'Z' | 'a'..'z' | '0'..'9' | '-' | '_' | '.' | '~' ->
-        Buffer.add_char buf c
-      | c -> Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c))
-    ) q;
-    Buffer.contents buf
+  let uri = Uri.of_string
+    (url ^ "/api/v1/query?query=" ^ Uri.pct_encode ~component:`Query_key query) in
+  let client = Cohttp_eio.Client.make ~https:None net in
+  Eio.Switch.run @@ fun sw ->
+  let hdrs = Http.Header.of_list [("Accept", "application/json")] in
+  let _resp, body =
+    Cohttp_eio.Client.call client ~sw ~headers:hdrs `GET uri
   in
-  let parse_host_port u default_port =
-    let s = if String.length u >= 7 && String.sub u 0 7 = "http://"
-            then String.sub u 7 (String.length u - 7) else u in
-    let hp = match String.index_opt s '/' with
-      | None -> s | Some i -> String.sub s 0 i in
-    match String.rindex_opt hp ':' with
-    | None -> (hp, default_port)
-    | Some i ->
-      let h = String.sub hp 0 i in
-      let p = String.sub hp (i+1) (String.length hp - i - 1) in
-      (match int_of_string_opt p with Some n -> (h, n) | None -> (hp, default_port))
-  in
-  let (host, port) = parse_host_port url 9090 in
-  let path = "/api/v1/query?query=" ^ pct query in
-  let req = String.concat "\r\n" [
-    "GET " ^ path ^ " HTTP/1.1";
-    Printf.sprintf "Host: %s:%d" host port;
-    "Accept: application/json";
-    "Connection: close";
-    ""; "";
-  ] in
-  Eio.Net.with_tcp_connect net ~host ~service:(string_of_int port) (fun flow ->
-    Eio.Flow.copy_string req flow;
-    let buf = Eio.Buf_read.of_flow ~max_size:(256 * 1024) flow in
-    ignore (Eio.Buf_read.line buf);
-    let content_length = ref 0 in
-    let rec read_headers () =
-      let line = Eio.Buf_read.line buf in
-      if line = "" then ()
-      else begin
-        let lower = String.lowercase_ascii line in
-        if String.length lower > 15 && String.sub lower 0 15 = "content-length:" then
-          (match int_of_string_opt (String.trim (String.sub line 15 (String.length line - 15)))
-           with Some n -> content_length := n | None -> ());
-        read_headers ()
-      end
-    in
-    read_headers ();
-    Eio.Buf_read.take !content_length buf)
+  Eio.Buf_read.(parse_exn take_all) body ~max_size:(256 * 1024)
 
 let test_live_push () =
   match Sys.getenv_opt "PUSHGATEWAY_URL", Sys.getenv_opt "PROMETHEUS_URL" with

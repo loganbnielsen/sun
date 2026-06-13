@@ -47,9 +47,8 @@ module H = struct
   ]
 end
 
-(* ── HTTP over raw TCP ───────────────────────────────────────────────── *)
+(* ── Test server helpers ─────────────────────────────────────────────── *)
 
-(* Start the server in a background fiber; resolve the port via on_listen. *)
 let with_server env ~sw f =
   let port_p, port_r = Promise.create () in
   Fiber.fork_daemon ~sw (fun () ->
@@ -60,7 +59,6 @@ let with_server env ~sw f =
   let port = Promise.await port_p in
   f port
 
-(* Server with obs handle wired in; callback receives port + renderer. *)
 let with_server_obs env ~sw f =
   let port_p, port_r = Promise.create () in
   let backend, render = Obs_prometheus.create () in
@@ -74,127 +72,95 @@ let with_server_obs env ~sw f =
   let port = Promise.await port_p in
   f port render
 
-(* Send a minimal HTTP/1.1 request over a raw TCP socket and return
-   the status line + body as raw strings. *)
-let raw_request env ~sw ~port ~meth ~path ?(headers=[]) ?(body="") () =
-  let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
-  let flow = Eio.Net.connect ~sw env#net addr in
-  let content_length =
-    if body = "" then "" else
-    Printf.sprintf "content-length: %d\r\n" (String.length body)
+(* Make an HTTP request and return (status_code, body_string). *)
+let http_call env ~sw ~port ~meth ~path ?(headers=[]) ?(body="") () =
+  let client = Cohttp_eio.Client.make ~https:None env#net in
+  let uri = Uri.of_string (Printf.sprintf "http://localhost:%d%s" port path) in
+  let hdrs = Http.Header.of_list (("connection", "close") :: headers) in
+  let body_val = if body = "" then None else Some (Cohttp_eio.Body.of_string body) in
+  let resp, resp_body =
+    Cohttp_eio.Client.call client ~sw ~headers:hdrs ?body:body_val meth uri
   in
-  let extra_headers =
-    List.map (fun (k, v) -> Printf.sprintf "%s: %s\r\n" k v) headers
-    |> String.concat ""
-  in
-  let req =
-    Printf.sprintf "%s %s HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n%s%s\r\n%s"
-      meth path extra_headers content_length body
-  in
-  Eio.Flow.copy_string req flow;
-  Eio.Flow.shutdown flow `Send;
-  let buf = Eio.Buf_read.of_flow flow ~max_size:65536 in
-  Eio.Buf_read.take_all buf
-
-let status_of response =
-  (* Extract status code from "HTTP/1.1 200 OK\r\n..." *)
-  match String.split_on_char ' ' response with
-  | _ :: code :: _ -> (try int_of_string (String.trim code) with _ -> 0)
-  | _              -> 0
-
-let body_of response =
-  (* Body follows the double CRLF *)
-  match String.split_on_char '\n' response with
-  | lines ->
-    let rec find_empty = function
-      | [] -> ""
-      | line :: rest ->
-        if String.trim line = "" then String.concat "\n" rest
-        else find_empty rest
-    in
-    find_empty lines
+  let status = Http.Status.to_int (Http.Response.status resp) in
+  let body_str = Eio.Buf_read.(parse_exn take_all) resp_body ~max_size:65536 in
+  (status, body_str)
 
 (* ── Tests ───────────────────────────────────────────────────────────── *)
 
 let test_healthz env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/healthz" () in
-      Alcotest.(check int) "status 200" 200 (status_of resp);
-      let b = body_of resp in
+      let (status, body) = http_call env ~sw ~port ~meth:`GET ~path:"/healthz" () in
+      Alcotest.(check int) "status 200" 200 status;
       Alcotest.(check bool) "body ok" true
-        (let s = String.trim b in s = {|{"status":"ok"}|})))
+        (String.trim body = {|{"status":"ok"}|})))
 
 let test_not_found env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/does-not-exist" () in
-      Alcotest.(check int) "status 404" 404 (status_of resp)))
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/does-not-exist" () in
+      Alcotest.(check int) "status 404" 404 status))
 
 let test_method_not_allowed env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
       (* /hello is GET only *)
-      let resp = raw_request env ~sw ~port ~meth:"DELETE" ~path:"/hello" () in
-      Alcotest.(check int) "status 405" 405 (status_of resp)))
+      let (status, _) = http_call env ~sw ~port ~meth:`DELETE ~path:"/hello" () in
+      Alcotest.(check int) "status 405" 405 status))
 
 let test_public_route env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/hello" () in
-      Alcotest.(check int) "status 200" 200 (status_of resp)))
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/hello" () in
+      Alcotest.(check int) "status 200" 200 status))
 
 let test_path_param env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/users/42" () in
-      Alcotest.(check int) "status 200" 200 (status_of resp);
+      let (status, body) = http_call env ~sw ~port ~meth:`GET ~path:"/users/42" () in
+      Alcotest.(check int) "status 200" 200 status;
       Alcotest.(check bool) "contains id" true
-        (let b = body_of resp in
-         try let _ = String.index b '4' in true
+        (try let _ = String.index body '4' in true
          with Not_found -> false)))
 
 let test_echo_body env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"POST" ~path:"/echo"
-                   ~body:"hello world" () in
-      Alcotest.(check int) "status 200" 200 (status_of resp);
+      let (status, body) = http_call env ~sw ~port ~meth:`POST ~path:"/echo"
+                             ~body:"hello world" () in
+      Alcotest.(check int) "status 200" 200 status;
       Alcotest.(check bool) "body echoed" true
-        (let b = body_of resp in
-         let b = String.trim b in
-         b = "hello world")))
+        (String.trim body = "hello world")))
 
 let test_jwt_no_token env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/protected" () in
-      Alcotest.(check int) "status 401" 401 (status_of resp)))
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/protected" () in
+      Alcotest.(check int) "status 401" 401 status))
 
 let test_jwt_valid_token env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let tok  = make_jwt ~scopes:["read"] () in
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/protected"
-                   ~headers:["authorization", "Bearer " ^ tok] () in
-      Alcotest.(check int) "status 200" 200 (status_of resp)))
+      let tok = make_jwt ~scopes:["read"] () in
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/protected"
+                          ~headers:["authorization", "Bearer " ^ tok] () in
+      Alcotest.(check int) "status 200" 200 status))
 
 let test_jwt_missing_scope env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let tok  = make_jwt ~scopes:["other"] () in
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/protected"
-                   ~headers:["authorization", "Bearer " ^ tok] () in
-      Alcotest.(check int) "status 403" 403 (status_of resp)))
+      let tok = make_jwt ~scopes:["other"] () in
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/protected"
+                          ~headers:["authorization", "Bearer " ^ tok] () in
+      Alcotest.(check int) "status 403" 403 status))
 
 let test_metrics_no_renderer env () =
   Switch.run (fun sw ->
     with_server env ~sw (fun port ->
-      let resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/metrics" () in
-      Alcotest.(check int) "status 404" 404 (status_of resp)))
+      let (status, _) = http_call env ~sw ~port ~meth:`GET ~path:"/metrics" () in
+      Alcotest.(check int) "status 404" 404 status))
 
 let test_handler_exception env () =
-  (* Handler that raises; server should return 500 and stay alive *)
   let module Hx = struct
     let routes = [
       Route.get "/boom" ~auth:`Public (fun _ -> raise (Failure "boom"));
@@ -209,15 +175,15 @@ let test_handler_exception env () =
       `Stop_daemon
     );
     let port = Promise.await port_p in
-    let r1 = raw_request env ~sw ~port ~meth:"GET" ~path:"/boom" () in
-    Alcotest.(check int) "500 on exception" 500 (status_of r1);
-    let r2 = raw_request env ~sw ~port ~meth:"GET" ~path:"/ok" () in
-    Alcotest.(check int) "server still up" 200 (status_of r2))
+    let (s1, _) = http_call env ~sw ~port ~meth:`GET ~path:"/boom" () in
+    Alcotest.(check int) "500 on exception" 500 s1;
+    let (s2, _) = http_call env ~sw ~port ~meth:`GET ~path:"/ok" () in
+    Alcotest.(check int) "server still up" 200 s2)
 
 let test_metrics_counter env () =
   Switch.run (fun sw ->
     with_server_obs env ~sw (fun port render ->
-      let _resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/hello" () in
+      let _ = http_call env ~sw ~port ~meth:`GET ~path:"/hello" () in
       let output = render () in
       Alcotest.(check bool) "requests_total counter present"
         true (contains "sun_svc_requests_total" output);
@@ -229,7 +195,7 @@ let test_metrics_counter env () =
 let test_metrics_duration env () =
   Switch.run (fun sw ->
     with_server_obs env ~sw (fun port render ->
-      let _resp = raw_request env ~sw ~port ~meth:"GET" ~path:"/hello" () in
+      let _ = http_call env ~sw ~port ~meth:`GET ~path:"/hello" () in
       let output = render () in
       Alcotest.(check bool) "duration histogram present"
         true (contains "sun_svc_request_duration_seconds" output)))
@@ -239,8 +205,8 @@ let test_metrics_route_pattern_label env () =
      value ("/users/42"), so label cardinality stays bounded. *)
   Switch.run (fun sw ->
     with_server_obs env ~sw (fun port render ->
-      let _r1 = raw_request env ~sw ~port ~meth:"GET" ~path:"/users/42" () in
-      let _r2 = raw_request env ~sw ~port ~meth:"GET" ~path:"/users/999" () in
+      let _ = http_call env ~sw ~port ~meth:`GET ~path:"/users/42" () in
+      let _ = http_call env ~sw ~port ~meth:`GET ~path:"/users/999" () in
       let output = render () in
       Alcotest.(check bool) "pattern label present"
         true  (contains {|route="/users/:id"|} output);
