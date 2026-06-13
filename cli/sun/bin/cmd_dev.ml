@@ -3,18 +3,12 @@ open Sun_cli_manifest
 
 (* ── Shell helpers ───────────────────────────────────────────────────────── *)
 
-let run_cmd ?(echo = true) cmd =
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  Sys.command cmd
+let run_cmd ?(echo = true) cmd = Sun_cli_process.run_shell ~echo cmd
 
 let cmd_ok cmd = run_cmd ~echo:false cmd = 0
 
 let check_tool name install_url =
-  if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
-    Printf.eprintf "error: %S not found in PATH.\n" name;
-    Printf.eprintf "  Install: %s\n" install_url;
-    exit 1
-  end
+  Sun_cli_process.check_tool name ~install_url
 
 let require_tools () =
   check_tool "k3d"     "https://k3d.io/";
@@ -38,7 +32,7 @@ let cluster_name = "sun-local"
 let registry_port = 5000
 
 let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
+  ignore (Sun_cli_process.run_shell ~echo:false (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
 
 let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
@@ -73,7 +67,7 @@ let start_port_forward pf =
   let oc = open_out script_file in
   output_string oc content;
   close_out oc;
-  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote script_file)));
+  ignore (Sun_cli_process.run_shell ~echo:false (Printf.sprintf "chmod +x %s" (Filename.quote script_file))); (* shell: simple chmod via run_shell *)
   ignore (run_cmd ~echo:false
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
@@ -216,7 +210,7 @@ let dev_up () =
 
   (* 4. Port-forwards *)
   Printf.printf "\n[4/4] Starting port-forwards...\n%!";
-  ignore (Sys.command "sleep 2");  (* brief pause for service endpoints to settle *)
+  ignore (Sun_cli_process.run_shell ~echo:false "sleep 2");  (* shell: brief pause for service endpoints to settle *)
 
   if req.kafka then begin
     (* Port-forward to the pod (not svc) so we reach the external listener on
@@ -388,7 +382,7 @@ let dev_run workspace_dir filter_path =
     opam_eval
     (String.concat " " (List.map Filename.quote build_targets))
   in
-  let build_rc = Sys.command build_cmd in
+  let build_rc = Sun_cli_process.run_shell ~echo:false build_cmd in (* shell: opam env eval + dune build in one command *)
   if build_rc <> 0 then begin
     Printf.eprintf "error: dune build failed (exit %d)\n" build_rc;
     exit 1
