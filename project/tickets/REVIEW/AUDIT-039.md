@@ -3,6 +3,8 @@ id: AUDIT-039
 type: audit-finding
 severity: high
 source: project/audits/2026-06-12i_audit.md
+branch: AUDIT-039/rollout-secret-ref
+worktree: /home/lbendtly/Code/sun-AUDIT-039-rollout-secret-ref
 ---
 **Depends on:** None.
 
