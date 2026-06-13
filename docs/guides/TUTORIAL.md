@@ -488,6 +488,11 @@ sun logs <service> [--no-follow] [--tail=N]       stream logs from a deployed se
 sun secret set <KEY> --env <ENV> --value <VAL>    create or update a secret
 sun secret list --env <ENV>                       list secret keys (values never printed)
 sun secret delete <KEY> --env <ENV>               delete a secret
+
+sun cloud init --aws|--gcp [--var-file FILE] [--dry-run]   provision cloud infrastructure via Terraform
+sun cloud deploy [--environment ENV] [--registry URL]       build, push, and record a hosted release
+sun cloud releases [--page N]                               list recent hosted releases
+sun cloud logs --release ID                                 stream deploy log for a release
 ```
 
 ---
@@ -551,34 +556,45 @@ See `platform/infra/ci/` for complete GitHub Actions workflow examples for both 
 
 ### Provisioning a production cluster
 
-**AWS (EKS):**
+Use `sun cloud init` to provision production infrastructure. It runs `terraform init` and `terraform apply` against the Terraform modules bundled in `platform/infra/` and prints the provisioned endpoints on completion.
+
+**AWS (EKS, ECR, RDS, Route53):**
 
 ```bash
-cd platform/infra/aws
-terraform init
-terraform apply \
-  -var="cluster_name=acme-prod" \
-  -var="base_domain=acme.com" \
-  -var="db_password=<secret>"
-
-# → prints kubeconfig_command, ecr_registry, postgres_url
-aws eks update-kubeconfig --region us-east-1 --name acme-prod
+sun cloud init --aws
 ```
 
-**GCP (GKE Autopilot):**
+**GCP (GKE Autopilot, Artifact Registry, Cloud SQL):**
 
 ```bash
-cd platform/infra/gcp
-terraform init
-terraform apply \
-  -var="project_id=my-project" \
-  -var="cluster_name=acme-prod" \
-  -var="base_domain=acme.com" \
-  -var="db_password=<secret>"
-
-# → prints kubeconfig_command, artifact_registry, postgres_url
-gcloud container clusters get-credentials acme-prod --region us-central1
+sun cloud init --gcp
 ```
+
+**Dry-run (show terraform plan without creating resources):**
+
+```bash
+sun cloud init --aws --dry-run
+sun cloud init --gcp --dry-run
+```
+
+**Pass a Terraform variables file:**
+
+```bash
+sun cloud init --aws --var-file prod.tfvars
+```
+
+On success the command prints the key provisioned endpoints:
+
+```
+  cluster_name                  acme-prod
+  cluster_endpoint              https://ABCDEF123456.gr7.us-east-1.eks.amazonaws.com
+  kubeconfig_command            aws eks update-kubeconfig --region us-east-1 --name acme-prod
+  ecr_registry                  123456789.dkr.ecr.us-east-1.amazonaws.com
+```
+
+Sensitive outputs (database passwords, connection strings) are never printed; retrieve them with `terraform output -raw <name>` if needed.
+
+**Prerequisites:** `terraform` CLI in PATH, and cloud credentials in the environment (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` for AWS; `GOOGLE_APPLICATION_CREDENTIALS` or `gcloud auth application-default login` for GCP).
 
 **Install platform components** (Argo CD, Redpanda, Loki, Prometheus, cert-manager):
 
@@ -592,6 +608,29 @@ terraform apply \
 ```
 
 After `terraform apply`, the cluster is identical to `sun dev up` — same DNS names, same ConfigMap values, same Grafana dashboards.
+
+> **Advanced / manual override:** `sun cloud init` is a thin wrapper around `terraform init && terraform apply`. Engineers who need full Terraform control — custom variables, targeted applies, remote state configuration, or workspace management — can invoke Terraform directly against the same modules:
+>
+> ```bash
+> # AWS example
+> cd platform/infra/aws
+> terraform init
+> terraform apply \
+>   -var="cluster_name=acme-prod" \
+>   -var="base_domain=acme.com" \
+>   -var="db_password=<secret>"
+> aws eks update-kubeconfig --region us-east-1 --name acme-prod
+>
+> # GCP example
+> cd platform/infra/gcp
+> terraform init
+> terraform apply \
+>   -var="project_id=my-project" \
+>   -var="cluster_name=acme-prod" \
+>   -var="base_domain=acme.com" \
+>   -var="db_password=<secret>"
+> gcloud container clusters get-credentials acme-prod --region us-central1
+> ```
 
 **Set up Argo CD GitOps** (one-time per cluster):
 
