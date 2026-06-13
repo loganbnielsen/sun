@@ -2,4 +2,4 @@
  (name obs_eio_loki)
  (wrapped false)
  (modules Obs_loki)
- (libraries obs_eio eio cohttp-eio uri http yojson))
+ (libraries obs_eio eio unix cohttp-eio uri http yojson tls-eio x509 domain-name ptime))
