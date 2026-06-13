@@ -915,6 +915,22 @@
           "commit": "e299532",
           "duration_s": 1.249,
           "baseline": true
+        },
+        {
+          "date": "2026-06-13",
+          "commit": "d87a93c",
+          "duration_s": 1.209
+        },
+        {
+          "date": "2026-06-13",
+          "commit": "d87a93c",
+          "duration_s": 2.663
+        },
+        {
+          "date": "2026-06-13",
+          "commit": "d87a93c",
+          "duration_s": 1.207,
+          "baseline": true
         }
       ]
     },
