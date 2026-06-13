@@ -3,6 +3,8 @@ id: REFAC-001
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-13
+branch: REFAC-001/eio-http-client
+worktree: /home/lbendtly/Code/sun-REFAC-001-eio-http-client
 ---
 
 Extract shared TLS/HTTPS client into a reusable `Eio_http` module; currently copy-pasted verbatim across two packages
