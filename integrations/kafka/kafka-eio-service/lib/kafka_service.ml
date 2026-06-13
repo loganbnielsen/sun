@@ -257,32 +257,38 @@ let query_topic_partitions net ~clock ~admin_url ~topic_name =
 (* Confluent wire format: 0x00 + 4-byte big-endian schema_id + JSON   *)
 (* ------------------------------------------------------------------ *)
 
-let encode_wire ~schema_id json =
-  let json_str = Yojson.Safe.to_string json in
-  let json_len = String.length json_str in
-  let buf = Bytes.create (5 + json_len) in
-  Bytes.set buf 0 '\x00';
-  Bytes.set buf 1 (Char.chr ((schema_id lsr 24) land 0xFF));
-  Bytes.set buf 2 (Char.chr ((schema_id lsr 16) land 0xFF));
-  Bytes.set buf 3 (Char.chr ((schema_id lsr  8) land 0xFF));
-  Bytes.set buf 4 (Char.chr ( schema_id         land 0xFF));
-  Bytes.blit_string json_str 0 buf 5 json_len;
-  buf
+module Confluent_wire = struct
+  (* Header layout: 1 magic byte (0x00) + 4 bytes big-endian schema ID = 5 bytes *)
+  let header_len = 5
+  let magic_byte = '\x00'
 
-let decode_wire bytes =
-  if Bytes.length bytes < 5 then
-    Error "wire format: message too short"
-  else if Bytes.get bytes 0 <> '\x00' then
-    Error "wire format: invalid magic byte"
-  else
-    let schema_id =
-      (Char.code (Bytes.get bytes 1) lsl 24) lor
-      (Char.code (Bytes.get bytes 2) lsl 16) lor
-      (Char.code (Bytes.get bytes 3) lsl  8) lor
-       Char.code (Bytes.get bytes 4)
-    in
-    let json_str = Bytes.sub_string bytes 5 (Bytes.length bytes - 5) in
-    Ok (schema_id, json_str)
+  (** Encode a JSON value into Confluent wire format: magic + big-endian schema_id + JSON. *)
+  let encode ~schema_id json =
+    let json_str = Yojson.Safe.to_string json in
+    let json_len = String.length json_str in
+    let cs = Cstruct.create (header_len + json_len) in
+    Cstruct.set_char cs 0 magic_byte;
+    Cstruct.BE.set_uint32 cs 1 (Int32.of_int schema_id);
+    Cstruct.blit_from_string json_str 0 cs header_len json_len;
+    Cstruct.to_bytes cs
+
+  (** Decode a Confluent wire-format message.
+      Returns [Error] on too-short messages or invalid magic byte. *)
+  let decode bytes =
+    if Bytes.length bytes < header_len then
+      Error "wire format: message too short"
+    else
+      let cs = Cstruct.of_bytes bytes in
+      if Cstruct.get_char cs 0 <> magic_byte then
+        Error "wire format: invalid magic byte"
+      else
+        let schema_id = Int32.to_int (Cstruct.BE.get_uint32 cs 1) in
+        let json_str = Cstruct.(to_string (sub cs header_len (length cs - header_len))) in
+        Ok (schema_id, json_str)
+end
+
+let encode_wire ~schema_id json = Confluent_wire.encode ~schema_id json
+let decode_wire bytes = Confluent_wire.decode bytes
 
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)
