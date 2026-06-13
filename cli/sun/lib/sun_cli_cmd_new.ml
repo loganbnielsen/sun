@@ -113,7 +113,14 @@ sun rollback    # roll back all services to previous image
 events/payments/          ← Charged event contract (payments team owns)
 app/payments/charge_svc/  ← HTTP service (publishes Charged on POST /charges)
 app/comms/notify_worker/  ← Kafka consumer (subscribes to Charged)
+lib/                      ← shared storage module (used by svc and worker)
 db/migrations/            ← SQL migration files
+  *.sql                   ← forward migrations
+  *.down.sql              ← rollback migrations (used by `sun migrate rollback`)
+test/                     ← schema backward-compatibility CI gate
+  test_schemas.ml
+  dune
+.dockerignore             ← excludes _build/ and .git/ from Docker build context
 vendor/                   ← symlinks to Sun framework source (not committed)
 ```
 |tpl}
