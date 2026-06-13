@@ -67,7 +67,7 @@ let start_port_forward pf =
   let oc = open_out script_file in
   output_string oc content;
   close_out oc;
-  ignore (Sun_cli_process.run_shell ~echo:false (Printf.sprintf "chmod +x %s" (Filename.quote script_file))); (* shell: simple chmod via run_shell *)
+  ignore (Sun_cli_process.exec ~echo:false "chmod" ["+x"; script_file]);
   ignore (run_cmd ~echo:false                            (* shell: background execution *)
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
