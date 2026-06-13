@@ -44,3 +44,6 @@ Add a test in the existing manifest tests that exercises `rollout_doc` with `Can
 - `cli/sun/test/test_manifest_render.ml:197` — test_svc_secret_refs_without_values still asserts `name: sun-secrets`; after the fix render_secret_key_refs emits `name: charge-svc-secrets`, so this assertion must be updated to `name: charge-svc-secrets`.
 - `cli/sun/test/test_manifest_render.ml:455` — test_rollout_canary_secrets_use_sun_secrets asserts `name: sun-secrets` (old broken behaviour) and asserts absence of `name: charge-svc-secrets`; both assertions are inverted after the fix and must be swapped.
 - `cli/sun/test/test_manifest_render.ml:469` — test_rollout_blue_green_secrets_use_sun_secrets asserts `name: sun-secrets` (old broken behaviour) and asserts absence of `name: charge-svc-secrets`; both assertions are inverted after the fix and must be swapped.
+
+## Review — automated checks passed
+Build clean, all tests pass. render_secret_key_refs now takes ~name and emits %s-secrets (name-scoped). rollout_doc envFrom secretRef and secretKeyRef both use name-secrets. deployment_doc and cronjob_doc updated. Tests updated to assert charge-svc-secrets present and sun-secrets absent. No project/tickets touched.
