@@ -354,9 +354,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ocaml/setup-ocaml@v2
+      - uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: "5.4"
+          ocaml-compiler: "5.4.1"
           opam-depext: false
 
       - name: Install system deps
@@ -429,7 +429,7 @@ RUN sudo apt-get update && sudo apt-get install -y \
     sudo rm -rf /var/lib/apt/lists/*
 RUN opam install -y --no-self-upgrade \
     eio eio_main cohttp-eio yojson cmdliner base64 uri cstruct mtime \
-    tls-eio x509 domain-name \
+    tls-eio x509 domain-name ptime otoml \
     caqti-eio caqti-driver-postgresql
 COPY --chown=opam:opam . /workspace
 WORKDIR /workspace
