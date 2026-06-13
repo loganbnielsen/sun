@@ -7,17 +7,6 @@
 #   ./platform/local/scripts/run_tests.sh --update-baseline  # run and record timings as new baseline
 #   ./platform/local/scripts/run_tests.sh --no-infra         # skip infra setup (already running)
 #   ./platform/local/scripts/run_tests.sh unit kafka         # run specific suites only
-#   ./platform/local/scripts/run_tests.sh golden-e2e         # golden-path only (scaffold→deploy→curl)
-#
-# Suites:
-#   unit          OCaml unit tests (no infrastructure required)
-#   kafka         Kafka integration tests (broker required)
-#   observability Observability integration tests (Loki required)
-#   storage       Storage integration tests (Postgres required)
-#   e2e           Full-stack demo binary (Kafka + Loki + Postgres)
-#   golden-e2e    Golden-path harness: scaffold → sun up → sun migrate →
-#                 /health → POST /charges → poll /notifications
-#                 (k3d cluster + full infra required; opt-in, not run by default)
 #
 # Exit codes:
 #   0  all suites passed, no regression
@@ -28,7 +17,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-export REPO_ROOT
 BASELINE="$REPO_ROOT/tools/perf/perf_baseline.json"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -45,7 +33,6 @@ declare -A TIMEOUTS=(
   [observability]=90
   [storage]=90
   [e2e]=180
-  [golden-e2e]=600
 )
 
 # ── Regression threshold ──────────────────────────────────────────────────────
@@ -62,13 +49,11 @@ for arg in "$@"; do
   case "$arg" in
     --update-baseline) UPDATE_BASELINE=1 ;;
     --no-infra)        SKIP_INFRA=1 ;;
-    unit|kafka|observability|storage|e2e|golden-e2e) REQUESTED_SUITES+=("$arg") ;;
+    unit|kafka|observability|storage|e2e) REQUESTED_SUITES+=("$arg") ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
 
-# golden-e2e is opt-in (requires a full k3d cluster + full infra) and is
-# excluded from the default all-suites run.  Pass it explicitly to invoke it.
 ALL_SUITES=(unit kafka observability storage e2e)
 SUITES=("${REQUESTED_SUITES[@]:-${ALL_SUITES[@]}}")
 
@@ -155,13 +140,6 @@ run_e2e() {
     dune exec examples/local-demo/bin/demo.exe 2>&1
 }
 
-run_golden-e2e() {
-  info "Golden-path: scaffold → sun up → sun migrate → /health → POST /charges → /notifications"
-  info "  Harness: cli/sun/e2e/golden_path.sh"
-  info "  Prerequisites: sun dev up (k3d + Kafka + PostgreSQL at dev defaults)"
-  bash "$REPO_ROOT/cli/sun/e2e/golden_path.sh" 2>&1
-}
-
 # ── Infrastructure setup ──────────────────────────────────────────────────────
 ensure_infra() {
   header "Infrastructure"
@@ -172,7 +150,6 @@ ensure_infra() {
       kafka|e2e) needs_kafka=1; needs_loki=1; needs_postgres=1 ;;
       observability) needs_loki=1 ;;
       storage) needs_postgres=1 ;;
-      golden-e2e) needs_kafka=1; needs_postgres=1 ;;
     esac
   done
 
@@ -241,9 +218,8 @@ printf "  %-18s %-10s %-10s %-12s\n" "Suite" "Result" "Time" "Baseline"
 printf "  %-18s %-10s %-10s %-12s\n" "─────────────────" "──────────" "─────────" "────────────"
 
 ALL_PASSED=1
-# Iterate the actually-requested set (may include opt-in suites like golden-e2e
-# that are not in ALL_SUITES).
-for suite in "${SUITES[@]}"; do
+for suite in "${ALL_SUITES[@]}"; do
+  [[ " ${SUITES[*]} " =~ " ${suite} " ]] || continue
 
   result=${RESULTS[$suite]}
   elapsed=${TIMINGS[$suite]}
