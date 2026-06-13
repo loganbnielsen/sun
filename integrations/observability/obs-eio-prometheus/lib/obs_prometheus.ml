@@ -221,65 +221,31 @@ let render reg =
 (* Pushgateway HTTP client                                            *)
 (* ------------------------------------------------------------------ *)
 
-let parse_url ?(default_port = 9091) url =
-  let s =
-    if String.length url >= 7 && String.sub url 0 7 = "http://"
-    then String.sub url 7 (String.length url - 7)
-    else url
-  in
-  let hostport = match String.index_opt s '/' with
-    | None   -> s
-    | Some i -> String.sub s 0 i
-  in
-  match String.rindex_opt hostport ':' with
-  | None -> (hostport, default_port)
-  | Some i ->
-    let host   = String.sub hostport 0 i in
-    let port_s = String.sub hostport (i + 1) (String.length hostport - i - 1) in
-    (match int_of_string_opt port_s with
-     | Some p -> (host, p)
-     | None   -> (hostport, default_port))
-
-let pct_encode s =
-  let buf = Buffer.create (String.length s) in
-  String.iter (fun c ->
-    match c with
-    | 'A'..'Z' | 'a'..'z' | '0'..'9' | '-' | '_' | '.' | '~' ->
-      Buffer.add_char buf c
-    | c -> Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code c))
-  ) s;
-  Buffer.contents buf
-
 let push ~net ~clock ~url ~job renderer =
   let body = renderer () in
   if body = "" then Ok ()
   else
-    let (host, port) = parse_url url in
-    let path = "/metrics/job/" ^ pct_encode job in
-    let req =
-      String.concat "\r\n" [
-        "PUT " ^ path ^ " HTTP/1.1";
-        Printf.sprintf "Host: %s:%d" host port;
-        "Content-Type: text/plain; version=0.0.4; charset=utf-8";
-        Printf.sprintf "Content-Length: %d" (String.length body);
-        "Connection: close";
-        "";
-        "";
-      ] ^ body
+    let base = Uri.of_string url in
+    let encoded_job = Uri.pct_encode ~component:`Path job in
+    let target = Uri.with_path base ("/metrics/job/" ^ encoded_job) in
+    let headers =
+      Http.Header.of_list
+        [ ("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        ; ("Content-Length", string_of_int (String.length body))
+        ; ("Connection", "close")
+        ]
     in
+    let body_src = Cohttp_eio.Body.of_string body in
     (try
        Eio.Time.with_timeout_exn clock 5.0 (fun () ->
-         Eio.Net.with_tcp_connect net ~host ~service:(string_of_int port) (fun flow ->
-           Eio.Flow.copy_string req flow;
-           let buf = Eio.Buf_read.of_flow ~max_size:(64 * 1024) flow in
-           let status_line = Eio.Buf_read.line buf in
-           match String.split_on_char ' ' status_line with
-           | _ :: code :: _ ->
-             (match int_of_string_opt code with
-              | Some n when n >= 200 && n < 300 -> Ok ()
-              | Some n -> Error (Printf.sprintf "Pushgateway returned HTTP %d" n)
-              | None   -> Error ("unexpected Pushgateway response: " ^ status_line))
-           | _ -> Error ("unexpected Pushgateway response: " ^ status_line)))
+         Eio.Switch.run (fun sw ->
+           let client = Cohttp_eio.Client.make ~https:None net in
+           let (resp, _body) =
+             Cohttp_eio.Client.put client ~sw ~headers ~body:body_src target
+           in
+           let code = Http.Status.to_int (Http.Response.status resp) in
+           if code >= 200 && code < 300 then Ok ()
+           else Error (Printf.sprintf "Pushgateway returned HTTP %d" code)))
      with
      | Eio.Time.Timeout -> Error "Pushgateway push timed out after 5s"
      | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn))
