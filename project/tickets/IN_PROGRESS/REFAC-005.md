@@ -3,6 +3,8 @@ id: REFAC-005
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-13
+branch: REFAC-005/consolidate-port-forward
+worktree: ../sun-REFAC-005-consolidate-port-forward
 ---
 
 Consolidate duplicated port-forward management from `cmd_dev.ml` and `cmd_up.ml` into a shared `Sun_cli_port_forward` module
