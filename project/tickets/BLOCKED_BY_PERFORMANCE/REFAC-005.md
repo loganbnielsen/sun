@@ -49,3 +49,6 @@ The liveness check improvement in `cmd_up.ml` was never backported to `cmd_dev.m
 - PID-file and script-file naming conventions are identical between the two commands.
 - `sun dev up` and `sun up` both start and stop port-forwards correctly (verify manually or via existing integration coverage).
 - `dune build` passes.
+
+## Review — automated checks passed
+Sun_cli_port_forward module created, build passes, callers updated with no local port-forward definitions remaining, naming conventions unified, wrapped false, all paths Filename.quoted
