@@ -1,3 +1,0 @@
-(executable
- (name test_schemas)
- (libraries kafka_eio_service eio_main pluto_payments_events))
