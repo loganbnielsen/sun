@@ -4,10 +4,17 @@ open Sun_cli_manifest
 
 (* ── Port-forward helpers (mirrors cmd_dev.ml) ───────────────────────────── *)
 
-let state_dir = ".sun"
+let state_dir =
+  (* Use an absolute path so sun up/down work regardless of cwd — mirrors cmd_dev.ml. *)
+  match Sys.getenv_opt "XDG_DATA_HOME" with
+  | Some d -> Filename.concat d "sun"
+  | None ->
+    match Sys.getenv_opt "HOME" with
+    | Some h -> Filename.concat h ".local/share/sun"
+    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
 
 let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" state_dir))
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
 
 let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
