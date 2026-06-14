@@ -48,6 +48,27 @@ let commit_dirty_baseline () =
       "git commit -m \"pipeline: checkpoint perf baseline\"")
   end
 
+let restore_baseline_to_head () =
+  ignore (run_cmd ~echo:false
+    "git checkout HEAD -- tools/perf/perf_baseline.json 2>/dev/null; true")
+
+let revert_merge_commit ticket_id reason =
+  restore_baseline_to_head ();
+  let rc = run_cmd ~echo:false
+    (Printf.sprintf
+      "SUN_SKIP_HOOKS=1 git revert -m 1 --no-edit HEAD >/dev/null 2>&1") in
+  if rc = 0 then begin
+    Printf.eprintf
+      "  reverted merge commit for %s after %s; main code is unchanged\n%!"
+      ticket_id reason;
+    true
+  end else begin
+    Printf.eprintf
+      "  failed to revert merge commit for %s after %s — manual cleanup required\n%!"
+      ticket_id reason;
+    false
+  end
+
 (* Resolve all auto-resolvable merge conflicts:
    - tools/perf/perf_baseline.json  → always keep main's version
    - project/tickets/**               → always restore main's state entirely
@@ -313,7 +334,7 @@ let readiness_label state content =
 
 (* ── sun pipeline merge ──────────────────────────────────────────────────── *)
 
-let run_merge dry_run ticket_filter =
+let run_merge dry_run accept_performance_regression ticket_filter =
   let ready_dir = "project/tickets/READY_TO_MERGE" in
   if not (Sys.file_exists ready_dir) then begin
     Printf.eprintf "error: %s not found; run from workspace root.\n" ready_dir;
@@ -384,9 +405,30 @@ let run_merge dry_run ticket_filter =
           incr errors
         else begin
           let perf_rc = run_cmd
-            "./platform/local/scripts/run_tests.sh unit --no-infra" in
-          if perf_rc >= 1 then begin
+            "./platform/local/scripts/run_tests.sh" in
+          if perf_rc = 2 && accept_performance_regression then begin
+            Printf.eprintf
+              "  perf regression explicitly accepted — recording new baseline\n%!";
+            ignore (run_cmd ~echo:false
+              "./platform/local/scripts/run_tests.sh --update-baseline");
+            let baseline_commit_msg = Printf.sprintf
+              "pipeline: accept perf regression baseline after %s" id in
+            ignore (run_cmd ~echo:false
+              (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
+                (Filename.quote baseline_commit_msg)));
+            if Sys.file_exists worktree then
+              ignore (run_cmd (Printf.sprintf
+                "git worktree remove %s --force" (Filename.quote worktree)))
+            else
+              Printf.printf "  worktree %s already removed\n%!" worktree;
+            ignore (run_cmd ~echo:false
+              (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
+            Sys.rename src (Filename.concat "project/tickets/DONE" filename);
+            Printf.printf "  ✓  merged → DONE\n%!";
+            merged := id :: !merged
+          end else if perf_rc >= 1 then begin
             let label = if perf_rc = 2 then "perf regression" else "test failure" in
+            let reverted = revert_merge_commit id label in
             Printf.eprintf "  %s detected — moving to BLOCKED_BY_PERFORMANCE\n%!" label;
             let dst = Filename.concat "project/tickets/BLOCKED_BY_PERFORMANCE" filename in
             Sys.rename src dst;
@@ -396,10 +438,14 @@ let run_merge dry_run ticket_filter =
                 "git add project/tickets/ && git commit -m %s"
                 (Filename.quote
                   (Printf.sprintf "pipeline: %s blocked %s" label id))));
+            if not reverted then
+              Printf.eprintf
+                "  warning: %s remains merged because automatic revert failed\n%!"
+                id;
             incr errors
           end else begin
             ignore (run_cmd ~echo:false
-              "./platform/local/scripts/run_tests.sh unit --no-infra --update-baseline");
+              "./platform/local/scripts/run_tests.sh --update-baseline");
             let baseline_commit_msg = Printf.sprintf
               "pipeline: update perf baseline after %s" id in
             ignore (run_cmd ~echo:false
@@ -574,6 +620,12 @@ let dry_run_flag =
   Arg.(value & flag & info ["dry-run"]
     ~doc:"Print what would happen without making changes")
 
+let accept_performance_regression_flag =
+  Arg.(value & flag & info ["accept-performance-regression"]
+    ~doc:"Explicitly accept a detected performance regression, keep the merge, \
+          and record a new performance baseline. Functional test failures still \
+          block the merge.")
+
 let merge_ticket_arg =
   Arg.(value & pos 0 (some string) None &
        info [] ~docv:"TICKET-ID"
@@ -584,7 +636,7 @@ let merge_cmd =
     (Cmd.info "merge"
        ~doc:"Merge READY_TO_MERGE tickets into main, remove worktrees, move to DONE. \
              Pass a ticket ID to merge one; omit to merge all.")
-    Term.(const run_merge $ dry_run_flag $ merge_ticket_arg)
+    Term.(const run_merge $ dry_run_flag $ accept_performance_regression_flag $ merge_ticket_arg)
 
 let ticket_arg =
   Arg.(required & pos 0 (some string) None &
