@@ -5,6 +5,8 @@ type warning =
   | Malformed_metadata of { path : string; message : string }
 
 type t = {
+  services        : Sun_cli_manifest.service list;
+  schedules       : (string * string) list;
   topics          : string list;
   schema_subjects : string list;
   migrations      : string list;
@@ -20,10 +22,7 @@ let warning_to_string = function
 
 (* ── Duplicate detection helper ────────────────────────────────────────────── *)
 
-(** Partition [items] into unique items and the list of names that appeared more
-    than once.  Returns [(deduped_sorted, duplicate_names_sorted)]. *)
 let partition_duplicates items =
-  (* Count occurrences *)
   let counts = Hashtbl.create 16 in
   List.iter (fun s ->
     let n = try Hashtbl.find counts s with Not_found -> 0 in
@@ -36,10 +35,6 @@ let partition_duplicates items =
 
 (* ── discover_topics ──────────────────────────────────────────────────────── *)
 
-(** Scan [events/] for OCaml files containing [let topic_name = "..."]
-    declarations.  Returns [(topic_list, warnings)] where warnings includes
-    [Duplicate_topic] entries for any name that appears more than once, and
-    [Unreadable_dir] if a subdirectory cannot be listed. *)
 let discover_topics ~dir =
   let events_dir = Filename.concat dir "events" in
   if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then ([], [])
@@ -95,12 +90,6 @@ let discover_topics ~dir =
 
 (* ── discover_schema_subjects ─────────────────────────────────────────────── *)
 
-(** Scan [events/<domain>/] subdirectories for [*.ml] files and derive schema
-    subject names as ["<domain>.<EventName>"].  Also handles top-level
-    [events/<event>.ml] files (no domain prefix).  Returns
-    [(subjects, warnings)] where warnings includes [Duplicate_subject] entries
-    for any name that appears more than once, and [Unreadable_dir] if a
-    directory cannot be listed. *)
 let discover_schema_subjects ~dir =
   let events_dir = Filename.concat dir "events" in
   if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then ([], [])
@@ -141,9 +130,6 @@ let discover_schema_subjects ~dir =
 
 (* ── discover_migrations ──────────────────────────────────────────────────── *)
 
-(** Scan [db/migrations/] for SQL files, sorted by filename.  Returns
-    [(migration_list, warnings)] where warnings includes [Unreadable_dir] if
-    the migrations directory cannot be listed. *)
 let discover_migrations ~dir =
   let mig_dir = Filename.concat dir "db/migrations" in
   if not (Sys.file_exists mig_dir && Sys.is_directory mig_dir) then ([], [])
@@ -159,18 +145,84 @@ let discover_migrations ~dir =
       ([], [Unreadable_dir { path = mig_dir; reason }])
   end
 
+(* ── discover_services ────────────────────────────────────────────────────── *)
+
+(** Non-exiting variant of [Sun_cli_manifest.discover_services].
+    Returns an empty list with an [Unreadable_dir] warning when [app/] is missing
+    or unreadable, rather than calling [exit 1]. *)
+let discover_services ~dir =
+  let app_dir = Filename.concat dir "app" in
+  if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then ([], [])
+  else begin
+    let services = ref [] in
+    let warnings = ref [] in
+    (try
+      Array.iter (fun domain ->
+        let dp = Filename.concat app_dir domain in
+        if domain.[0] <> '.' && Sys.is_directory dp then
+          (try
+            Array.iter (fun svc_dir ->
+              let sp = Filename.concat dp svc_dir in
+              if svc_dir.[0] <> '.' && Sys.is_directory sp then
+                match Sun_cli_manifest.prim_of_suffix svc_dir with
+                | None -> ()
+                | Some prim ->
+                  if Sys.file_exists (Filename.concat sp "Dockerfile") then
+                    services := Sun_cli_manifest.{ domain; name = svc_dir; prim; dir = sp }
+                      :: !services
+            ) (Sys.readdir dp)
+          with Sys_error reason ->
+            warnings := Unreadable_dir { path = dp; reason } :: !warnings)
+      ) (Sys.readdir app_dir)
+    with Sys_error reason ->
+      warnings := Unreadable_dir { path = app_dir; reason } :: !warnings);
+    (List.rev !services, !warnings)
+  end
+
+(* ── discover_schedules ───────────────────────────────────────────────────── *)
+
+(** A minimal cron-expression check: exactly 5 space-separated fields. *)
+let cron_is_valid s =
+  let fields = List.filter (fun f -> f <> "")
+    (String.split_on_char ' ' (String.trim s)) in
+  List.length fields = 5
+
+(** Extract schedule cron strings for all [-fn] services.  Emits
+    [Malformed_metadata] for any cron expression that fails the 5-field check. *)
+let discover_schedules services =
+  let schedules = ref [] in
+  let warnings  = ref [] in
+  List.iter (fun (svc : Sun_cli_manifest.service) ->
+    if svc.prim = Sun_cli_manifest.Fn then begin
+      let cron = Sun_cli_manifest.extract_schedule ~dir:svc.dir ~name:svc.name in
+      if not (cron_is_valid cron) then begin
+        let path = Printf.sprintf "%s/lib/%s_fn.ml" svc.dir
+          (String.sub svc.name 0 (String.length svc.name - 3)) in
+        warnings := Malformed_metadata {
+          path;
+          message = Printf.sprintf "schedule = %S is not a valid 5-field cron expression" cron
+        } :: !warnings
+      end else
+        schedules := (svc.name, cron) :: !schedules
+    end
+  ) services;
+  (List.rev !schedules, List.rev !warnings)
+
 (* ── scan ─────────────────────────────────────────────────────────────────── *)
 
-(** Unified workspace scan.  Collects infra requirements, topics, schema
-    subjects, and migrations in a single call, accumulating any warnings
-    encountered during discovery. *)
 let scan ~dir =
-  let infra                          = Sun_cli_workspace.scan ~dir in
-  let (topics,   topic_warnings)     = discover_topics ~dir in
-  let (subjects, subject_warnings)   = discover_schema_subjects ~dir in
-  let (migrations, _mig_warnings)    = discover_migrations ~dir in
-  let warnings = topic_warnings @ subject_warnings in
-  { topics
+  let infra                            = Sun_cli_workspace.scan ~dir in
+  let (services,   svc_warnings)       = discover_services ~dir in
+  let (schedules,  sched_warnings)     = discover_schedules services in
+  let (topics,     topic_warnings)     = discover_topics ~dir in
+  let (subjects,   subject_warnings)   = discover_schema_subjects ~dir in
+  let (migrations, mig_warnings)       = discover_migrations ~dir in
+  let warnings =
+    svc_warnings @ sched_warnings @ topic_warnings @ subject_warnings @ mig_warnings
+  in
+  { services
+  ; schedules
+  ; topics
   ; schema_subjects = subjects
   ; migrations
   ; infra

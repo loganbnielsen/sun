@@ -56,7 +56,16 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
   in
   let workspace = workspace_name () in
   let sha       = match image_tag with Some t -> t | None -> git_sha () in
-  let services  = discover_services ~filter_path in
+  let inv       = Sun_cli_workspace_model.scan ~dir:"." in
+  List.iter (fun w ->
+    Printf.eprintf "warning: %s\n%!" (Sun_cli_workspace_model.warning_to_string w)
+  ) inv.Sun_cli_workspace_model.warnings;
+  let all_services = inv.Sun_cli_workspace_model.services in
+  let services  = match filter_path with
+    | None   -> all_services
+    | Some p -> List.filter (fun (s : Sun_cli_manifest.service) ->
+        s.dir = p || Filename.basename s.dir = p) all_services
+  in
 
   if services = [] then begin
     Printf.eprintf "No services found in app/ with a Dockerfile.\n";

@@ -197,6 +197,42 @@ let test_warning_to_string_malformed_metadata () =
   Alcotest.(check bool) "contains path"
     true (String.length (Str.global_replace (Str.regexp "some/file") "" s) < String.length s)
 
+(* ── discover_schedules ──────────────────────────────────────────────────────── *)
+
+let test_schedule_valid () =
+  let tmp = Filename.temp_dir "sun_wm_sched_valid" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "app/payments/charge_fn/lib";
+    mkdirs "app/payments/charge_fn/bin";
+    write_file "app/payments/charge_fn/Dockerfile" "";
+    write_file "app/payments/charge_fn/lib/charge_fn.ml"
+      {|let schedule = "0 * * * *"|};
+    let (svcs, _sw) = Sun_cli_workspace_model.discover_services ~dir:"." in
+    let (scheds, warns) = Sun_cli_workspace_model.discover_schedules svcs in
+    Alcotest.(check int) "one schedule" 1 (List.length scheds);
+    let (_, cron) = List.hd scheds in
+    Alcotest.(check string) "cron preserved" "0 * * * *" cron;
+    Alcotest.(check int) "no warnings" 0 (List.length warns)
+  )
+
+let test_schedule_malformed () =
+  let tmp = Filename.temp_dir "sun_wm_sched_bad" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "app/payments/charge_fn/lib";
+    mkdirs "app/payments/charge_fn/bin";
+    write_file "app/payments/charge_fn/Dockerfile" "";
+    write_file "app/payments/charge_fn/lib/charge_fn.ml"
+      {|let schedule = "bad-cron"|};
+    let (svcs, _sw) = Sun_cli_workspace_model.discover_services ~dir:"." in
+    let (scheds, warns) = Sun_cli_workspace_model.discover_schedules svcs in
+    Alcotest.(check int) "bad schedule excluded" 0 (List.length scheds);
+    let malformed = List.filter (function
+      | Sun_cli_workspace_model.Malformed_metadata _ -> true
+      | _ -> false) warns
+    in
+    Alcotest.(check bool) "malformed warning present" true (malformed <> [])
+  )
+
 let () =
   Alcotest.run "workspace_model"
     [ "discover_topics", [
@@ -218,6 +254,10 @@ let () =
     ; "scan", [
         Alcotest.test_case "integrates all discovery"  `Quick test_scan_integrates_all
       ; Alcotest.test_case "empty workspace"           `Quick test_scan_empty_workspace
+      ]
+    ; "discover_schedules", [
+        Alcotest.test_case "valid schedule" `Quick test_schedule_valid
+      ; Alcotest.test_case "malformed schedule warning" `Quick test_schedule_malformed
       ]
     ; "warning_to_string", [
         Alcotest.test_case "duplicate topic"    `Quick test_warning_to_string_duplicate_topic
