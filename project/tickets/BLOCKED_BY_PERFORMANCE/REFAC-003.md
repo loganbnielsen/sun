@@ -39,3 +39,6 @@ Keep the public interface of `Sun_cli_cmd_new` (specifically whatever `cmd_new.m
 - No single module in `cli/sun/lib/` exceeds ~300 lines after the split.
 - `dune build` and `dune test cli/sun/` pass.
 - `sun new svc`, `sun new worker`, `sun new fn`, `sun new event`, and `sun new workspace` all produce the same output as before (verify with `test_scaffold.ml`).
+
+## Review — automated checks passed
+sun_cli_cmd_new.ml split into 7 focused modules; build and tests pass, all acceptance criteria met
