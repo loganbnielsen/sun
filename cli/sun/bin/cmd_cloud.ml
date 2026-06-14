@@ -33,38 +33,39 @@ let resolve_sun_home () =
 
 (* ── Terraform output parsing ───────────────────────────────────────────── *)
 
-(* Read terraform output -json from a temp file and print key endpoints.
-   We only print non-sensitive string/list values. *)
-let print_outputs chdir_arg =
+(* Read terraform output -json from a temp file, print key endpoints, and
+   return the kubeconfig_command string if present (to auto-configure kubectl). *)
+let print_outputs chdir_arg : string option =
   let tmp = Filename.temp_file "sun-tf-out-" ".json" in
   let rc = Sys.command (Printf.sprintf "terraform output -json %s > %s 2>/dev/null"
     chdir_arg (Filename.quote tmp))
   in
   if rc <> 0 then begin
     Printf.printf "  (could not retrieve terraform outputs)\n%!";
-    (try Sys.remove tmp with _ -> ())
+    (try Sys.remove tmp with _ -> ());
+    None
   end else begin
     (try
       let ic = open_in tmp in
       let raw = In_channel.input_all ic in
       close_in ic;
       Sys.remove tmp;
-      (* Very lightweight JSON parse: find "key": { "sensitive": false,
-         "value": "..." } entries and print them. We use Yojson. *)
       let json = Yojson.Safe.from_string raw in
       (match json with
        | `Assoc pairs ->
+         let kubeconfig_cmd = ref None in
          List.iter (fun (key, obj) ->
            match obj with
            | `Assoc fields ->
              let sensitive =
                match List.assoc_opt "sensitive" fields with
                | Some (`Bool b) -> b
-               | _ -> true  (* default to sensitive if unknown *)
+               | _ -> true
              in
              if not sensitive then begin
                match List.assoc_opt "value" fields with
                | Some (`String v) ->
+                 if key = "kubeconfig_command" then kubeconfig_cmd := Some v;
                  Printf.printf "  %-28s  %s\n%!" key v
                | Some (`List vs) ->
                  let strs = List.filter_map (function
@@ -76,10 +77,12 @@ let print_outputs chdir_arg =
                | _ -> ()
              end
            | _ -> ()
-         ) pairs
-       | _ -> ())
+         ) pairs;
+         !kubeconfig_cmd
+       | _ -> None)
     with _ ->
-      Printf.printf "  (error parsing terraform outputs)\n%!")
+      Printf.printf "  (error parsing terraform outputs)\n%!";
+      None)
   end
 
 (* ── cloud init ─────────────────────────────────────────────────────────── *)
@@ -149,9 +152,20 @@ let cloud_init use_aws use_gcp var_file dry_run =
       exit 1
     end;
 
-    (* Step 3: print outputs *)
+    (* Step 3: print outputs, then auto-configure kubectl if the Terraform
+       module emits a kubeconfig_command output (e.g. aws eks update-kubeconfig). *)
     Printf.printf "\n[3/3] Provisioned endpoints:\n%!";
-    print_outputs chdir_arg;
+    let kubeconfig_cmd = print_outputs chdir_arg in
+    (match kubeconfig_cmd with
+     | Some cmd ->
+       Printf.printf "\nConfiguring kubectl…\n%!";
+       let rc2 = run_cmd cmd in
+       if rc2 <> 0 then
+         Printf.eprintf
+           "warning: kubeconfig setup failed (exit %d).\n\
+            Run manually before using sun deploy / sun status:\n\
+            \  %s\n" rc2 cmd
+     | None -> ());
   end;
 
   Printf.printf "\nDone.\n%!"
