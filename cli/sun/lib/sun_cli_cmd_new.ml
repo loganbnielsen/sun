@@ -810,14 +810,29 @@ let svc_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic svc: bin/main.ml *)
-let svc_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
-  Service.run Handler.routes ~env ()
+let svc_bin_ml = {tpl|let () =
+  let loki_url = Sys.getenv_opt "LOKI_URL" in
+  Eio_main.run @@ fun env ->
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
+  let prom, render = Obs_prometheus.create () in
+  let ot =
+    Obs.with_context
+      (Obs.create ~service:"{{domain}}-{{name}}-svc" ~mono_clock:env#mono_clock
+         ~backend:(Obs.compose log_backend prom))
+      [("team", "{{domain}}")]
+  in
+  Service.run Handler.routes ~env ~ot ~metrics_renderer:render ()
 |tpl}
 
 (* Generic svc: bin/dune *)
 let svc_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_svc eio_main))
+ (libraries {{lib}} sun_svc obs_eio obs_eio_loki obs_eio_prometheus eio_main))
 |tpl}
 
 (* Generic worker: lib/<name>_worker.ml — satisfies Worker.WORKER.
@@ -856,16 +871,31 @@ let worker_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic worker: bin/main.ml *)
-let worker_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
-  let config = Kafka_service.config_of_env () in
+let worker_bin_ml = {tpl|let () =
+  let loki_url     = Sys.getenv_opt "LOKI_URL" in
+  let kafka_config = Kafka_service.config_of_env () in
+  Eio_main.run @@ fun env ->
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
+  let prom, _render = Obs_prometheus.create () in
+  let ot =
+    Obs.with_context
+      (Obs.create ~service:"{{domain}}-{{name}}-worker" ~mono_clock:env#mono_clock
+         ~backend:(Obs.compose log_backend prom))
+      [("team", "{{domain}}")]
+  in
   let module W = Worker.Make({{Mod}}) in
-  W.run ~env ~config ()
+  W.run ~env ~config:kafka_config ~ot ()
 |tpl}
 
 (* Generic worker: bin/dune *)
 let worker_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_worker kafka_eio_service eio_main))
+ (libraries {{lib}} sun_worker kafka_eio_service obs_eio obs_eio_loki obs_eio_prometheus eio_main))
 |tpl}
 
 (* Generic fn: lib/<name>_fn.ml — satisfies Fn.FN *)
@@ -884,15 +914,31 @@ let fn_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic fn: bin/main.ml *)
-let fn_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
+let fn_bin_ml = {tpl|let () =
+  let loki_url        = Sys.getenv_opt "LOKI_URL" in
+  let pushgateway_url = Sys.getenv_opt "PUSHGATEWAY_URL" in
+  Eio_main.run @@ fun env ->
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
+  let prom, _render = Obs_prometheus.create () in
+  let ot =
+    Obs.with_context
+      (Obs.create ~service:"{{domain}}-{{name}}-fn" ~mono_clock:env#mono_clock
+         ~backend:(Obs.compose log_backend prom))
+      [("team", "{{domain}}")]
+  in
   let module F = Fn.Make({{Mod}}) in
-  F.run ~env ()
+  F.run ~env ~ot ~pushgateway_url ()
 |tpl}
 
 (* Generic fn: bin/dune *)
 let fn_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_fn eio_main))
+ (libraries {{lib}} sun_fn obs_eio obs_eio_loki obs_eio_prometheus eio_main))
 |tpl}
 
 (* Generic event: <name>.ml — satisfies Kafka_service.MESSAGE *)
@@ -1024,7 +1070,7 @@ let new_svc arg =
   Printf.printf "\nScaffolding svc %s/%s_svc ...\n\n" domain name;
   write ~path:(dir ^ "/lib/handler.ml") ~content:svc_handler_ml;
   write ~path:(dir ^ "/lib/dune")       ~content:(subst v svc_lib_dune);
-  write ~path:(dir ^ "/bin/main.ml")    ~content:svc_bin_ml;
+  write ~path:(dir ^ "/bin/main.ml")    ~content:(subst v svc_bin_ml);
   write ~path:(dir ^ "/bin/dune")       ~content:(subst v svc_bin_dune);
   write ~path:(dir ^ "/sun.toml")       ~content:tpl_sun_toml;
   write ~path:(dir ^ "/Dockerfile")     ~content:(subst v tpl_dockerfile);
