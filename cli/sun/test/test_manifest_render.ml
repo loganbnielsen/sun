@@ -149,7 +149,9 @@ let test_svc_replicas () =
 
 let test_svc_extra_config () =
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
-  assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
+  (* Values without special YAML characters are emitted bare; values with
+     colons, hashes, or other YAML-significant chars are double-quoted. *)
+  assert_contains "svc extra configmap key" workload {|APP_ENV: staging|}
 
 let test_svc_default_postgres_url () =
   (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
@@ -496,11 +498,12 @@ let test_ingress_default_path () =
   assert_contains "default path" workload "path: /"
 
 let test_extra_labels_appear_in_pod_template () =
-  (* extra_labels must appear in the pod template metadata.labels block *)
+  (* extra_labels must appear in the pod template metadata.labels block.
+     Plain identifiers are emitted bare; special-char values are quoted. *)
   let spec = { svc_spec with extra_labels = [ "team", "platform"; "tier", "backend" ] } in
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
-  assert_contains "extra label team"  workload {|team: "platform"|};
-  assert_contains "extra label tier"  workload {|tier: "backend"|}
+  assert_contains "extra label team"  workload {|team: platform|};
+  assert_contains "extra label tier"  workload {|tier: backend|}
 
 let test_extra_labels_empty_by_default () =
   (* No extra labels → no spurious keys in pod template *)

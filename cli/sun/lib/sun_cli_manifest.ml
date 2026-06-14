@@ -126,7 +126,7 @@ let runtime_secret_name = "sun-secrets"
 let f = Printf.sprintf
 
 let render_env_block env =
-  String.concat "\n" (List.map (fun (k, v) -> f "  %s: \"%s\"" k v) env)
+  String.concat "\n" (List.map (fun (k, v) -> f "  %s: %s" k (Sun_cli_yaml.emit_scalar v)) env)
 
 let config_hash extra_env =
   default_cluster_env @ extra_env
@@ -227,7 +227,7 @@ let render_secret_key_refs ~name secret_keys =
 
 let render_extra_labels labels =
   (* Renders extra_labels as additional pod-template label lines (4-space indent). *)
-  String.concat "\n" (List.map (fun (k, v) -> f "        %s: \"%s\"" k v) labels)
+  String.concat "\n" (List.map (fun (k, v) -> f "        %s: %s" k (Sun_cli_yaml.emit_scalar v)) labels)
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
