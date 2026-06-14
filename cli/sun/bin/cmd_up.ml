@@ -2,247 +2,26 @@ open Cmdliner
 open Sun_cli_manifest
 
 
-(* ── Port-forward helpers (mirrors cmd_dev.ml) ───────────────────────────── *)
-
-let state_dir =
-  (* Use an absolute path so sun up/down work regardless of cwd — mirrors cmd_dev.ml. *)
-  match Sys.getenv_opt "XDG_DATA_HOME" with
-  | Some d -> Filename.concat d "sun"
-  | None ->
-    match Sys.getenv_opt "HOME" with
-    | Some h -> Filename.concat h ".local/share/sun"
-    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
-
-let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
-
-let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
-
-let contains haystack needle =
-  let hl = String.length haystack and nl = String.length needle in
-  if nl = 0 then true
-  else if nl > hl then false
-  else
-    let rec go i =
-      i <= hl - nl
-      && (String.sub haystack i nl = needle || go (i + 1))
-    in
-    go 0
-
-let read_cmdline pid =
-  let tmp = Filename.temp_file "sun-ps-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
-  let ic = open_in tmp in
-  let s = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  s
-
-let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
-let script_file name = Printf.sprintf "/tmp/sun-pf-%s.sh" name
-
-(* The PID file now holds the wrapper shell's PID, not kubectl's.
-   Identify our wrapper by the script file name in the process's cmdline. *)
-let port_forward_running ~service:_ name =
-  let pf = pid_file name in
-  if Sys.file_exists pf then begin
-    let ic = open_in pf in
-    let pid_s = String.trim (In_channel.input_all ic) in
-    close_in ic;
-    try
-      let pid = int_of_string pid_s in
-      let alive = Sys.command (Printf.sprintf "kill -0 %d 2>/dev/null" pid) = 0 in
-      let args = if alive then read_cmdline pid else "" in
-      let ok = alive && contains args (Printf.sprintf "sun-pf-%s.sh" name) in
-      if not ok then (try Sys.remove pf with _ -> ());
-      ok
-    with _ ->
-      (try Sys.remove pf with _ -> ());
-      false
-  end else false
-
-(** Write a self-restarting wrapper script and background it in a new session.
-    On pod rollout, kubectl exits; the loop restarts it within ~1 s so the
-    port-forward stays live across deploys without manual intervention. *)
-let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
-  ensure_state_dir ();
-  let sf = script_file name in
-  let lf = log_file name in
-  let pf = pid_file name in
-  let content = Printf.sprintf
-    "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s svc/%s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
-    (Filename.quote pf)
-    (Filename.quote namespace) (Filename.quote service)
-    local_port remote_port
-    (Filename.quote lf)
-  in
-  let oc = open_out sf in
-  output_string oc content;
-  close_out oc;
-  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote sf)));
-  (* setsid puts the loop in its own session so it outlives this process;
-     the trailing & returns immediately to the OCaml caller. *)
-  ignore (Sun_cli_shell.run_cmd ~echo:false
-    (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
-
-(** Read the last [n] lines of a file, or [""] if the file is missing/empty. *)
-let read_last_lines path n =
-  try
-    let ic = open_in path in
-    let content = In_channel.input_all ic in
-    close_in ic;
-    let lines = String.split_on_char '\n' (String.trim content) in
-    let total = List.length lines in
-    let tail = if total <= n then lines
-               else
-                 let rec drop k lst = if k = 0 then lst else drop (k-1) (List.tl lst) in
-                 drop (total - n) lines
-    in
-    String.concat "\n" tail
-  with _ -> ""
-
-(** Sleep 200 ms, then check whether the port-forward process for [name] is
-    still alive.  Returns [true] if alive, [false] if dead.  When dead, prints
-    a warning with the log path and a suggested remediation command. *)
-let check_port_forward_liveness ~name ~local_port =
-  Unix.sleepf 0.2;
-  let pf = pid_file name in
-  let alive =
-    if Sys.file_exists pf then begin
-      try
-        let ic = open_in pf in
-        let pid_s = String.trim (In_channel.input_all ic) in
-        close_in ic;
-        let pid = int_of_string pid_s in
-        (try Unix.kill pid 0; true
-         with Unix.Unix_error (Unix.ESRCH, _, _) -> false
-            | Unix.Unix_error _ -> true)  (* EPERM means process exists *)
-      with _ -> false
-    end else false
-  in
-  if not alive then begin
-    let lf = log_file name in
-    let tail = read_last_lines lf 5 in
-    Printf.printf
-      "  warning: port-forward for %s failed (port %d may be in use by another workspace).\n"
-      name local_port;
-    Printf.printf "           See %s for details.\n" lf;
-    if tail <> "" then
-      Printf.printf "           Last log lines:\n             %s\n"
-        (String.concat "\n             " (String.split_on_char '\n' tail));
-    Printf.printf "           Run: kill $(lsof -ti:%d) && sun up\n%!" local_port
-  end;
-  alive
-
-(** Extract the first occurrence of [prefix] followed by decimal digits in
-    [s], returning the digits as a string.  Returns [""] if not found. *)
-let extract_after_prefix s prefix =
-  let pl = String.length prefix and sl = String.length s in
-  let rec go i =
-    if i + pl > sl then ""
-    else if String.sub s i pl = prefix then begin
-      (* Collect digits after the prefix *)
-      let j = ref (i + pl) in
-      while !j < sl && s.[!j] >= '0' && s.[!j] <= '9' do incr j done;
-      if !j > i + pl then String.sub s (i + pl) (!j - (i + pl))
-      else go (i + 1)
-    end
-    else go (i + 1)
-  in
-  go 0
-
-(** Find the PID that owns [local_port] using [ss].  Returns [Some pid] or
-    [None] if the port is free / the lookup fails. *)
-let pid_owning_port local_port =
-  (* ss -tlnp prints lines like:
-       LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("kubectl",pid=12345,...))
-     We grab the users field and extract the pid. *)
-  let tmp = Filename.temp_file "sun-ss-" ".tmp" in
-  ignore (Sys.command
-    (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
-  let ic = open_in tmp in
-  let content = In_channel.input_all ic in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  (* Extract pid=<N> from the users:((...)) field — no Str dependency needed *)
-  let digits = extract_after_prefix content "pid=" in
-  if digits = "" then None
-  else (try Some (int_of_string digits) with _ -> None)
-
-(** Parse a null-delimited /proc/<pid>/cmdline into a string list. *)
-let read_proc_cmdline pid =
-  let path = Printf.sprintf "/proc/%d/cmdline" pid in
-  try
-    let ic = open_in path in
-    let raw = In_channel.input_all ic in
-    close_in ic;
-    (* cmdline args are NUL-separated; split on NUL and filter empties *)
-    List.filter (fun s -> s <> "") (String.split_on_char '\x00' raw)
-  with _ ->
-    (* Fall back to ps if /proc is unavailable *)
-    let tmp = Filename.temp_file "sun-ps-" ".tmp" in
-    ignore (Sys.command
-      (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
-    let ic = open_in tmp in
-    let s = String.trim (In_channel.input_all ic) in
-    close_in ic;
-    (try Sys.remove tmp with _ -> ());
-    String.split_on_char ' ' s
-
-(** Parse the arg list from a [kubectl port-forward -n <ns> svc/<svc> ...]
-    invocation.  Returns [(namespace, service)] or raises [Not_found]. *)
-let parse_kubectl_pf_args args =
-  (* Find -n flag value *)
-  let rec find_ns = function
-    | "-n" :: ns :: _ -> ns
-    | _ :: rest -> find_ns rest
-    | [] -> raise Not_found
-  in
-  let ns = find_ns args in
-  (* Find the resource argument, which matches svc/<name> or deployment/<name> *)
-  let svc =
-    List.find_map (fun a ->
-      if String.length a > 4 && String.sub a 0 4 = "svc/" then
-        Some (String.sub a 4 (String.length a - 4))
-      else None
-    ) args
-  in
-  match svc with
-  | Some s -> (ns, s)
-  | None -> raise Not_found
+(* ── Port-forward helpers (delegated to Sun_cli_port_forward) ────────────── *)
 
 (** Check whether [local_port] is bound by a stale Sun-managed kubectl
-    port-forward pointing at a different namespace or service than the one we
-    are about to start.  Returns [Some (pid, old_namespace, old_service)] when
-    a stale forward is detected, [None] otherwise. *)
-let detect_stale_port_forward local_port target_namespace target_service =
-  match pid_owning_port local_port with
-  | None -> None
-  | Some pid ->
-    let args = read_proc_cmdline pid in
-    (* Must be a kubectl invocation *)
-    let is_kubectl =
-      match args with
-      | prog :: _ ->
-        let base = Filename.basename prog in
-        base = "kubectl" || base = "kubectl.exe"
-      | [] -> false
-    in
-    if not is_kubectl then None
-    else begin
-      (* Must be a port-forward subcommand *)
-      let has_pf = List.exists (fun a -> a = "port-forward") args in
-      if not has_pf then None
-      else begin
-        match (try Some (parse_kubectl_pf_args args) with Not_found -> None) with
-        | None -> None
-        | Some (old_ns, old_svc) ->
-          if old_ns <> target_namespace || old_svc <> target_service then
-            Some (pid, old_ns, old_svc)
-          else
-            None
-      end
-    end
+    port-forward pointing at a different namespace or service.
+    Returns [Some (pid, old_namespace, old_service)] when stale, [None] otherwise. *)
+let detect_stale_port_forward = Sun_cli_port_forward.detect_stale
+
+(** Returns [true] when the wrapper script for [name] is alive. *)
+let port_forward_running ~service:_ name = Sun_cli_port_forward.is_running ~name
+
+(** Write a self-restarting wrapper script and background it.
+    [service] is used as the kubectl svc target (prefixed with "svc/"). *)
+let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
+  Sun_cli_port_forward.start
+    ~name ~namespace
+    ~target:(Printf.sprintf "svc/%s" service)
+    ~local_port ~remote_port
+
+(** Sleep 200 ms then check whether the port-forward process is still alive. *)
+let check_port_forward_liveness = Sun_cli_port_forward.check_liveness
 
 let wait_for_rollout ~namespace ~name =
   let cmd = Printf.sprintf
