@@ -42,25 +42,6 @@ let run filter_domain =
     Printf.printf "Namespace: %s\n%!" ns;
     if cmd_ok (Printf.sprintf "kubectl get ns %s" (Filename.quote ns)) then begin
       ignore (Sys.command (Printf.sprintf "kubectl get pods -n %s 2>&1" (Filename.quote ns)));
-      (* Print image tag per deployment so engineers can confirm which version is live. *)
-      let tmp_img = Filename.temp_file "sun-img-" ".tmp" in
-      ignore (Sys.command (Printf.sprintf
-        "kubectl get deployments -n %s \
-         -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.spec.template.spec.containers[0].image}{\"\\n\"}{end}' \
-         > %s 2>/dev/null"
-        (Filename.quote ns) (Filename.quote tmp_img)));
-      let ic_img = open_in tmp_img in
-      let img_content = String.trim (In_channel.input_all ic_img) in
-      close_in ic_img;
-      (try Sys.remove tmp_img with _ -> ());
-      if img_content <> "" then begin
-        Printf.printf "\n  Images:\n%!";
-        List.iter (fun line ->
-          match String.split_on_char '\t' line with
-          | [name; image] -> Printf.printf "    %-30s  %s\n%!" name image
-          | _ -> ()
-        ) (String.split_on_char '\n' img_content)
-      end;
       (* Print port-forward hint for ClusterIP HTTP services in this namespace.
          Filter out internal services: names ending in "-headless" or equal to "kubernetes". *)
       let tmp = Filename.temp_file "sun-svc-" ".tmp" in
