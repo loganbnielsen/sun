@@ -42,3 +42,6 @@ Minor behavioural differences have already crept in (rollback's version lacks th
 - `grep -rn "let run_cmd" cli/ tools/sundev/` returns zero results.
 - `dune build` and `dune test` pass.
 - `cmd_rollback.ml` now respects the `?echo` flag consistently with the other commands.
+
+## Review — automated checks passed
+REFAC-002 consolidation is complete: build clean, no duplicate run_cmd definitions, all five callers migrated to canonical modules, Sun_cli_shell registered in dune, no ticket files modified in the worktree.
