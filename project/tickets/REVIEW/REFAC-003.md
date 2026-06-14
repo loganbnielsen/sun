@@ -3,6 +3,8 @@ id: REFAC-003
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-13
+branch: REFAC-003/split-scaffold-modules
+worktree: ../sun-REFAC-003-split-scaffold-modules
 ---
 
 Split `sun_cli_cmd_new.ml` (1,167 lines) into per-primitive scaffold modules to make the scaffolder navigable
