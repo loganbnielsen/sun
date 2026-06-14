@@ -7,6 +7,38 @@ open Sun_cli_manifest
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
+let print_service_urls ns =
+  let tmp = Filename.temp_file "sun-svc-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf
+    "kubectl get svc -n %s -o jsonpath='{.items[?(@.spec.type==\"ClusterIP\")].metadata.name}' > %s 2>/dev/null"
+    (Filename.quote ns) (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let svc_names_raw = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  if svc_names_raw <> "" then begin
+    let names = String.split_on_char ' ' svc_names_raw in
+    let is_internal name =
+      name = "kubernetes" ||
+      (let n = String.length name in n >= 9 && String.sub name (n - 9) 9 = "-headless")
+    in
+    let http_svcs = List.filter (fun name ->
+      (not (is_internal name)) &&
+      (let tmp2 = Filename.temp_file "sun-svcport-" ".tmp" in
+       ignore (Sys.command (Printf.sprintf
+         "kubectl get svc %s -n %s -o jsonpath='{.spec.ports[?(@.port==80)].port}' > %s 2>/dev/null"
+         (Filename.quote name) (Filename.quote ns) (Filename.quote tmp2)));
+       let ic2 = open_in tmp2 in
+       let port_s = String.trim (In_channel.input_all ic2) in
+       close_in ic2;
+       (try Sys.remove tmp2 with _ -> ());
+       port_s <> "")
+    ) names in
+    List.iter (fun name ->
+      Printf.printf "  →  http://localhost:8080  (%s)\n%!" name
+    ) http_svcs
+  end
+
 let git_sha () =
   let tmp = Filename.temp_file "sun-" ".tmp" in
   ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
@@ -178,6 +210,12 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
      Printf.printf "Commit and push to your GitOps repo, then Argo CD will apply them.\n"
    | None when not dry_run ->
      Printf.printf "\nDone. %d service(s) deployed.\n" (List.length services);
+     let namespaces = List.sort_uniq String.compare
+       (List.map (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+          Sun_cli_deployment_plan.namespace_of ~workspace ~domain:spec.domain
+        ) plan.Sun_cli_deployment_plan.services)
+     in
+     List.iter print_service_urls namespaces;
      Printf.printf "Run 'sun status' to check pod health.\n";
      Cmd_up.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
    | None -> ())
