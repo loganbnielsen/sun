@@ -3,6 +3,8 @@ id: REFAC-002
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-13
+branch: REFAC-002/consolidate-run-cmd
+worktree: ../sun-REFAC-002-consolidate-run-cmd
 ---
 
 Consolidate the `run_cmd` shell-exec helper defined independently in five files into a shared `Sun_cli_shell` module
