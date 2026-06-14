@@ -5,14 +5,24 @@ let cmd_ok cmd =
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
+let discover_domains () =
+  let app_dir = "app" in
+  if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
+  else begin
+    let domains = ref [] in
+    (try
+      Array.iter (fun entry ->
+        let path = Filename.concat app_dir entry in
+        if entry.[0] <> '.' && Sys.is_directory path then
+          domains := entry :: !domains
+      ) (Sys.readdir app_dir)
+    with _ -> ());
+    List.rev !domains
+  end
+
 let run filter_domain =
   let workspace = workspace_name () in
-  let inv = Sun_cli_workspace_model.scan ~dir:"." in
-  let all_domains =
-    inv.Sun_cli_workspace_model.services
-    |> List.map (fun (s : Sun_cli_manifest.service) -> s.domain)
-    |> List.sort_uniq String.compare
-  in
+  let all_domains = discover_domains () in
   let domains = match filter_domain with
     | None   -> all_domains
     | Some d ->

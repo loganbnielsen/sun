@@ -136,8 +136,7 @@ let dev_up () =
 
   (* 2. Scan *)
   Printf.printf "\n[2/4] Scanning workspace...\n%!";
-  let inv = Sun_cli_workspace_model.scan ~dir:"." in
-  let req = inv.infra in
+  let req = Sun_cli_workspace.scan ~dir:"." in
   Printf.printf "  kafka=%-5b  postgres=%-5b  loki=%-5b  prometheus=%b\n%!"
     req.kafka req.postgres req.loki req.prometheus;
 
