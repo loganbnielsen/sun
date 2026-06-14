@@ -5,8 +5,6 @@ open Sun_cli_manifest
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
-let run_cmd cmd =
-  Sys.command cmd
 
 (** Check whether the kubectl-argo-rollouts plugin is available.
     Tries both the hyphenated binary name (kubectl-argo-rollouts) and
@@ -45,7 +43,7 @@ let run filter_path =
           "kubectl argo rollouts undo %s -n %s"
           (Filename.quote k8s_name) (Filename.quote ns)
         in
-        let rc = run_cmd undo_cmd in
+        let rc = Sun_cli_shell.run_cmd undo_cmd in
         if rc <> 0 then begin
           Printf.eprintf "  error: kubectl argo rollouts undo failed for %s/%s (exit %d)\n%!"
             svc.domain svc.name rc;
@@ -65,7 +63,7 @@ let run filter_path =
       (* Standard Deployment — use kubectl rollout undo. *)
       let undo_cmd = Printf.sprintf
         "kubectl rollout undo deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
-      let rc = run_cmd undo_cmd in
+      let rc = Sun_cli_shell.run_cmd undo_cmd in
       if rc <> 0 then begin
         Printf.eprintf "  error: kubectl rollout undo failed for %s/%s (exit %d)\n%!"
           svc.domain svc.name rc;
@@ -76,7 +74,7 @@ let run filter_path =
         (* Wait for the rolled-back revision to become healthy *)
         let status_cmd = Printf.sprintf
           "kubectl rollout status deployment/%s -n %s" (Filename.quote k8s_name) (Filename.quote ns) in
-        let src = run_cmd status_cmd in
+        let src = Sun_cli_shell.run_cmd status_cmd in
         if src <> 0 then begin
           Printf.eprintf "  warning: rollout status check failed for %s/%s (exit %d)\n%!"
             svc.domain svc.name src;

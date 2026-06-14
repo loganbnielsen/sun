@@ -4,13 +4,7 @@
 
 open Cmdliner
 
-(* ── Shell helpers ───────────────────────────────────────────────────────── *)
-
-let run_cmd ?(echo = true) cmd =
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  Sys.command cmd
-
-let cmd_ok cmd = run_cmd ~echo:false cmd = 0
+let cmd_ok cmd = Sun_cli_shell.run_cmd ~echo:false cmd = 0
 
 let check_tool name install_url =
   if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
@@ -124,7 +118,7 @@ let cloud_init use_aws use_gcp var_file dry_run =
 
   (* Step 1: terraform init *)
   Printf.printf "\n[1/3] terraform init\n%!";
-  let rc = run_cmd (Printf.sprintf "terraform init %s" chdir_arg) in
+  let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform init %s" chdir_arg) in
   if rc <> 0 then begin
     Printf.eprintf "error: terraform init failed (exit %d).\n" rc;
     exit 1
@@ -133,7 +127,7 @@ let cloud_init use_aws use_gcp var_file dry_run =
   (* Step 2: terraform plan or apply *)
   if dry_run then begin
     Printf.printf "\n[2/3] terraform plan  (--dry-run)\n%!";
-    let rc = run_cmd (Printf.sprintf "terraform plan %s%s"
+    let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform plan %s%s"
       chdir_arg varfile_args) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform plan failed (exit %d).\n" rc;
@@ -142,7 +136,7 @@ let cloud_init use_aws use_gcp var_file dry_run =
     Printf.printf "\n[3/3] (skipping apply in --dry-run mode)\n%!";
   end else begin
     Printf.printf "\n[2/3] terraform apply\n%!";
-    let rc = run_cmd (Printf.sprintf "terraform apply -auto-approve %s%s"
+    let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform apply -auto-approve %s%s"
       chdir_arg varfile_args) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform apply failed (exit %d).\n" rc;

@@ -2,19 +2,12 @@ open Cmdliner
 
 (* ── Helpers ─────────────────────────────────────────────────────────────── *)
 
-let read_file path =
-  let ic = open_in path in
-  let s = In_channel.input_all ic in
-  close_in ic; s
+let read_file = Sundev_shell.read_file
 
 let write_file path content =
   let oc = open_out path in
   output_string oc content;
   close_out oc
-
-let run_cmd ?(echo = true) cmd =
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  Sys.command cmd
 
 let current_branch () =
   let tmp = Filename.temp_file "sun-br-" ".tmp" in
@@ -28,33 +21,24 @@ let git_branch_exists branch =
   Sys.command (Printf.sprintf
     "git rev-parse --verify %s >/dev/null 2>&1" (Filename.quote branch)) = 0
 
-let run_cmd_lines ?(echo = false) cmd =
-  let tmp = Filename.temp_file "sun-cmd-" ".tmp" in
-  let full = Printf.sprintf "%s > %s 2>/dev/null" cmd tmp in
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  ignore (Sys.command full);
-  let lines = String.split_on_char '\n' (String.trim (read_file tmp)) in
-  (try Sys.remove tmp with _ -> ());
-  List.filter (fun s -> s <> "") lines
-
 (* Commit any dirty perf_baseline.json before attempting a merge so that
    "local changes would be overwritten" errors cannot block the merge. *)
 let commit_dirty_baseline () =
-  let dirty = run_cmd_lines
+  let dirty = Sundev_shell.run_cmd_lines
     "git status --porcelain -- tools/perf/perf_baseline.json" in
   if dirty <> [] then begin
-    ignore (run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
-    ignore (run_cmd ~echo:false
+    ignore (Sundev_shell.run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
+    ignore (Sundev_shell.run_cmd ~echo:false
       "git commit -m \"pipeline: checkpoint perf baseline\"")
   end
 
 let restore_baseline_to_head () =
-  ignore (run_cmd ~echo:false
+  ignore (Sundev_shell.run_cmd ~echo:false
     "git checkout HEAD -- tools/perf/perf_baseline.json 2>/dev/null; true")
 
 let revert_merge_commit ticket_id reason =
   restore_baseline_to_head ();
-  let rc = run_cmd ~echo:false
+  let rc = Sundev_shell.run_cmd ~echo:false
     (Printf.sprintf
       "SUN_SKIP_HOOKS=1 git revert -m 1 --no-edit HEAD >/dev/null 2>&1") in
   if rc = 0 then begin
@@ -76,9 +60,9 @@ let revert_merge_commit ticket_id reason =
 let resolve_merge_conflicts () =
   (* All paths that still have unmerged index entries (covers both content
      conflicts and rename/rename conflicts). *)
-  let all_unmerged = run_cmd_lines
+  let all_unmerged = Sundev_shell.run_cmd_lines
     "git ls-files --unmerged | awk '{print $4}' | sort -u" in
-  let content_conflicts = run_cmd_lines
+  let content_conflicts = Sundev_shell.run_cmd_lines
     "git diff --name-only --diff-filter=U" in
 
   let has_baseline = List.mem "tools/perf/perf_baseline.json" content_conflicts in
@@ -89,9 +73,9 @@ let resolve_merge_conflicts () =
   let ticket_unmerged = List.filter is_ticket_path all_unmerged in
 
   if has_baseline then begin
-    ignore (run_cmd ~echo:false
+    ignore (Sundev_shell.run_cmd ~echo:false
       "git checkout --ours -- tools/perf/perf_baseline.json");
-    ignore (run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
+    ignore (Sundev_shell.run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
     Printf.printf "  auto-resolved tools/perf/perf_baseline.json (kept main)\n%!"
   end;
 
@@ -99,13 +83,13 @@ let resolve_merge_conflicts () =
     (* Remove all unmerged ticket index entries, then restore exactly what
        HEAD (main) has.  This handles both content and rename/rename conflicts
        in project/tickets/ without caring which side introduced what. *)
-    ignore (run_cmd ~echo:false
+    ignore (Sundev_shell.run_cmd ~echo:false
       "git status --porcelain -- project/tickets/ \
        | awk '{print $2}' \
        | xargs -r git rm -f --cached -- 2>/dev/null; true");
-    ignore (run_cmd ~echo:false
+    ignore (Sundev_shell.run_cmd ~echo:false
       "git checkout HEAD -- project/tickets/ 2>/dev/null; true");
-    ignore (run_cmd ~echo:false "git add -- project/tickets/ 2>/dev/null; true");
+    ignore (Sundev_shell.run_cmd ~echo:false "git add -- project/tickets/ 2>/dev/null; true");
     Printf.printf "  auto-resolved %d project/tickets/ conflict(s) (restored main state)\n%!"
       (List.length ticket_unmerged)
   end;
@@ -117,17 +101,17 @@ let resolve_merge_conflicts () =
     Filename.basename f = "dune"
   ) content_conflicts in
   List.iter (fun path ->
-    ignore (run_cmd ~echo:false (Printf.sprintf
+    ignore (Sundev_shell.run_cmd ~echo:false (Printf.sprintf
       {|awk 'BEGIN{skip=0} /^<<<<<<< /{skip=1;next} /^=======$/{skip=0;next} /^>>>>>>> /{next} !seen[$0]++{print}' %s > %s.merged && mv %s.merged %s|}
       (Filename.quote path) (Filename.quote path)
       (Filename.quote path) (Filename.quote path)));
-    ignore (run_cmd ~echo:false
+    ignore (Sundev_shell.run_cmd ~echo:false
       (Printf.sprintf "git add %s" (Filename.quote path)));
     Printf.printf "  auto-resolved %s (union merge)\n%!" path
   ) dune_conflicts;
 
   (* After resolution, check whether any unmerged entries remain. *)
-  let remaining = run_cmd_lines
+  let remaining = Sundev_shell.run_cmd_lines
     "git ls-files --unmerged | awk '{print $4}' | sort -u" in
   let unresolvable = List.filter (fun f ->
     f <> "tools/perf/perf_baseline.json"
@@ -383,18 +367,18 @@ let run_merge dry_run accept_performance_regression ticket_filter =
         (* Ensure no dirty perf_baseline.json blocks the merge. *)
         commit_dirty_baseline ();
 
-        let merge_rc = run_cmd (Printf.sprintf
+        let merge_rc = Sundev_shell.run_cmd (Printf.sprintf
           "git merge %s --no-ff --no-edit" (Filename.quote branch)) in
         let merge_rc =
           if merge_rc <> 0 then begin
             if resolve_merge_conflicts () then
               (* All conflicts auto-resolved — continue the merge commit. *)
-              run_cmd ~echo:false
+              Sundev_shell.run_cmd ~echo:false
                 "GIT_EDITOR=true git merge --continue"
             else begin
               (* Unresolvable conflicts: abort and leave main clean. *)
-              ignore (run_cmd ~echo:false "git merge --abort");
-              ignore (run_cmd ~echo:false
+              ignore (Sundev_shell.run_cmd ~echo:false "git merge --abort");
+              ignore (Sundev_shell.run_cmd ~echo:false
                 "git checkout HEAD -- tools/perf/perf_baseline.json 2>/dev/null; true");
               Printf.eprintf "  merge failed — aborting\n";
               1
@@ -404,24 +388,24 @@ let run_merge dry_run accept_performance_regression ticket_filter =
         if merge_rc <> 0 then
           incr errors
         else begin
-          let perf_rc = run_cmd
+          let perf_rc = Sundev_shell.run_cmd
             "./platform/local/scripts/run_tests.sh" in
           if perf_rc = 2 && accept_performance_regression then begin
             Printf.eprintf
               "  perf regression explicitly accepted — recording new baseline\n%!";
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               "./platform/local/scripts/run_tests.sh --update-baseline");
             let baseline_commit_msg = Printf.sprintf
               "pipeline: accept perf regression baseline after %s" id in
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
                 (Filename.quote baseline_commit_msg)));
             if Sys.file_exists worktree then
-              ignore (run_cmd (Printf.sprintf
+              ignore (Sundev_shell.run_cmd (Printf.sprintf
                 "git worktree remove %s --force" (Filename.quote worktree)))
             else
               Printf.printf "  worktree %s already removed\n%!" worktree;
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
             Sys.rename src (Filename.concat "project/tickets/DONE" filename);
             Printf.printf "  ✓  merged → DONE\n%!";
@@ -433,7 +417,7 @@ let run_merge dry_run accept_performance_regression ticket_filter =
             let dst = Filename.concat "project/tickets/BLOCKED_BY_PERFORMANCE" filename in
             Sys.rename src dst;
             (* Commit the ticket state change atomically so main stays clean. *)
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf
                 "git add project/tickets/ && git commit -m %s"
                 (Filename.quote
@@ -444,19 +428,19 @@ let run_merge dry_run accept_performance_regression ticket_filter =
                 id;
             incr errors
           end else begin
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               "./platform/local/scripts/run_tests.sh --update-baseline");
             let baseline_commit_msg = Printf.sprintf
               "pipeline: update perf baseline after %s" id in
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
                 (Filename.quote baseline_commit_msg)));
             if Sys.file_exists worktree then
-              ignore (run_cmd (Printf.sprintf
+              ignore (Sundev_shell.run_cmd (Printf.sprintf
                 "git worktree remove %s --force" (Filename.quote worktree)))
             else
               Printf.printf "  worktree %s already removed\n%!" worktree;
-            ignore (run_cmd ~echo:false
+            ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
             Sys.rename src (Filename.concat "project/tickets/DONE" filename);
             Printf.printf "  ✓  merged → DONE\n%!";
@@ -469,7 +453,7 @@ let run_merge dry_run accept_performance_regression ticket_filter =
     let ids = String.concat "\n" (List.map (fun id -> "- " ^ id) (List.rev !merged)) in
     let msg = Printf.sprintf "pipeline: move %d ticket(s) to DONE\n\n%s"
       (List.length !merged) ids in
-    let rc = run_cmd ~echo:false
+    let rc = Sundev_shell.run_cmd ~echo:false
       (Printf.sprintf "git add project/tickets/ && git commit -m %s" (Filename.quote msg)) in
     if rc <> 0 then Printf.eprintf "warning: failed to commit ticket state changes\n"
   end;

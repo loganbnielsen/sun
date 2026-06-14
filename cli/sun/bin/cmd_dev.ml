@@ -1,13 +1,7 @@
 open Cmdliner
 open Sun_cli_manifest
 
-(* ── Shell helpers ───────────────────────────────────────────────────────── *)
-
-let run_cmd ?(echo = true) cmd =
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  Sys.command cmd
-
-let cmd_ok cmd = run_cmd ~echo:false cmd = 0
+let cmd_ok cmd = Sun_cli_shell.run_cmd ~echo:false cmd = 0
 
 let check_tool name install_url =
   if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
@@ -74,7 +68,7 @@ let start_port_forward pf =
   output_string oc content;
   close_out oc;
   ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote script_file)));
-  ignore (run_cmd ~echo:false
+  ignore (Sun_cli_shell.run_cmd ~echo:false
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
 let stop_port_forwards () =
@@ -88,7 +82,7 @@ let stop_port_forwards () =
           let pid_s = String.trim (In_channel.input_all ic) in
           close_in ic;
           (match int_of_string_opt pid_s with
-           | Some pid -> ignore (run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid))
+           | Some pid -> ignore (Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid))
            | None -> ());
           Sys.remove path
         with _ -> ())
@@ -113,7 +107,7 @@ let helm_install release chart ~namespace ?(values = []) () =
     @ List.map flag values
     @ [ "--wait --timeout 3m" ]
   ) in
-  run_cmd cmd
+  Sun_cli_shell.run_cmd cmd
 
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
 
@@ -133,7 +127,7 @@ let dev_up () =
   if cluster_exists then
     Printf.printf "  cluster %s already exists, skipping\n%!" cluster_name
   else begin
-    let rc = run_cmd (Printf.sprintf
+    let rc = Sun_cli_shell.run_cmd (Printf.sprintf
       "k3d cluster create %s --registry-create sun-registry:%d"
       cluster_name registry_port)
     in
@@ -150,11 +144,11 @@ let dev_up () =
   Printf.printf "\n[3/4] Deploying infra...\n%!";
   let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
   if need_any then begin
-    ignore (run_cmd "helm repo add redpanda              https://charts.redpanda.com 2>/dev/null");
-    ignore (run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");
-    ignore (run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");
-    ignore (run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null");
-    ignore (run_cmd "helm repo update");
+    ignore (Sun_cli_shell.run_cmd "helm repo add redpanda              https://charts.redpanda.com 2>/dev/null");
+    ignore (Sun_cli_shell.run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");
+    ignore (Sun_cli_shell.run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");
+    ignore (Sun_cli_shell.run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null");
+    ignore (Sun_cli_shell.run_cmd "helm repo update");
   end;
 
   if req.kafka then begin
@@ -262,7 +256,7 @@ let dev_down delete_cluster =
   if delete_cluster then begin
     check_tool "k3d" "https://k3d.io/";
     Printf.printf "Deleting cluster %s...\n%!" cluster_name;
-    ignore (run_cmd (Printf.sprintf "k3d cluster delete %s" cluster_name))
+    ignore (Sun_cli_shell.run_cmd (Printf.sprintf "k3d cluster delete %s" cluster_name))
   end else
     Printf.printf "Port-forwards stopped. Cluster %s is still running.\n" cluster_name
 
@@ -277,7 +271,7 @@ let dev_status () =
     (if cluster_running then "✓ running" else "✗ not found");
   if cluster_running then begin
     Printf.printf "\nPods:\n%!";
-    ignore (run_cmd ~echo:false "kubectl get pods -A 2>/dev/null");
+    ignore (Sun_cli_shell.run_cmd ~echo:false "kubectl get pods -A 2>/dev/null");
     Printf.printf "\nPort-forwards:\n%!";
     if Sys.file_exists state_dir then begin
       let entries = try Sys.readdir state_dir with _ -> [||] in
@@ -498,7 +492,7 @@ let run_path_arg =
          ~docv:"PATH"
          ~doc:"Restrict to a single service path (default: all services)")
 
-let run_cmd =
+let run_subcmd =
   Cmd.v
     (Cmd.info "run"
        ~doc:"Start all workspace services locally using dune exec with dev env vars")
@@ -507,4 +501,4 @@ let run_cmd =
 let cmd =
   Cmd.group
     (Cmd.info "dev" ~doc:"Manage the local k3d development cluster")
-    [ up_cmd; down_cmd; status_cmd; run_cmd ]
+    [ up_cmd; down_cmd; status_cmd; run_subcmd ]
