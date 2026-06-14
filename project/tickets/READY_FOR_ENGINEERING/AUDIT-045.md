@@ -42,3 +42,11 @@ Each scanner has its own error handling and depth assumptions. Most failures are
 - Service, topic, schema, migration, and schedule discovery share consistent error reporting.
 - Tests cover duplicate topics/schema subjects and malformed schedule/topic metadata.
 - Existing scaffolded workspaces produce the same deployment plan after the refactor.
+
+## Review — returned for revision
+- `cli/sun/lib/sun_cli_workspace_model.ml:7` — type t is missing 'services' and 'schedules' fields required by the ticket remediation; the inventory does not yet consolidate service discovery (domain/name/primitive/paths) or -fn schedule extraction
+- `cli/sun/lib/sun_cli_workspace_model.ml:171` — _mig_warnings is silently discarded in scan; migration warnings are never surfaced, violating the 'consistent error reporting' acceptance criterion
+- `cli/sun/bin/cmd_up.ml:0` — cmd_up does not use Sun_cli_workspace_model; acceptance criterion 4 requires sun up to consume the shared inventory
+- `cli/sun/bin/cmd_deploy.ml:0` — cmd_deploy does not use Sun_cli_workspace_model; acceptance criterion 4 requires sun deploy to consume the shared inventory
+- `cli/sun/bin/cmd_status.ml:0` — cmd_status does not use Sun_cli_workspace_model; acceptance criterion 4 requires sun status to consume the shared inventory
+- `cli/sun/test/test_workspace_model.ml:0` — no test coverage for malformed schedule metadata; acceptance criterion 3 explicitly requires tests for malformed schedule/topic metadata
