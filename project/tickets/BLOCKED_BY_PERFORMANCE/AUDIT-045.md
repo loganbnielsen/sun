@@ -50,3 +50,6 @@ Each scanner has its own error handling and depth assumptions. Most failures are
 - `cli/sun/bin/cmd_deploy.ml:0` — cmd_deploy does not use Sun_cli_workspace_model; acceptance criterion 4 requires sun deploy to consume the shared inventory
 - `cli/sun/bin/cmd_status.ml:0` — cmd_status does not use Sun_cli_workspace_model; acceptance criterion 4 requires sun status to consume the shared inventory
 - `cli/sun/test/test_workspace_model.ml:0` — no test coverage for malformed schedule metadata; acceptance criterion 3 explicitly requires tests for malformed schedule/topic metadata
+
+## Review — automated checks passed
+All six review violations are resolved: type t has services and schedules fields, migration warnings are surfaced, cmd_up/cmd_deploy/cmd_status all use Sun_cli_workspace_model, discover_schedules emits Malformed_metadata for invalid cron, and test_workspace_model.ml has both valid and malformed schedule test cases. Build passes cleanly. project/tickets/ is not touched in the worktree.
