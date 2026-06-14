@@ -1,11 +1,6 @@
 open Cmdliner
 open Sun_cli_manifest
 
-(* ── Shell helpers ───────────────────────────────────────────────────────── *)
-
-let run_cmd ?(echo = true) cmd =
-  if echo then Printf.printf "  $ %s\n%!" cmd;
-  Sys.command cmd
 
 (* ── Port-forward helpers (mirrors cmd_dev.ml) ───────────────────────────── *)
 
@@ -80,7 +75,7 @@ let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
   ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote sf)));
   (* setsid puts the loop in its own session so it outlives this process;
      the trailing & returns immediately to the OCaml caller. *)
-  ignore (run_cmd ~echo:false
+  ignore (Sun_cli_shell.run_cmd ~echo:false
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
 
 (** Read the last [n] lines of a file, or [""] if the file is missing/empty. *)
@@ -247,27 +242,18 @@ let wait_for_rollout ~namespace ~name =
     "kubectl rollout status deployment/%s -n %s --timeout=60s"
     (Filename.quote name) (Filename.quote namespace)
   in
-  run_cmd ~echo:false cmd
-
-let run_cmd_to_string cmd =
-  let tmp = Filename.temp_file "sun-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf "%s > %s 2>/dev/null" cmd tmp));
-  let ic = open_in tmp in
-  let s = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  s
+  Sun_cli_shell.run_cmd ~echo:false cmd
 
 (* ── Workspace / git helpers ─────────────────────────────────────────────── *)
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
-  let s = run_cmd_to_string "git rev-parse --short HEAD" in
+  let s = Sun_cli_shell.run_cmd_to_string "git rev-parse --short HEAD" in
   if s = "" then "dev" else s
 
 let current_kube_context () =
-  run_cmd_to_string "kubectl config current-context"
+  Sun_cli_shell.run_cmd_to_string "kubectl config current-context"
 
 let is_known_local_dev_context () =
   current_kube_context () = "k3d-sun-local"
@@ -451,10 +437,10 @@ let run filter_path dry_run tag confirm_group_change =
         Printf.printf "  packaging %s...\n%!" push_image;
         let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
           (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
-        if run_cmd ~echo:false docker_cmd <> 0 then
+        if Sun_cli_shell.run_cmd ~echo:false docker_cmd <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
-        if run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
+        if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
