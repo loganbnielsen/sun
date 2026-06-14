@@ -85,7 +85,7 @@ let stream_fn_logs ns k8s_name follow tail grafana_base_url =
       "No pods found for CronJob %s in namespace %s.\n\
        The function may not have run yet — trigger a test run:\n\
        \  kubectl create job -n %s --from=cronjob/%s test-run\n"
-      k8s_name (Filename.quote ns)
+      k8s_name ns
       (Filename.quote ns) (Filename.quote k8s_name);
     exit 1
   | Some pod_name ->
