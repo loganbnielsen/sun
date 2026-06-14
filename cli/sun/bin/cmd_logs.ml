@@ -56,46 +56,9 @@ let resolve_service arg =
       exit 1
   end
 
-let kubectl_exists kind ns k8s_name =
-  Sys.command (Printf.sprintf "kubectl get %s %s -n %s >/dev/null 2>&1"
-    kind (Filename.quote k8s_name) (Filename.quote ns)) = 0
-
-(* Find the name of the most recently created pod for a CronJob.
-   Sun CronJob pod templates carry app=<k8s_name>; sort by creation timestamp. *)
-let find_latest_fn_pod ns k8s_name =
-  let tmp = Filename.temp_file "sun-logs-fn-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf
-    "kubectl get pods -n %s -l app=%s --sort-by=.metadata.creationTimestamp -o name 2>/dev/null > %s"
-    (Filename.quote ns) (Filename.quote k8s_name) (Filename.quote tmp)));
-  let ic = open_in tmp in
-  let content = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  if content = "" then None
-  else begin
-    let lines = List.filter (fun s -> s <> "") (String.split_on_char '\n' content) in
-    Some (List.nth lines (List.length lines - 1))
-  end
-
-let stream_fn_logs ns k8s_name follow tail grafana_base_url =
-  Printf.printf "Note: %s/%s is a scheduled function (CronJob).\n%!" ns k8s_name;
-  match find_latest_fn_pod ns k8s_name with
-  | None ->
-    Printf.eprintf
-      "No pods found for CronJob %s in namespace %s.\n\
-       The function may not have run yet — trigger a test run:\n\
-       \  kubectl create job -n %s --from=cronjob/%s test-run\n"
-      k8s_name ns
-      (Filename.quote ns) (Filename.quote k8s_name);
-    exit 1
-  | Some pod_name ->
-    let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
-    Printf.printf "Grafana logs: %s\n%!" url;
-    let follow_flag = if follow then " --follow" else "" in
-    let tail_flag   = Printf.sprintf " --tail=%d" tail in
-    let cmd = Printf.sprintf "kubectl logs -n %s %s%s%s"
-      (Filename.quote ns) (Filename.quote pod_name) follow_flag tail_flag in
-    exit (Sys.command cmd)
+let deployment_exists ns k8s_name =
+  Sys.command
+    (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
 
 let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) (grafana_base_url : string) : unit =
   let follow = not no_follow in
@@ -107,21 +70,20 @@ let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) 
   let ns       = Sun_cli_deployment_plan.namespace_of ~workspace ~domain in
   let k8s_name = String.map (fun c -> if c = '_' then '-' else c) name in
 
-  if kubectl_exists "deployment" ns k8s_name then begin
-    let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
-    Printf.printf "Grafana logs: %s\n%!" url;
-    let follow_flag = if follow then " --follow" else "" in
-    let tail_flag   = Printf.sprintf " --tail=%d" tail in
-    let cmd = Printf.sprintf "kubectl logs -n %s deployment/%s%s%s"
-      (Filename.quote ns) (Filename.quote k8s_name) follow_flag tail_flag in
-    exit (Sys.command cmd)
-  end else if kubectl_exists "cronjob" ns k8s_name then
-    stream_fn_logs ns k8s_name follow tail grafana_base_url
-  else begin
+  if not (deployment_exists ns k8s_name) then begin
     Printf.eprintf "Service %s not found in namespace %s.\n" name ns;
     Printf.eprintf "Run 'sun status' to see deployed services.\n";
     exit 1
-  end
+  end;
+
+  let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
+  Printf.printf "Grafana logs: %s\n%!" url;
+
+  let follow_flag = if follow then " --follow" else "" in
+  let tail_flag   = Printf.sprintf " --tail=%d" tail in
+  let cmd = Printf.sprintf "kubectl logs -n %s deployment/%s%s%s"
+    (Filename.quote ns) (Filename.quote k8s_name) follow_flag tail_flag in
+  exit (Sys.command cmd)
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 
