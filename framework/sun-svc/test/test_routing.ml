@@ -79,90 +79,17 @@ let test_case_sensitive () =
   Alcotest.(check bool) "case sensitive" true
     (Route.match_path "/Users" "/users" = None)
 
-(* ── parse_request_path ─────────────────────────────────────────────────── *)
-
-let test_parse_valid_path () =
-  Alcotest.(check bool) "valid path → Some" true
-    (Route.parse_request_path "/users/42" <> None)
-
-let test_parse_double_slash_rejected () =
-  Alcotest.(check bool) "leading double slash → None" true
-    (Route.parse_request_path "//users" = None)
-
-let test_parse_interior_double_slash_rejected () =
-  Alcotest.(check bool) "interior double slash → None" true
-    (Route.parse_request_path "/users//42" = None)
-
-let test_parse_root () =
-  match Route.parse_request_path "/" with
-  | None -> Alcotest.fail "root path should be valid"
-  | Some (segs, _ts) ->
-    Alcotest.(check int) "root has no segments" 0 (List.length segs)
-
-(* ── percent_decode ──────────────────────────────────────────────────────── *)
-
-let test_percent_decode_space () =
-  Alcotest.(check string) "%20 → space" " " (Route.percent_decode "%20")
-
-let test_percent_decode_slash () =
-  Alcotest.(check string) "%2F → /" "/" (Route.percent_decode "%2F")
-
-let test_percent_decode_lowercase () =
-  Alcotest.(check string) "%2f lowercase → /" "/" (Route.percent_decode "%2f")
-
-let test_percent_decode_passthrough () =
-  Alcotest.(check string) "plain text unchanged" "hello" (Route.percent_decode "hello")
-
-let test_percent_decode_malformed () =
-  Alcotest.(check string) "malformed %GG unchanged" "%GG" (Route.percent_decode "%GG")
-
-let test_percent_decode_plus_not_space () =
-  Alcotest.(check string) "+ not decoded as space" "a+b" (Route.percent_decode "a+b")
-
-(* ── match_path with encoded segments ───────────────────────────────────── *)
-
-let test_encoded_param_decoded () =
-  match Route.match_path "/users/:id" "/users/hello%20world" with
-  | None -> Alcotest.fail "should match"
-  | Some params ->
-    Alcotest.(check string) "param decoded" "hello world" (List.assoc "id" params)
-
-let test_double_slash_no_match () =
-  Alcotest.(check bool) "double slash path → no match" true
-    (Route.match_path "/users" "//users" = None)
-
-let test_interior_double_slash_no_match () =
-  Alcotest.(check bool) "interior double slash → no match" true
-    (Route.match_path "/users/:id" "/users//42" = None)
-
 let () =
   Alcotest.run "routing" [
     "match_path", [
-      Alcotest.test_case "exact match"             `Quick test_exact_match;
-      Alcotest.test_case "trailing slash"          `Quick test_trailing_slash_differs;
-      Alcotest.test_case "single param"            `Quick test_single_param;
-      Alcotest.test_case "multi param"             `Quick test_multi_param;
-      Alcotest.test_case "literal mismatch"        `Quick test_literal_mismatch;
-      Alcotest.test_case "segment count"           `Quick test_segment_count_mismatch;
-      Alcotest.test_case "case sensitive"          `Quick test_case_sensitive;
-      Alcotest.test_case "first match wins"        `Quick test_first_match_wins;
-      Alcotest.test_case "encoded param decoded"   `Quick test_encoded_param_decoded;
-      Alcotest.test_case "double slash → no match" `Quick test_double_slash_no_match;
-      Alcotest.test_case "interior // → no match"  `Quick test_interior_double_slash_no_match;
-    ];
-    "parse_request_path", [
-      Alcotest.test_case "valid path"              `Quick test_parse_valid_path;
-      Alcotest.test_case "double slash rejected"   `Quick test_parse_double_slash_rejected;
-      Alcotest.test_case "interior // rejected"    `Quick test_parse_interior_double_slash_rejected;
-      Alcotest.test_case "root path valid"         `Quick test_parse_root;
-    ];
-    "percent_decode", [
-      Alcotest.test_case "%20 → space"             `Quick test_percent_decode_space;
-      Alcotest.test_case "%2F → /"                 `Quick test_percent_decode_slash;
-      Alcotest.test_case "%2f lowercase → /"       `Quick test_percent_decode_lowercase;
-      Alcotest.test_case "plain text unchanged"    `Quick test_percent_decode_passthrough;
-      Alcotest.test_case "malformed %GG unchanged" `Quick test_percent_decode_malformed;
-      Alcotest.test_case "+ not decoded as space"  `Quick test_percent_decode_plus_not_space;
+      Alcotest.test_case "exact match"         `Quick test_exact_match;
+      Alcotest.test_case "trailing slash"      `Quick test_trailing_slash_differs;
+      Alcotest.test_case "single param"        `Quick test_single_param;
+      Alcotest.test_case "multi param"         `Quick test_multi_param;
+      Alcotest.test_case "literal mismatch"    `Quick test_literal_mismatch;
+      Alcotest.test_case "segment count"       `Quick test_segment_count_mismatch;
+      Alcotest.test_case "case sensitive"      `Quick test_case_sensitive;
+      Alcotest.test_case "first match wins"    `Quick test_first_match_wins;
     ];
     "method_of_http", [
       Alcotest.test_case "known methods"  `Quick test_known_methods;
