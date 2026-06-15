@@ -34,3 +34,6 @@ and parameter extraction with raw string segments. `Service.dispatch` separately
 - Encoded path behavior is documented and covered by tests.
 - `Service.dispatch` no longer carries separate path-validation logic that belongs to routing.
 - Existing routing and service tests continue to pass.
+
+## Review — automated checks passed
+Route path parsing consolidated into Route.parse_request_path and percent_decode; Service.dispatch delegates to Route; all 48 tests pass with no violations.
