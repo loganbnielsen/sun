@@ -957,6 +957,11 @@
           "commit": "1ade4ac",
           "duration_s": 2.193,
           "baseline": true
+        },
+        {
+          "date": "2026-06-14",
+          "commit": "12ba1fd",
+          "duration_s": 1.463
         }
       ]
     },
@@ -1811,6 +1816,11 @@
           "commit": "1ade4ac",
           "duration_s": 1.145,
           "baseline": true
+        },
+        {
+          "date": "2026-06-14",
+          "commit": "12ba1fd",
+          "duration_s": 1.153
         }
       ]
     },
