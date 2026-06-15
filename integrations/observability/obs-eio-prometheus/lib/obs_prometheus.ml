@@ -77,12 +77,16 @@ let emit reg (e : Obs.metric_event) =
          let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
          s.g_value <- v
        | _ -> ())
-    | `Histogram obs ->
+    | `Histogram (obs, custom_buckets) ->
+      let bounds =
+        if custom_buckets = [] then default_bounds
+        else Array.of_list custom_buckets
+      in
       let fam =
         get_or_create reg.r_families e.name (fun () ->
           FHistogram {
             f_help   = e.help;
-            f_bounds = default_bounds;
+            f_bounds = bounds;
             f_series = Hashtbl.create 4;
           })
       in
