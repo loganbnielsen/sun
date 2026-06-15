@@ -5,7 +5,6 @@
  (modules
   Sun_cli_shell
   Sun_cli_scaffold
-  Sun_cli_scaffold_templates
   Sun_cli_workspace
   Sun_cli_manifest
   Sun_cli_toml

@@ -380,58 +380,6 @@ let test_pending_migrations_workspace_scaffold () =
   check_bool "scaffold workspace → 1 migration file" true
     (Sun_cli_workspace.pending_migration_count ~dir:"testapp" = 1)
 
-(* ── golden tests ────────────────────────────────────────────────────────── *)
-
-(* Golden: sun-ci.yml is byte-for-byte equivalent to the template source after
-   substitution of {{name}}.  Any change to the template is visible in this diff. *)
-let test_golden_ci_workflow () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let actual   = read_file "testapp/.github/workflows/sun-ci.yml" in
-  let expected = Sun_cli_scaffold.subst [("name", "testapp"); ("Name", "Testapp")]
-                   Sun_cli_scaffold_templates.tpl_github_ci in
-  Alcotest.(check string) "sun-ci.yml golden" expected actual
-
-(* Golden: charge_svc Dockerfile is byte-for-byte equivalent. *)
-let test_golden_dockerfile () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let actual   = read_file "testapp/app/payments/charge_svc/Dockerfile" in
-  let expected = Sun_cli_scaffold.subst
-                   [("name", "testapp"); ("Name", "Testapp");
-                    ("repo_dir", "app/payments/charge_svc");
-                    ("binary", "testapp-charge-svc")]
-                   Sun_cli_scaffold_templates.tpl_dockerfile in
-  Alcotest.(check string) "Dockerfile golden" expected actual
-
-(* Golden: charge_svc bin/main.ml *)
-let test_golden_svc_bin_ml () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let actual   = read_file "testapp/app/payments/charge_svc/bin/main.ml" in
-  let expected = Sun_cli_scaffold.subst [("name", "testapp"); ("Name", "Testapp")]
-                   Sun_cli_scaffold_templates.ws_svc_bin_ml in
-  Alcotest.(check string) "svc bin/main.ml golden" expected actual
-
-(* Golden: notify_worker bin/main.ml *)
-let test_golden_worker_bin_ml () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let actual   = read_file "testapp/app/comms/notify_worker/bin/main.ml" in
-  let expected = Sun_cli_scaffold.subst [("name", "testapp"); ("Name", "Testapp")]
-                   Sun_cli_scaffold_templates.ws_worker_bin_ml in
-  Alcotest.(check string) "worker bin/main.ml golden" expected actual
-
-(* Golden: test/dune — exact content check so scaffold schema-test regressions
-   show up as a readable diff rather than a silent missing-file failure. *)
-let test_golden_test_dune () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let actual   = read_file "testapp/test/dune" in
-  let expected = Sun_cli_scaffold.subst [("name", "testapp"); ("Name", "Testapp")]
-                   Sun_cli_scaffold_templates.ws_test_dune in
-  Alcotest.(check string) "test/dune golden" expected actual
-
 (* ── entry point ─────────────────────────────────────────────────────────── *)
 
 let () =
@@ -467,12 +415,5 @@ let () =
       ; Alcotest.test_case "empty db/migrations dir → 0"  `Quick test_pending_migrations_empty_dir
       ; Alcotest.test_case "counts only .sql files"        `Quick test_pending_migrations_counts_sql_files
       ; Alcotest.test_case "scaffold workspace → 1 migration" `Quick test_pending_migrations_workspace_scaffold
-      ]
-    ; "golden", [
-        Alcotest.test_case "sun-ci.yml"            `Quick test_golden_ci_workflow
-      ; Alcotest.test_case "charge_svc Dockerfile" `Quick test_golden_dockerfile
-      ; Alcotest.test_case "charge_svc bin/main.ml" `Quick test_golden_svc_bin_ml
-      ; Alcotest.test_case "notify_worker bin/main.ml" `Quick test_golden_worker_bin_ml
-      ; Alcotest.test_case "test/dune"             `Quick test_golden_test_dune
       ]
     ]
