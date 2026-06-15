@@ -940,6 +940,12 @@
           "date": "2026-06-14",
           "commit": "cd01714",
           "duration_s": 1.296
+        },
+        {
+          "date": "2026-06-14",
+          "commit": "1e90f55",
+          "duration_s": 2.180,
+          "baseline": true
         }
       ]
     },
