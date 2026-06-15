@@ -38,3 +38,6 @@ Both `apply` and `rollback` execute the resulting statement list. This is a hand
 - The corresponding `.down.sql` rollback succeeds.
 - Statement execution remains transactional.
 - Existing storage tests continue to pass.
+
+## Review — automated checks passed
+Naive semicolon splitting fully replaced with batch execution via ~oneshot:true; all 4 regression tests present and registered; build clean; no ticket files touched.
