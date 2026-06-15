@@ -33,3 +33,6 @@ Replace ad hoc shell command helpers with a structured process runner
 - Callers that do not need shell features pass argv arrays instead of formatted shell strings.
 - Temp-file stdout capture is removed from the shared command helpers.
 - Unit tests cover success, non-zero exit, captured stdout/stderr, and command-not-found behavior.
+
+## Review — automated checks passed
+Structured Sun_process library added with run/run_argv/lines/output/run_ok/run_rc; Sun_cli_Shell and Sundev_Shell delegate to it; docker build/push converted to run_argv; 15 unit tests all pass; build clean.
