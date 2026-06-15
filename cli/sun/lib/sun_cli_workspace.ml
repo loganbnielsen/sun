@@ -36,11 +36,6 @@ let pending_migration_count ~dir =
   else
     0
 
-let skip_dirs = ["vendor"; "_build"; ".git"; "node_modules"; ".opam"]
-
-let is_symlink path =
-  (try (Unix.lstat path).Unix.st_kind = Unix.S_LNK with _ -> false)
-
 let scan ~dir =
   let kafka      = ref false in
   let postgres   = ref false in
@@ -59,9 +54,7 @@ let scan ~dir =
               if contains_string ~needle:"obs_eio_loki"       content then loki       := true;
               if contains_string ~needle:"obs_eio_prometheus" content then prometheus := true;
             with _ -> ())
-          end else if Sys.is_directory path
-                   && not (List.mem entry skip_dirs)
-                   && not (is_symlink path) then
+          end else if Sys.is_directory path then
             collect path
         end
       ) (Sys.readdir d)
