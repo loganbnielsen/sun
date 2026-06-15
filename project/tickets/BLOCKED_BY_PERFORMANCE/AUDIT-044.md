@@ -38,3 +38,6 @@ The repo already depends on structured serialization libraries such as `yojson`,
 - YAML escaping/quoting is covered by focused tests for strings containing quotes, colons, hashes, newlines, and empty values.
 - Release inspection no longer extracts `kind` or name by searching for raw `kind:` / `name:` lines.
 - Existing manifest-render tests pass without weakening expected security settings.
+
+## Review — automated checks passed
+YAML emitter centralised in Sun_cli_yaml.emit_scalar, release inspection improved to use indented name: lookup, all tests pass with full escaping coverage

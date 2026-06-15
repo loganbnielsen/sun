@@ -43,3 +43,6 @@ Split oversized CLI modules into clear entry points and reusable orchestration c
 
 ## Review — returned for revision
 - `cli/sun/lib/sun_cli_scaffold_templates.ml:1` — New module sun_cli_scaffold_templates.ml has no .mli interface file. Sun conventions require every new module to have a matching .mli. sun_cli_port_forward.mli was added correctly but sun_cli_scaffold_templates.mli was omitted.
+
+## Review — automated checks passed
+sun_cli_scaffold_templates.mli added; build passes, all prior checks hold
