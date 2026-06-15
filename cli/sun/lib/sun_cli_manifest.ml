@@ -104,67 +104,7 @@ let extract_schedule ~dir ~name =
   in
   go candidates
 
-(* ── Structured manifest model ───────────────────────────────────────────── *)
-
-(* Typed YAML value.
-   [Str] emits a bare scalar (safe for identifiers, API versions, names).
-   [Quoted] emits a JSON-encoded double-quoted string, safe for arbitrary data
-   (env values, schedules, config hashes, labels with special characters). *)
-type value =
-  | Str    of string
-  | Quoted of string
-  | Int    of int
-  | Bool   of bool
-  | Map    of (string * value) list
-  | Seq    of value list
-
-(* Emit [v] as a YAML block scalar or block collection at [indent] spaces.
-   [Map] fields render as [key: scalar] or [key:\n  nested] lines.
-   [Seq] items render as [- scalar] or [- firstkey: val\n  restkeys…].
-   This matches the indentation style of the previous Printf.sprintf templates. *)
-let rec to_yaml ?(indent = 0) v =
-  let sp = String.make indent ' ' in
-  match v with
-  | Str s    -> s
-  | Quoted s -> Yojson.Safe.to_string (`String s)
-  | Int n    -> string_of_int n
-  | Bool b   -> if b then "true" else "false"
-  | Map []   -> "{}"
-  | Seq []   -> "[]"
-  | Map kv   ->
-    String.concat "\n" (List.map (fun (k, fv) ->
-      match fv with
-      | Map [] -> sp ^ k ^ ": {}"
-      | Seq [] -> sp ^ k ^ ": []"
-      | Map _ | Seq _ ->
-        sp ^ k ^ ":\n" ^ to_yaml ~indent:(indent + 2) fv
-      | _ ->
-        sp ^ k ^ ": " ^ to_yaml ~indent:(indent + 2) fv
-    ) kv)
-  | Seq vs ->
-    String.concat "\n" (List.map (fun item ->
-      match item with
-      | Map ((fk, fv) :: rest) ->
-        (* First field rides the "- " line; subsequent fields are body. *)
-        let first =
-          match fv with
-          | Map [] -> sp ^ "- " ^ fk ^ ": {}"
-          | Seq [] -> sp ^ "- " ^ fk ^ ": []"
-          | Map _ | Seq _ ->
-            sp ^ "- " ^ fk ^ ":\n" ^ to_yaml ~indent:(indent + 4) fv
-          | _ ->
-            sp ^ "- " ^ fk ^ ": " ^ to_yaml ~indent:0 fv
-        in
-        if rest = [] then first
-        else first ^ "\n" ^ to_yaml ~indent:(indent + 2) (Map rest)
-      | Map [] -> sp ^ "- {}"
-      | _      -> sp ^ "- " ^ to_yaml ~indent:0 item
-    ) vs)
-
-(* Wrap a resource value as a YAML document string (starts with "---"). *)
-let to_doc ?(indent = 0) v = "---\n" ^ to_yaml ~indent v
-
-(* ── Default environment and credentials ────────────────────────────────── *)
+(* ── YAML templates ─────────────────────────────────────────────────────── *)
 
 let default_cluster_env = [
   "KAFKA_BROKERS",       "redpanda.redpanda.svc.cluster.local:9093";
@@ -174,6 +114,9 @@ let default_cluster_env = [
   "PUSHGATEWAY_URL",     "http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091";
 ]
 
+(* Credentials that must never appear in ConfigMap — emitted as a Secret.
+   Values are intentionally empty; operators must supply real values via the
+   environment (POSTGRES_URL) or a secrets manager before applying. *)
 let default_secrets = [
   "POSTGRES_URL", "";
 ]
@@ -182,6 +125,9 @@ let runtime_secret_name = "sun-secrets"
 
 let f = Printf.sprintf
 
+let render_env_block env =
+  String.concat "\n" (List.map (fun (k, v) -> f "  %s: \"%s\"" k v) env)
+
 let config_hash extra_env =
   default_cluster_env @ extra_env
   |> List.map (fun (k, v) -> k ^ "=" ^ v)
@@ -189,39 +135,35 @@ let config_hash extra_env =
   |> Digest.string
   |> Digest.to_hex
 
-(* Render a [(key, value)] env list as YAML mapping lines under a parent key.
-   Values are always Quoted so empty strings, URLs, and multi-word strings
-   are safely encoded without raw interpolation. *)
-let env_map pairs =
-  Map (List.map (fun (k, v) -> k, Quoted v) pairs)
-
-(* ── Simple resource builders ────────────────────────────────────────────── *)
-
 let namespace_doc ns =
-  to_doc (Map [
-    "apiVersion", Str "v1";
-    "kind",       Str "Namespace";
-    "metadata",   Map ["name", Str ns];
-  ])
+  f {|---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: %s|} ns
 
 let service_account_doc ns name =
-  to_doc (Map [
-    "apiVersion", Str "v1";
-    "kind",       Str "ServiceAccount";
-    "metadata",   Map ["name", Str name; "namespace", Str ns];
-  ])
+  f {|---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: %s
+  namespace: %s|} name ns
 
 let configmap_doc ?(extra_env = []) ns name =
   let env = default_cluster_env @ extra_env in
-  to_doc (Map [
-    "apiVersion", Str "v1";
-    "kind",       Str "ConfigMap";
-    "metadata",   Map ["name", Str (name ^ "-env"); "namespace", Str ns];
-    "data",       env_map env;
-  ])
+  f {|---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: %s-env
+  namespace: %s
+data:
+%s|} name ns (render_env_block env)
 
 (* Credentials are emitted as a Secret with stringData so operators can fill
    in real values without base64 encoding. Kubernetes converts to base64 on apply.
+   The Secret is named "<name>-secrets" (per-service) so each service owns its secret.
    In GitOps mode (~redact:true) all values are stripped to "" so nothing sensitive
    appears in committed manifests; operators must populate values before applying. *)
 let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact = false) ns name =
@@ -231,280 +173,398 @@ let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact 
     "# Populate these values before applying.\n\
      # Use `sun secret set <KEY> --env <env>` or your secrets manager.\n"
   else "" in
-  (* Comment must be inside the document block (after ---) so consumers that
-     split on document boundaries still find it in the Secret block. *)
-  "---\n" ^ comment ^
-  to_yaml (Map [
-    "apiVersion", Str "v1";
-    "kind",       Str "Secret";
-    "metadata",   Map ["name", Str (name ^ "-secrets"); "namespace", Str ns];
-    "type",       Str "Opaque";
-    "stringData", env_map secrets;
-  ])
+  f {|---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: %s-secrets
+  namespace: %s
+type: Opaque
+%sstringData:
+%s|} name ns comment (render_env_block secrets)
 
 (* Emits an ExternalSecret resource (External Secrets Operator v1beta1).
+   The ESO controller will materialise a Kubernetes Secret named "<name>-secrets"
+   in the same namespace, which workload pods reference via envFrom secretRef.
    secret_keys must be the full list of all keys (default_secrets keys + spec.secrets keys). *)
 let external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval ~secret_keys ns name =
-  let remote_refs = Seq (List.map (fun key ->
-    Map [
-      "secretKey", Str key;
-      "remoteRef", Map ["key", Str (key_prefix ^ key)];
-    ]
-  ) secret_keys) in
-  to_doc (Map [
-    "apiVersion", Str "external-secrets.io/v1beta1";
-    "kind",       Str "ExternalSecret";
-    "metadata",   Map ["name", Str (name ^ "-secrets"); "namespace", Str ns];
-    "spec",       Map [
-      "refreshInterval", Str refresh_interval;
-      "secretStoreRef",  Map ["name", Str store_ref; "kind", Str store_kind];
-      "target",          Map ["name", Str (name ^ "-secrets"); "creationPolicy", Str "Owner"];
-      "data",            remote_refs;
-    ];
-  ])
-
-let service_doc ns name =
-  to_doc (Map [
-    "apiVersion", Str "v1";
-    "kind",       Str "Service";
-    "metadata",   Map ["name", Str name; "namespace", Str ns];
-    "spec",       Map [
-      "type",     Str "ClusterIP";
-      "selector", Map ["app", Str name];
-      "ports",    Seq [Map ["port", Int 80; "targetPort", Int 8080]];
-    ];
-  ])
-
-let ingress_doc ?(ingress_host = "") ?(ingress_path = "/") ns name =
-  let rule_meta = if ingress_host = "" then []
-    else ["host", Str ingress_host]
+  let remote_refs =
+    String.concat "\n" (List.map (fun key ->
+      f {|  - secretKey: %s
+    remoteRef:
+      key: %s%s|} key key_prefix key
+    ) secret_keys)
   in
-  to_doc (Map [
-    "apiVersion", Str "networking.k8s.io/v1";
-    "kind",       Str "Ingress";
-    "metadata",   Map [
-      "name",        Str name;
-      "namespace",   Str ns;
-      "annotations", Map ["nginx.ingress.kubernetes.io/ssl-redirect", Quoted "true"];
-    ];
-    "spec", Map [
-      "rules", Seq [Map (rule_meta @ [
-        "http", Map [
-          "paths", Seq [Map [
-            "path",     Str ingress_path;
-            "pathType", Str "Prefix";
-            "backend",  Map [
-              "service", Map [
-                "name", Str name;
-                "port", Map ["number", Int 80];
-              ];
-            ];
-          ]];
-        ];
-      ])];
-    ];
-  ])
+  f {|---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: %s-secrets
+  namespace: %s
+spec:
+  refreshInterval: %s
+  secretStoreRef:
+    name: %s
+    kind: %s
+  target:
+    name: %s-secrets
+    creationPolicy: Owner
+  data:
+%s|} name ns refresh_interval store_ref store_kind name remote_refs
 
-let network_policy_doc ns name =
-  to_doc (Map [
-    "apiVersion", Str "networking.k8s.io/v1";
-    "kind",       Str "NetworkPolicy";
-    "metadata",   Map ["name", Str (name ^ "-netpol"); "namespace", Str ns];
-    "spec",       Map [
-      "podSelector", Map ["matchLabels", Map ["app", Str name]];
-      "policyTypes", Seq [Str "Ingress"; Str "Egress"];
-      "ingress",     Seq [Map ["from", Seq [
-        Map ["namespaceSelector", Map ["matchLabels",
-               Map ["kubernetes.io/metadata.name", Str "ingress-nginx"]]];
-        Map ["podSelector", Map []];
-      ]]];
-      "egress", Seq [
-        Map ["ports", Seq [
-          Map ["port", Int 53; "protocol", Str "UDP"];
-          Map ["port", Int 53; "protocol", Str "TCP"];
-        ]];
-        Map ["to", Seq [
-          Map ["namespaceSelector", Map ["matchLabels",
-                 Map ["kubernetes.io/metadata.name", Str "redpanda"]]];
-          Map ["namespaceSelector", Map ["matchLabels",
-                 Map ["kubernetes.io/metadata.name", Str "postgresql"]]];
-          Map ["namespaceSelector", Map ["matchLabels",
-                 Map ["kubernetes.io/metadata.name", Str "monitoring"]]];
-        ]];
-      ];
-    ];
-  ])
+let render_secret_key_refs ~name secret_keys =
+  match secret_keys with
+  | [] -> ""
+  | keys ->
+    "\n        env:\n" ^
+    String.concat "\n" (List.map (fun key ->
+      f {|        - name: %s
+          valueFrom:
+            secretKeyRef:
+              name: %s-secrets
+              key: %s|} key name key
+    ) keys)
 
-(* ── Shared pod / container builders ────────────────────────────────────── *)
-
-(* Reused across Deployment, Rollout (argoproj), and CronJob. *)
-
-let pod_security_context = Map [
-  "runAsNonRoot",   Bool true;
-  "runAsUser",      Int 65534;
-  "runAsGroup",     Int 65534;
-  "seccompProfile", Map ["type", Str "RuntimeDefault"];
-]
-
-let container_security_context = Map [
-  "allowPrivilegeEscalation", Bool false;
-  "readOnlyRootFilesystem",   Bool true;
-]
-
-let http_probe = Map [
-  "httpGet",             Map ["path", Str "/healthz"; "port", Int 8080];
-  "initialDelaySeconds", Int 5;
-  "periodSeconds",       Int 10;
-]
-
-(* Builds the container field list.  Port, probe, and secret-key fields are
-   optional; all three workload kinds (Deployment, Rollout, CronJob) share this
-   builder so changes to container structure propagate everywhere. *)
-let container_fields ~name ~image ~cpu ~memory ~ports ~probes ~secret_keys =
-  [ "name",            Str name
-  ; "image",           Str image
-  ; "imagePullPolicy", Str "Always"
-  ; "securityContext", container_security_context
-  ]
-  @ (if ports then ["ports", Seq [Map ["containerPort", Int 8080]]] else [])
-  @ (if probes then ["livenessProbe", http_probe; "readinessProbe", http_probe] else [])
-  @ (match secret_keys with
-     | [] -> []
-     | keys -> ["env", Seq (List.map (fun k ->
-         Map [ "name", Str k
-             ; "valueFrom", Map ["secretKeyRef",
-                 Map ["name", Str (name ^ "-secrets"); "key", Str k]]
-             ]
-       ) keys)])
-  @ [ "envFrom", Seq [
-        Map ["configMapRef", Map ["name", Str (name ^ "-env")]]
-      ; Map ["secretRef",    Map ["name", Str (name ^ "-secrets")]]
-      ]
-    ; "resources", Map [
-        "requests", Map ["cpu", Str cpu; "memory", Str memory]
-      ; "limits",   Map ["cpu", Str cpu; "memory", Str memory]
-      ]
-    ]
-
-(* Shared pod template spec (metadata + spec) for Deployment and Rollout.
-   [extra_labels] and [config_hash] are the same for both workload kinds. *)
-let pod_template ~name ~image ~cpu ~memory ~config_hash ~extra_labels ~secret_keys ~ports ~probes =
-  let base_labels = ["app", Str name] in
-  let all_labels  = base_labels @ List.map (fun (k, v) -> k, Quoted v) extra_labels in
-  Map [
-    "metadata", Map [
-      "labels",      Map all_labels;
-      "annotations", Map ["sun.dev/config-hash", Quoted config_hash];
-    ];
-    "spec", Map [
-      "serviceAccountName", Str name;
-      "securityContext",    pod_security_context;
-      "containers",         Seq [Map (container_fields ~name ~image ~cpu ~memory ~ports ~probes ~secret_keys)];
-    ];
-  ]
-
-(* ── Workload-specific builders ─────────────────────────────────────────── *)
+let render_extra_labels labels =
+  (* Renders extra_labels as additional pod-template label lines (4-space indent). *)
+  String.concat "\n" (List.map (fun (k, v) -> f "        %s: \"%s\"" k v) labels)
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
                    ?(secret_keys = [])
                    ?(config_hash = "")
                    ~ports ~probes ~replicas ~cpu ~memory ns name image =
+  let ports_section =
+    if ports then {|        ports:
+        - containerPort: 8080
+|} else ""
+  in
+  let probe_section =
+    if probes then {|        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+|} else ""
+  in
   let strategy_type = match rollout_strategy with
     | Sun_cli_toml.Recreate      -> "Recreate"
     | Sun_cli_toml.RollingUpdate -> "RollingUpdate"
   in
-  to_doc (Map [
-    "apiVersion", Str "apps/v1";
-    "kind",       Str "Deployment";
-    "metadata",   Map ["name", Str name; "namespace", Str ns];
-    "spec",       Map [
-      "replicas",  Int replicas;
-      "strategy",  Map ["type", Str strategy_type];
-      "selector",  Map ["matchLabels", Map ["app", Str name]];
-      "template",  pod_template ~name ~image ~cpu ~memory ~config_hash ~extra_labels ~secret_keys ~ports ~probes;
-    ];
-  ])
-
-(* ── Argo Rollouts ───────────────────────────────────────────────────────── *)
-
-let canary_strategy steps =
-  let step_items = List.map (function
-    | Sun_cli_toml.Weight n    -> Map ["setWeight", Int n]
-    | Sun_cli_toml.Pause None  -> Map ["pause", Map []]
-    | Sun_cli_toml.Pause (Some d) -> Map ["pause", Map ["duration", Int d]]
-  ) steps in
-  Map ["canary", Map ["steps", Seq step_items]]
-
-let blue_green_strategy name =
-  Map ["blueGreen", Map [
-    "activeService",       Str (name ^ "-active");
-    "previewService",      Str (name ^ "-preview");
-    "autoPromotionEnabled", Bool false;
-  ]]
-
-(** [rollout_doc] renders an Argo Rollout resource.  The pod template is shared
-    with [deployment_doc] via [pod_template]; only apiVersion, kind, and the
-    strategy section differ. *)
-let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "")
-                ~ports ~probes ~replicas ~cpu ~memory ns name image pd =
-  let strategy = match pd with
-    | Sun_cli_toml.Canary { steps } -> canary_strategy steps
-    | Sun_cli_toml.Blue_green       -> blue_green_strategy name
+  let extra_labels_section =
+    if extra_labels = [] then ""
+    else "\n" ^ render_extra_labels extra_labels
   in
-  to_doc (Map [
-    "apiVersion", Str "argoproj.io/v1alpha1";
-    "kind",       Str "Rollout";
-    "metadata",   Map ["name", Str name; "namespace", Str ns];
-    "spec",       Map [
-      "replicas",  Int replicas;
-      "selector",  Map ["matchLabels", Map ["app", Str name]];
-      "template",  pod_template ~name ~image ~cpu ~memory ~config_hash ~extra_labels ~secret_keys ~ports ~probes;
-      "strategy",  strategy;
-    ];
-  ])
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
+  f {|---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  replicas: %d
+  strategy:
+    type: %s
+  selector:
+    matchLabels:
+      app: %s
+  template:
+    metadata:
+      labels:
+        app: %s%s
+      annotations:
+        sun.dev/config-hash: "%s"
+    spec:
+      serviceAccountName: %s
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: %s
+        image: %s
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+%s%s        envFrom:
+        - configMapRef:
+            name: %s-env
+        - secretRef:
+            name: %s-secrets
+        resources:
+          requests:
+            cpu: %s
+            memory: %s
+          limits:
+            cpu: %s
+            memory: %s
+%s|} name ns replicas strategy_type name name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
 
-(** Two ClusterIP Services required by the blue-green strategy. *)
+(* ── Argo Rollouts helpers ────────────────────────────────────────────────── *)
+
+(* Render a single canary step as a YAML list item with 10-space indent. *)
+let render_canary_step = function
+  | Sun_cli_toml.Weight n ->
+    f "          - setWeight: %d" n
+  | Sun_cli_toml.Pause None ->
+    "          - pause: {}"
+  | Sun_cli_toml.Pause (Some d) ->
+    f "          - pause: {duration: %d}" d
+
+(* Render the Argo Rollout strategy block for canary. *)
+let render_canary_strategy steps =
+  let step_lines = String.concat "\n" (List.map render_canary_step steps) in
+  f {|      canary:
+        steps:
+%s|} step_lines
+
+(* Render the Argo Rollout strategy block for blue-green. *)
+let render_blue_green_strategy name =
+  f {|      blueGreen:
+        activeService: %s-active
+        previewService: %s-preview
+        autoPromotionEnabled: false|} name name
+
+(** [rollout_doc] renders an Argo Rollout resource instead of a Deployment.
+    The pod template is the same as a Deployment; only the top-level kind,
+    apiVersion, and strategy section differ.  [progressive_delivery] must be
+    [Some _] — callers in [render_spec] only invoke this when it is set. *)
+let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~ports ~probes ~replicas ~cpu ~memory ns name image pd =
+  let ports_section =
+    if ports then {|        ports:
+        - containerPort: 8080
+|} else ""
+  in
+  let probe_section =
+    if probes then {|        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+|} else ""
+  in
+  let extra_labels_section =
+    if extra_labels = [] then ""
+    else "\n" ^ render_extra_labels extra_labels
+  in
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
+  let strategy_block = match pd with
+    | Sun_cli_toml.Canary { steps } -> render_canary_strategy steps
+    | Sun_cli_toml.Blue_green       -> render_blue_green_strategy name
+  in
+  f {|---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  replicas: %d
+  selector:
+    matchLabels:
+      app: %s
+  template:
+    metadata:
+      labels:
+        app: %s%s
+      annotations:
+        sun.dev/config-hash: "%s"
+    spec:
+      serviceAccountName: %s
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: %s
+        image: %s
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+%s%s        envFrom:
+        - configMapRef:
+            name: %s-env
+        - secretRef:
+            name: %s-secrets
+        resources:
+          requests:
+            cpu: %s
+            memory: %s
+          limits:
+            cpu: %s
+            memory: %s
+%s
+  strategy:
+%s|} name ns replicas name name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section strategy_block
+
+(** Two ClusterIP Services required by the blue-green strategy:
+    [<name>-active] receives live traffic; [<name>-preview] receives canary traffic.
+    Both select pods with the [app: <name>] label — Argo manages the selector patch. *)
 let blue_green_service_docs ns name =
   let make_svc svc_name =
-    to_doc (Map [
-      "apiVersion", Str "v1";
-      "kind",       Str "Service";
-      "metadata",   Map ["name", Str svc_name; "namespace", Str ns];
-      "spec",       Map [
-        "type",     Str "ClusterIP";
-        "selector", Map ["app", Str name];
-        "ports",    Seq [Map ["port", Int 80; "targetPort", Int 8080]];
-      ];
-    ])
+    f {|---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: ClusterIP
+  selector:
+    app: %s
+  ports:
+  - port: 80
+    targetPort: 8080|} svc_name ns name
   in
   make_svc (name ^ "-active") ^ "\n" ^ make_svc (name ^ "-preview")
 
+(* ── Standard Service ────────────────────────────────────────────────────── *)
+
+let service_doc ns name =
+  f {|---
+apiVersion: v1
+kind: Service
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  type: ClusterIP
+  selector:
+    app: %s
+  ports:
+  - port: 80
+    targetPort: 8080|} name ns name
+
+let ingress_doc ?(ingress_host = "") ?(ingress_path = "/") ns name =
+  (* host line is optional — omit to match all hostnames. *)
+  let host_line =
+    if ingress_host = "" then ""
+    else f "    host: %s\n" ingress_host
+  in
+  f {|---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: %s
+  namespace: %s
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+  - %shttp:
+      paths:
+      - path: %s
+        pathType: Prefix
+        backend:
+          service:
+            name: %s
+            port:
+              number: 80|} name ns host_line ingress_path name
+
+let network_policy_doc ns name =
+  f {|---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: %s-netpol
+  namespace: %s
+spec:
+  podSelector:
+    matchLabels:
+      app: %s
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    - podSelector: {}
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: redpanda
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: postgresql
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring|} name ns name
+
 let cronjob_doc ?(secret_keys = []) ns name image schedule =
-  to_doc (Map [
-    "apiVersion", Str "batch/v1";
-    "kind",       Str "CronJob";
-    "metadata",   Map ["name", Str name; "namespace", Str ns];
-    "spec",       Map [
-      "schedule",    Quoted schedule;
-      "jobTemplate", Map [
-        "spec", Map [
-          "backoffLimit", Int 3;
-          "template",     Map [
-            "metadata", Map ["labels", Map ["app", Str name]];
-            "spec", Map [
-              "serviceAccountName", Str name;
-              "restartPolicy",      Str "OnFailure";
-              "securityContext",    pod_security_context;
-              "containers", Seq [Map (container_fields
-                ~name ~image ~cpu:"100m" ~memory:"128Mi"
-                ~ports:false ~probes:false ~secret_keys)];
-            ];
-          ];
-        ];
-      ];
-    ];
-  ])
+  let secret_env_section = render_secret_key_refs ~name secret_keys in
+  f {|---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  schedule: "%s"
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app: %s
+        spec:
+          serviceAccountName: %s
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: %s
+            image: %s
+            imagePullPolicy: Always
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+%s
+            envFrom:
+            - configMapRef:
+                name: %s-env
+            - secretRef:
+                name: %s-secrets
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 250m
+                memory: 256Mi|} name ns schedule name name name image secret_env_section name name
 
 let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
   let replicas         = Option.value toml.replicas ~default:1 in
