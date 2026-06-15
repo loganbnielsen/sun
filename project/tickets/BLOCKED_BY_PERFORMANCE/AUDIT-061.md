@@ -28,3 +28,6 @@ Enforce metric label contracts and honor custom histogram buckets
 - `register_histogram ?buckets` renders those custom buckets.
 - Existing metrics tests continue to pass after updating expectations.
 - Service/worker metrics still emit their intended labels.
+
+## Review — automated checks passed
+All four remediation items implemented and tested: label filtering in register_counter/register_gauge/register_histogram, custom buckets forwarded via Histogram (value, buckets) variant, obs_prometheus.ml uses custom bounds when non-empty, obs.mli updated, and three new obs-eio tests plus one new obs-prometheus test all green.
