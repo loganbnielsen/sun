@@ -1,3 +1,10 @@
+(** [split_sql_statements sql] splits a SQL string into individual statements
+    using a PostgreSQL-aware state machine. Correctly handles semicolons inside
+    single-quoted strings, line comments (--), block comments (/* */), and
+    dollar-quoted bodies ($$…$$). Empty statements are dropped. Exposed for
+    testing. *)
+val split_sql_statements : string -> string list
+
 type status = {
   version    : int;
   name       : string;
