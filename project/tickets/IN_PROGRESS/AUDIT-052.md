@@ -5,6 +5,8 @@ severity: medium
 source: codebase review 2026-06-14
 branch: AUDIT-052/structured-k8s-manifest-renderer
 worktree: /home/lbendtly/Code/sun-AUDIT-052-structured-k8s-manifest-renderer
+branch: AUDIT-052/structured-k8s-manifest-renderer
+worktree: /home/lbendtly/Code/sun-AUDIT-052-structured-k8s-manifest-renderer
 ---
 
 Replace handwritten Kubernetes YAML templates with a structured manifest renderer
