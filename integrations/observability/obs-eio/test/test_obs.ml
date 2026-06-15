@@ -212,7 +212,7 @@ let test_histogram_emits_event () =
   let h = Obs.register_histogram ot ~name:"latency_ms" ~help:"desc" ~label_names:[] in
   h 42.5;
   Alcotest.(check bool) "is histogram"
-    true (match (List.hd !metrics).Obs.kind with `Histogram 42.5 -> true | _ -> false)
+    true (match (List.hd !metrics).Obs.kind with `Histogram (42.5, []) -> true | _ -> false)
 
 let test_noop_compiles_and_runs () =
   Eio_main.run @@ fun env ->
@@ -221,6 +221,46 @@ let test_noop_compiles_and_runs () =
     Obs.log sp Obs.Info "hello";
     let c = Obs.register_counter ot ~name:"n" ~help:"" ~label_names:[] in
     c 1)
+
+let test_undeclared_labels_filtered () =
+  Eio_main.run @@ fun env ->
+  let metrics = ref [] in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun e -> metrics := e :: !metrics) } in
+  let c = Obs.register_counter ot ~name:"n" ~help:"" ~label_names:["method"] in
+  c ~labels:[("method", "GET"); ("undeclared", "oops")] 1;
+  let labels = (List.hd !metrics).Obs.labels in
+  Alcotest.(check bool) "declared label present"
+    true (List.mem_assoc "method" labels);
+  Alcotest.(check bool) "undeclared label removed"
+    false (List.mem_assoc "undeclared" labels)
+
+let test_missing_declared_label_ok () =
+  Eio_main.run @@ fun env ->
+  let metrics = ref [] in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun e -> metrics := e :: !metrics) } in
+  let c = Obs.register_counter ot ~name:"n" ~help:"" ~label_names:["method"; "status"] in
+  c ~labels:[("method", "GET")] 1;
+  let labels = (List.hd !metrics).Obs.labels in
+  Alcotest.(check int) "only one label emitted" 1 (List.length labels);
+  Alcotest.(check string) "method label present" "GET" (List.assoc "method" labels)
+
+let test_histogram_custom_buckets_forwarded () =
+  Eio_main.run @@ fun env ->
+  let metrics = ref [] in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun e -> metrics := e :: !metrics) } in
+  let h = Obs.register_histogram ot ~name:"rtt" ~help:"desc" ~label_names:[]
+            ~buckets:[0.01; 0.05; 0.1; 0.5; 1.0] in
+  h 0.03;
+  Alcotest.(check bool) "custom buckets forwarded"
+    true (match (List.hd !metrics).Obs.kind with
+          | `Histogram (_, [0.01; 0.05; 0.1; 0.5; 1.0]) -> true
+          | _ -> false)
 
 (* ------------------------------------------------------------------ *)
 (* compose                                                             *)
@@ -265,9 +305,12 @@ let () =
       test_case "root span has valid traceparent" `Quick test_with_span_no_parent_generates_root;
     ];
     "metrics", [
-      test_case "counter emits metric event"   `Quick test_counter_emits_event;
-      test_case "histogram emits metric event" `Quick test_histogram_emits_event;
-      test_case "noop backend runs silently"   `Quick test_noop_compiles_and_runs;
+      test_case "counter emits metric event"         `Quick test_counter_emits_event;
+      test_case "histogram emits metric event"       `Quick test_histogram_emits_event;
+      test_case "noop backend runs silently"         `Quick test_noop_compiles_and_runs;
+      test_case "undeclared labels are filtered"     `Quick test_undeclared_labels_filtered;
+      test_case "missing declared label is ok"       `Quick test_missing_declared_label_ok;
+      test_case "custom histogram buckets forwarded" `Quick test_histogram_custom_buckets_forwarded;
     ];
     "compose", [
       test_case "compose fans out to both backends" `Quick test_compose_fans_out;
