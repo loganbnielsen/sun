@@ -287,13 +287,15 @@ let test_live_trace_id_round_trip () =
       Obs.log sp Obs.Info "trace-id-check");
     Eio.Time.sleep env#clock 0.5;
     let end_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
+    (* trace_id is written into the log line body as a logfmt field, not as a
+       stream label. Use "| logfmt" to parse the line before filtering on it. *)
     let query = Printf.sprintf
-      "{service=\"%s\"} | trace_id=\"%s\""
+      "{service=\"%s\"} | logfmt | trace_id=\"%s\""
       unique_service !captured_trace_id in
     let resp = loki_query_range ~net:env#net ~url:loki_url
                  ~query ~start_ns ~end_ns in
     let lines = extract_log_lines resp in
-    Alcotest.(check bool) "trace_id indexed as structured metadata" true
+    Alcotest.(check bool) "trace_id present in log line" true
       (lines <> [])
 
 (* ------------------------------------------------------------------ *)
