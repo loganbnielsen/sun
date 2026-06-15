@@ -46,12 +46,14 @@ let () =
       (* ---- Consumer ---- *)
       let consumer_cfg : Kafka_consumer.config = {
         brokers;
-        group_id     = "sun-demo-group";
-        topics       = [topic];
-        offset_reset = Kafka_consumer.Earliest;
-        auto_commit  = false;
-        on_rebalance = None;
-        security     = Kafka_security.default;
+        group_id              = "sun-demo-group";
+        topics                = [topic];
+        offset_reset          = Kafka_consumer.Earliest;
+        auto_commit           = false;
+        on_rebalance          = None;
+        security              = Kafka_security.default;
+        partition_queue_depth = 64;
+        obs                   = None;
       } in
       let consumer =
         match Kafka_consumer.create consumer_cfg ~sw with
