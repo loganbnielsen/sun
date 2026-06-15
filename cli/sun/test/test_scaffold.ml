@@ -432,25 +432,6 @@ let test_golden_test_dune () =
                    Sun_cli_scaffold_templates.ws_test_dune in
   Alcotest.(check string) "test/dune golden" expected actual
 
-(* ── schema test/dune stanza tests ───────────────────────────────────────── *)
-
-(* Verify that the generated test/dune uses the (test ...) stanza so that
-   dune runtest discovers and executes the schema compatibility check. *)
-let test_schema_test_dune_uses_test_stanza () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let content = read_file "testapp/test/dune" in
-  assert_contains "test/dune" content "(test";
-  check_bool "test/dune must not use (executable stanza" false
-    (contains content "(executable")
-
-(* Verify that the generated test/dune names the test_schemas module. *)
-let test_schema_test_dune_names_test_schemas () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let content = read_file "testapp/test/dune" in
-  assert_contains "test/dune" content "test_schemas"
-
 (* ── entry point ─────────────────────────────────────────────────────────── *)
 
 let () =
@@ -493,9 +474,5 @@ let () =
       ; Alcotest.test_case "charge_svc bin/main.ml" `Quick test_golden_svc_bin_ml
       ; Alcotest.test_case "notify_worker bin/main.ml" `Quick test_golden_worker_bin_ml
       ; Alcotest.test_case "test/dune"             `Quick test_golden_test_dune
-      ]
-    ; "schema_test_dune", [
-        Alcotest.test_case "uses (test) stanza not (executable)" `Quick test_schema_test_dune_uses_test_stanza
-      ; Alcotest.test_case "names test_schemas module"           `Quick test_schema_test_dune_names_test_schemas
       ]
     ]
