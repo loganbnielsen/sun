@@ -19,4 +19,6 @@
   Sun_cli_registry
   Sun_cli_control_plane
   Sun_cli_cmd_new
-  Sun_cli_logs))
+  Sun_cli_logs
+  Sun_cli_port_forward
+  Sun_cli_scaffold_templates))
