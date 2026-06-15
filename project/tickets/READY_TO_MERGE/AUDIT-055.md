@@ -29,3 +29,6 @@ Move scaffold templates out of the `sun new` command implementation
 - Generated workspace output is byte-for-byte equivalent where behavior is not intentionally changed.
 - Existing scaffold tests pass.
 - New golden tests make generated artifact diffs reviewable without reading a 1,100-line command module.
+
+## Review — automated checks passed
+Templates extracted to Sun_cli_scaffold_templates, Sun_cli_cmd_new reduced to 292 lines, all 27 golden and scaffold tests pass, no project/tickets touched, wrapped false confirmed.
