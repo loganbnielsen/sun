@@ -1,4 +1,4 @@
 (library
  (name sun_svc)
  (wrapped false)
- (libraries cohttp-eio http uri yojson base64 eio eio.unix obs_eio digestif))
+ (libraries cohttp-eio http uri yojson base64 eio eio.unix obs_eio))
