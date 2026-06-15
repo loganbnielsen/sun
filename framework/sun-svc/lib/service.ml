@@ -102,34 +102,34 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
        | Method_not_allowed -> observe "unmatched"; { Response.status = 405; headers = []; body = "" }
        | Found (route, params) ->
          observe route.Route.pattern;
-         (match read_body_limited headers body max_body_bytes with
-          | None -> Response.payload_too_large
-          | Some body_str ->
-           match Auth.validate route.Route.auth headers with
-            | Error (`Unauthorized _)    -> Response.unauthorized
-            | Error (`Forbidden _)       -> Response.forbidden
-            | Error (`Server_error msg)  -> Response.internal_error msg
-            | Error (`Not_implemented _) -> Response.not_implemented
-            | Ok auth_ctx ->
-              let trace_ctx =
-                Http.Header.to_list headers
-                |> Obs_trace.extract_from_headers
-              in
-              let sun_req = Request.{
-                method_    = meth;
-                path;
-                headers;
-                params;
-                uri;
-                body       = body_str;
-                auth       = auth_ctx;
-                trace_ctx;
-              } in
-              (try route.Route.handler sun_req
-               with exn ->
-                 Printf.eprintf "sun-svc: handler exception: %s\n%!"
-                   (Printexc.to_string exn);
-                 Response.internal_error "Internal server error")))
+         (match Auth.validate route.Route.auth headers with
+          | Error (`Unauthorized _)    -> Response.unauthorized
+          | Error (`Forbidden _)       -> Response.forbidden
+          | Error (`Server_error msg)  -> Response.internal_error msg
+          | Error (`Not_implemented _) -> Response.not_implemented
+          | Ok auth_ctx ->
+            (match read_body_limited headers body max_body_bytes with
+             | None -> Response.payload_too_large
+             | Some body_str ->
+               let trace_ctx =
+                 Http.Header.to_list headers
+                 |> Obs_trace.extract_from_headers
+               in
+               let sun_req = Request.{
+                 method_    = meth;
+                 path;
+                 headers;
+                 params;
+                 uri;
+                 body       = body_str;
+                 auth       = auth_ctx;
+                 trace_ctx;
+               } in
+               (try route.Route.handler sun_req
+                with exn ->
+                  Printf.eprintf "sun-svc: handler exception: %s\n%!"
+                    (Printexc.to_string exn);
+                  Response.internal_error "Internal server error"))))
 
 (* ── Signal handling ───────────────────────────────────────────────────── *)
 

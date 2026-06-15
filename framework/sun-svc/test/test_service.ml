@@ -215,6 +215,56 @@ let test_metrics_route_pattern_label env () =
       Alcotest.(check bool) "concrete value 999 not a label"
         false (contains {|route="/users/999"|} output)))
 
+(* ── Auth-before-body-read tests ────────────────────────────────────────── *)
+
+module Hauth = struct
+  let routes = [
+    Route.post "/upload"           ~auth:`Public         echo_body;
+    Route.post "/protected-upload" ~auth:(jwt_cfg ["write"]) echo_body;
+  ]
+end
+
+let with_small_body_server env ~sw ?(max_body_bytes = 50) f =
+  let port_p, port_r = Promise.create () in
+  Fiber.fork_daemon ~sw (fun () ->
+    let module S = Service.Make(Hauth) in
+    S.run ~env ~port:0 ~max_body_bytes
+      ~on_listen:(fun p -> Promise.resolve port_r p) ();
+    `Stop_daemon
+  );
+  let port = Promise.await port_p in
+  f port
+
+let test_unauth_large_body_gets_401 env () =
+  (* Without valid auth, a large body should be rejected as 401 before reading. *)
+  Switch.run (fun sw ->
+    with_small_body_server env ~sw (fun port ->
+      let big_body = String.make 200 'x' in
+      let (status, _) = http_call env ~sw ~port ~meth:`POST
+                          ~path:"/protected-upload" ~body:big_body () in
+      Alcotest.(check int) "401 not 413" 401 status))
+
+let test_auth_oversized_body_gets_413 env () =
+  (* With valid auth, an oversized body should return 413. *)
+  Switch.run (fun sw ->
+    with_small_body_server env ~sw (fun port ->
+      let tok = make_jwt ~scopes:["write"] () in
+      let big_body = String.make 200 'x' in
+      let (status, _) = http_call env ~sw ~port ~meth:`POST
+                          ~path:"/protected-upload"
+                          ~headers:["authorization", "Bearer " ^ tok]
+                          ~body:big_body () in
+      Alcotest.(check int) "413 when auth ok but body too large" 413 status))
+
+let test_public_oversized_body_gets_413 env () =
+  (* Public routes still enforce body size limits. *)
+  Switch.run (fun sw ->
+    with_small_body_server env ~sw (fun port ->
+      let big_body = String.make 200 'x' in
+      let (status, _) = http_call env ~sw ~port ~meth:`POST
+                          ~path:"/upload" ~body:big_body () in
+      Alcotest.(check int) "413 on oversized public upload" 413 status))
+
 let () =
   Eio_main.run (fun env ->
     Alcotest.run "service" [
@@ -242,5 +292,13 @@ let () =
         Alcotest.test_case "requests counter with route label" `Quick (test_metrics_counter env);
         Alcotest.test_case "duration histogram present"        `Quick (test_metrics_duration env);
         Alcotest.test_case "route label uses pattern not path" `Quick (test_metrics_route_pattern_label env);
+      ];
+      "auth_before_body", [
+        Alcotest.test_case "unauth + large body → 401 not 413"
+          `Quick (test_unauth_large_body_gets_401 env);
+        Alcotest.test_case "auth ok + oversized body → 413"
+          `Quick (test_auth_oversized_body_gets_413 env);
+        Alcotest.test_case "public route + oversized body → 413"
+          `Quick (test_public_oversized_body_gets_413 env);
       ];
     ])
