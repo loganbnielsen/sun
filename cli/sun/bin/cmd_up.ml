@@ -318,8 +318,7 @@ let save_deployed_groups workspace groups =
   let oc = open_out path in
   output_string oc apply_json;
   close_out oc;
-  ignore (Sys.command (Printf.sprintf "kubectl apply -f %s >/dev/null 2>&1"
-    (Filename.quote path)));
+  ignore (Sun_process.run_argv ~echo:false ["kubectl"; "apply"; "-f"; path]);
   (try Sys.remove path with _ -> ())
 
 (* Check for consumer group renames/removals between the last deployed state
@@ -442,12 +441,11 @@ let run filter_path dry_run tag confirm_group_change =
 
       if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
-        let docker_cmd = Printf.sprintf "docker build -t %s -f %s %s"
-          (Filename.quote push_image) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
-        if Sun_cli_shell.run_cmd ~echo:false docker_cmd <> 0 then
+        if (Sun_process.run_argv ~echo:false
+              ["docker"; "build"; "-t"; push_image; "-f"; dockerfile; ctx_dir]).exit_code <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
-        if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "docker push %s" (Filename.quote push_image)) <> 0 then
+        if (Sun_process.run_argv ~echo:false ["docker"; "push"; push_image]).exit_code <> 0 then
           raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
