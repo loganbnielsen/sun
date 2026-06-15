@@ -15,14 +15,33 @@ let require_tools () =
   check_tool "helm"    "https://helm.sh/";
   check_tool "kubectl" "https://kubernetes.io/docs/tasks/tools/"
 
-(* ── State dir (delegated to Sun_cli_port_forward) ───────────────────────── *)
+(* ── State file ─────────────────────────────────────────────────────────── *)
 
-let state_dir = Sun_cli_port_forward.state_dir
+let state_dir =
+  (* Use an absolute path so all sun dev up/down calls share state regardless
+     of cwd.  Relative ".sun" meant cross-session port-forwards couldn't be
+     cleaned up if the user ran from a different directory. *)
+  match Sys.getenv_opt "XDG_DATA_HOME" with
+  | Some d -> Filename.concat d "sun"
+  | None ->
+    match Sys.getenv_opt "HOME" with
+    | Some h -> Filename.concat h ".local/share/sun"
+    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
 
 let cluster_name = "sun-local"
 let registry_port = 5000
 
-(* ── Port-forward management (delegated to Sun_cli_port_forward) ─────────── *)
+let ensure_state_dir () =
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
+
+let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
+
+let write_pid name pid =
+  let oc = open_out (pid_file name) in
+  Printf.fprintf oc "%d\n" pid;
+  close_out oc
+
+(* ── Port-forward management ─────────────────────────────────────────────── *)
 
 type pf_spec = {
   name        : string;
@@ -36,12 +55,40 @@ type pf_spec = {
 let start_port_forward pf =
   Printf.printf "  port-forward  %-12s localhost:%d → %s/%s:%d\n%!"
     pf.name pf.local_port pf.namespace pf.target pf.remote_port;
-  Sun_cli_port_forward.start
-    ~name:pf.name ~namespace:pf.namespace ~target:pf.target
-    ~local_port:pf.local_port ~remote_port:pf.remote_port
+  let log_file = Printf.sprintf "/tmp/sun-pf-%s.log" pf.name in
+  let script_file = Printf.sprintf "/tmp/sun-pf-%s.sh" pf.name in
+  let content = Printf.sprintf
+    "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s %s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
+    (Filename.quote (pid_file pf.name))
+    (Filename.quote pf.namespace) (Filename.quote pf.target)
+    pf.local_port pf.remote_port
+    (Filename.quote log_file)
+  in
+  let oc = open_out script_file in
+  output_string oc content;
+  close_out oc;
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote script_file)));
+  ignore (Sun_cli_shell.run_cmd ~echo:false
+    (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
 let stop_port_forwards () =
-  Sun_cli_port_forward.stop_all ()
+  if Sys.file_exists state_dir then begin
+    let entries = try Sys.readdir state_dir with _ -> [||] in
+    Array.iter (fun f ->
+      if Filename.check_suffix f ".pid" then begin
+        let path = Printf.sprintf "%s/%s" state_dir f in
+        (try
+          let ic = open_in path in
+          let pid_s = String.trim (In_channel.input_all ic) in
+          close_in ic;
+          (match int_of_string_opt pid_s with
+           | Some pid -> ignore (Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid))
+           | None -> ());
+          Sys.remove path
+        with _ -> ())
+      end
+    ) entries
+  end
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
@@ -66,7 +113,7 @@ let helm_install release chart ~namespace ?(values = []) () =
 
 let dev_up () =
   require_tools ();
-  Sun_cli_port_forward.ensure_state_dir ();
+  ensure_state_dir ();
   (* Kill any stale port-forwards from previous sessions before starting fresh
      ones.  Without this, re-running dev up after a crash or cross-directory
      down would silently fail to bind ports while reporting success. *)
