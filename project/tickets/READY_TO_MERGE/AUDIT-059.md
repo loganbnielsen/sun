@@ -28,3 +28,6 @@ Turn the Postgres-backed control-plane registry tests from stubs into real integ
 - Without the env var, tests still skip clearly.
 - The Postgres and memory implementations pass the same behavioral test suite where applicable.
 - Registry schema/query drift is caught by tests.
+
+## Review — automated checks passed
+AUDIT-059 is clean and ready to merge. Build succeeds, all 19 tests pass (11 memory tests always pass; 8 pg_ops integration tests run against a live DB when CONTROL_PLANE_TEST_DATABASE_URL is set and skip when not). sun_cli_pg_registry.ml exists with ensure_schema/pg_ops/delete_project_rows exported; cmd_cloud.ml carries only module Pg_registry = Sun_cli_pg_registry with no inline implementation; (wrapped false) preserved; project/tickets/ not in diff.

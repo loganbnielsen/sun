@@ -36,3 +36,6 @@ A plain dune executable is built when targeted directly, but it is not a test st
 - Generated `sun-ci.yml` continues to use `dune runtest`, and that command covers the schema gate.
 - Scaffold tests fail if `test/dune` regresses back to a non-runtest executable.
 - The no-registry path remains a clean, visible skip rather than a hidden non-run.
+
+## Review — automated checks passed
+AUDIT-054 correctly changes the scaffold test/dune template from (executable to (test stanza. Build succeeds with no errors. All 29 tests pass, including 2 new schema_test_dune cases that assert (test stanza is present and (executable is absent. project/tickets/ is untouched in the worktree. No violations found.

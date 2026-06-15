@@ -28,3 +28,6 @@ Implement production JWT verification with a maintained JOSE/JWT library
 - Invalid signatures are rejected even when payload claims look valid.
 - Existing public/API-key auth tests continue to pass.
 - Documentation and examples steer users to verified JWT configuration, not unsafe v1 behavior.
+
+## Review — automated checks passed
+AUDIT-056 fully implements HS256 JWT signature verification using digestif. Build is clean, all 35 tests pass (18 auth + 17 service). Implementation covers: header parsing and alg validation, constant-time HMAC-SHA256 comparison, secret resolution from config or SUN_JWT_SECRET env var, expiry check, scope check. allow_unverified_v1_unsafe is preserved as a deprecated escape hatch that emits a stderr warning. project/tickets/ is not touched in the diff.
