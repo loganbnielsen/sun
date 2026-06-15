@@ -26,8 +26,7 @@ let validate_key key =
     Error "secret key may contain only uppercase letters, digits, and underscores"
   else Ok ()
 
-let yaml_quote s =
-  "\"" ^ String.escaped s ^ "\""
+let yaml_quote s = Sun_cli_yaml.emit_scalar s
 
 let render_data existing_data key =
   let data = List.filter (fun (k, _) -> k <> key) existing_data in

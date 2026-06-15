@@ -149,23 +149,52 @@ let split_manifest_docs yaml =
   |> List.map String.trim
   |> List.filter (fun doc -> doc <> "")
 
+(* Extract the value after a key prefix on a line, stripping surrounding quotes
+   and whitespace.  Returns [None] if the prefix is not found. *)
 let field_after_prefix ~prefix doc =
   doc
   |> String.split_on_char '\n'
   |> List.find_map (fun line ->
        let line = String.trim line in
        if starts_with ~prefix line then
-         Some (String.trim (String.sub line (String.length prefix)
-                              (String.length line - String.length prefix)))
+         let raw = String.trim (String.sub line (String.length prefix)
+                                  (String.length line - String.length prefix)) in
+         (* Strip surrounding double-quotes that the YAML emitter may add *)
+         let n = String.length raw in
+         let unquoted =
+           if n >= 2 && raw.[0] = '"' && raw.[n-1] = '"'
+           then String.sub raw 1 (n - 2)
+           else raw
+         in
+         Some unquoted
        else None)
 
+(* Extract the top-level [kind:] field from a YAML document.
+   [kind] always appears at column 0 in well-formed Kubernetes manifests. *)
 let manifest_kind yaml =
   field_after_prefix ~prefix:"kind:" yaml
   |> Option.value ~default:"Unknown"
 
+(* Extract [metadata.name] from a YAML document.
+   We look specifically for the two-space-indented [  name:] line that
+   Kubernetes metadata blocks use, avoiding false matches from deeper
+   nested [name:] fields inside [spec:] (e.g. secretKeyRef, service names).
+   Falls back to the first bare [name:] match for resilience. *)
 let manifest_name yaml =
-  field_after_prefix ~prefix:"name:" yaml
-  |> Option.value ~default:"unknown"
+  let lines = String.split_on_char '\n' yaml in
+  (* Primary: look for "  name:" — metadata.name is always at 2-space indent *)
+  let metadata_name =
+    List.find_map (fun line ->
+      if starts_with ~prefix:"  name:" line then
+        let raw = String.trim (String.sub line 7 (String.length line - 7)) in
+        let n = String.length raw in
+        if n >= 2 && raw.[0] = '"' && raw.[n-1] = '"'
+        then Some (String.sub raw 1 (n - 2))
+        else Some raw
+      else None
+    ) lines
+  in
+  Option.value metadata_name ~default:"unknown"
 
 let rendered_manifests_of_service service =
   let namespace_yaml, workload_yaml =
