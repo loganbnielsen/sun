@@ -13,7 +13,9 @@ let memory_ops_of reg =
     get_release_logs      = (fun _project_id release_id ->
                                Sun_cli_registry.get_release_logs reg release_id);
     append_log_line       = Sun_cli_registry.append_log_line reg;
-    update_release_digest = Sun_cli_registry.update_release_digest reg;
+    update_service_digest = (fun rid svc img dig ->
+                               Sun_cli_registry.update_service_digest reg rid
+                                 ~service_name:svc ~image_ref:img ~digest_str:dig);
     update_release_status = (fun rid s -> Sun_cli_registry.update_release_status reg rid s);
   }
 

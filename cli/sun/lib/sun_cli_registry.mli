@@ -24,6 +24,10 @@ type service_status =
 type release_service = {
   service_name   : string;
   service_status : service_status;
+  image          : string option;
+  (** Image reference pushed for this service. [None] until build completes. *)
+  digest         : string option;
+  (** Content-addressable digest. [None] until build completes. *)
 }
 
 type project = {
@@ -84,8 +88,12 @@ val get_release : t -> release_id -> (release, string) result
 val append_log_line : t -> release_id -> string -> unit
 (** Append a log line to a release's in-memory log buffer. *)
 
-val update_release_digest : t -> release_id -> string -> (unit, string) result
-(** Update the digest field on an existing release. Error if not found. *)
+val update_service_digest :
+  t -> release_id -> service_name:string -> image_ref:string -> digest_str:string ->
+  (unit, string) result
+(** Record the image ref and digest for a single service within a release.
+    Error if the release is not found. The service must have been included in
+    [create_release]'s [service_names] list; missing service names are a no-op. *)
 
 val update_release_status : t -> release_id -> string -> (unit, string) result
 (** Update the status field on an existing release. Accepts "failed", "building",

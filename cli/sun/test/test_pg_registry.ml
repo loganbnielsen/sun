@@ -36,7 +36,9 @@ let memory_ops () =
     get_release_logs      = (fun _project_id release_id ->
                                Sun_cli_registry.get_release_logs r release_id);
     append_log_line       = Sun_cli_registry.append_log_line r;
-    update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_service_digest = (fun rid svc img dig ->
+                               Sun_cli_registry.update_service_digest r rid
+                                 ~service_name:svc ~image_ref:img ~digest_str:dig);
     update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
@@ -120,8 +122,8 @@ let test_pg_list_releases () =
 (* ── builder pipeline tests (memory ops) ──────────────────────────────────── *)
 
 (* Simulate the fake_builder pattern: build_and_push records log lines and
-   returns a digest.  We exercise the append_log_line + update_release_digest
-   vtable fields here so the happy path is covered without invoking Docker. *)
+   returns a digest.  We exercise append_log_line + update_service_digest here
+   so the happy path is covered without invoking Docker. *)
 let test_builder_pipeline_memory () =
   let ops = memory_ops () in
   let p = ops.Sun_cli_control_plane.create_project ~workspace:"testws" |> get_ok in
@@ -136,8 +138,9 @@ let test_builder_pipeline_memory () =
   ops.Sun_cli_control_plane.append_log_line rid "[build] (fake) built reg/app:v1";
   ops.Sun_cli_control_plane.append_log_line rid "[push] (fake) pushed reg/app:v1";
   ops.Sun_cli_control_plane.append_log_line rid "[deploy] (fake) digest: sha256:test";
-  (* Record digest *)
-  let digest_result = ops.Sun_cli_control_plane.update_release_digest rid "sha256:test" in
+  (* Record per-service digest *)
+  let digest_result = ops.Sun_cli_control_plane.update_service_digest
+    rid "charge-svc" "reg/app:v1" "sha256:test" in
   check_bool "digest update ok" true (Result.is_ok digest_result);
   (* Verify logs were captured *)
   let logs = ops.Sun_cli_control_plane.get_release_logs pid rid |> get_ok in
@@ -148,9 +151,10 @@ let test_builder_pipeline_memory () =
   in
   check_bool "deploy log present" true has_digest_log
 
-let test_update_release_digest_unknown () =
+let test_update_service_digest_unknown () =
   let ops = memory_ops () in
-  let result = ops.Sun_cli_control_plane.update_release_digest "no-such-rel" "sha256:abc" in
+  let result = ops.Sun_cli_control_plane.update_service_digest
+    "no-such-rel" "svc" "img:v1" "sha256:abc" in
   check_bool "error on missing release" true (Result.is_error result)
 
 (* ── update_release_status tests ─────────────────────────────────────────── *)
@@ -216,7 +220,7 @@ let run_deploy_pipeline ~ops ~builder ~workspace ~environment ~services =
     ~service_names |> get_ok
   in
   let rid = rel.Sun_cli_registry.release_id in
-  let last_digest = ref "sha-test" in
+  let built = ref [] in
   let all_ok = List.for_all (fun (svc_name, svc_dir) ->
     let image_ref = Printf.sprintf "reg/%s/%s:sha-test" workspace svc_name in
     let log line = ops.Sun_cli_control_plane.append_log_line rid line in
@@ -227,14 +231,23 @@ let run_deploy_pipeline ~ops ~builder ~workspace ~environment ~services =
         (Printf.sprintf "[deploy] build failed: %s" msg);
       false
     | Ok result ->
-      last_digest := result.digest;
+      ignore (ops.Sun_cli_control_plane.update_service_digest
+        rid svc_name result.image_tag result.digest);
+      built := { Sun_cli_registry.
+        service_name = svc_name;
+        service_status = Sun_cli_registry.Service_live;
+        image = Some result.image_tag;
+        digest = Some result.digest;
+      } :: !built;
       true
   ) services in
   if all_ok then begin
-    ignore (ops.Sun_cli_control_plane.update_release_digest rid !last_digest);
     ops.Sun_cli_control_plane.append_log_line rid "[deploy] release complete: status=live";
-    let release_with_digest = { rel with Sun_cli_registry.digest = Some !last_digest } in
-    Ok release_with_digest
+    let updated = { rel with
+      Sun_cli_registry.services = List.rev !built;
+      digest = None;
+    } in
+    Ok updated
   end else begin
     ignore (ops.Sun_cli_control_plane.update_release_status rid "failed");
     ops.Sun_cli_control_plane.append_log_line rid "[deploy] release failed";
@@ -250,8 +263,10 @@ let test_fake_builder_injection_happy_path () =
   in
   check_bool "pipeline ok" true (Result.is_ok result);
   let rel = Result.get_ok result in
-  check_string "digest set" "sha256:test"
-    (Option.value ~default:"" rel.Sun_cli_registry.digest);
+  (* Per-service digest is set; release-level digest is not used *)
+  let svc = List.hd rel.Sun_cli_registry.services in
+  check_string "per-service digest set" "sha256:test"
+    (Option.value ~default:"" svc.Sun_cli_registry.digest);
   let logs = ops.Sun_cli_control_plane.get_release_logs
     "proj-myapp" rel.Sun_cli_registry.release_id |> get_ok in
   let has_complete_log =
@@ -291,8 +306,8 @@ let () =
         Alcotest.test_case "get release logs" `Quick test_memory_get_release_logs;
       ];
       "builder pipeline", [
-        Alcotest.test_case "builder pipeline records digest and logs" `Quick test_builder_pipeline_memory;
-        Alcotest.test_case "update digest returns error for unknown release" `Quick test_update_release_digest_unknown;
+        Alcotest.test_case "builder pipeline records per-service digest and logs" `Quick test_builder_pipeline_memory;
+        Alcotest.test_case "update service digest returns error for unknown release" `Quick test_update_service_digest_unknown;
       ];
       "update_release_status", [
         Alcotest.test_case "mark release as failed records log" `Quick test_update_release_status_failed;

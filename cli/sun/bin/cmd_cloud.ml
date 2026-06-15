@@ -206,6 +206,8 @@ module Pg_registry = struct
       release_id     TEXT NOT NULL REFERENCES hosted_releases(release_id),
       service_name   TEXT NOT NULL,
       service_status TEXT NOT NULL DEFAULT 'live',
+      image_ref      TEXT,
+      digest         TEXT,
       PRIMARY KEY (release_id, service_name)
     )|};
     {|CREATE TABLE IF NOT EXISTS hosted_release_logs (
@@ -255,9 +257,14 @@ module Pg_registry = struct
        VALUES (?, ?, ?) ON CONFLICT DO NOTHING"
 
   let list_services_q =
-    (Caqti_type.string ->* Caqti_type.(t2 string string))
-      "SELECT service_name, service_status \
+    (Caqti_type.string ->* Caqti_type.(t4 string string (option string) (option string)))
+      "SELECT service_name, service_status, image_ref, digest \
        FROM hosted_release_services WHERE release_id = ?"
+
+  let update_service_digest_q =
+    (Caqti_type.(t4 string string string string) ->. Caqti_type.unit)
+      "UPDATE hosted_release_services \
+       SET image_ref = ?, digest = ? WHERE release_id = ? AND service_name = ?"
 
   let list_logs_q =
     (Caqti_type.string ->* Caqti_type.string)
@@ -271,6 +278,8 @@ module Pg_registry = struct
   let ensure_schema pool =
     let all_ddl = ddl @ [
       "ALTER TABLE hosted_releases ADD COLUMN IF NOT EXISTS digest TEXT";
+      "ALTER TABLE hosted_release_services ADD COLUMN IF NOT EXISTS image_ref TEXT";
+      "ALTER TABLE hosted_release_services ADD COLUMN IF NOT EXISTS digest TEXT";
     ] in
     List.iter (fun sql ->
       let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) sql in
@@ -297,12 +306,12 @@ module Pg_registry = struct
     match Db.collect pool list_services_q release_id with
     | Error e -> Error (storage_err_to_string e)
     | Ok rows ->
-      let svcs = List.map (fun (service_name, svc_status_s) ->
+      let svcs = List.map (fun (service_name, svc_status_s, image_ref, digest) ->
         let service_status = match svc_status_s with
           | "failed" -> Sun_cli_registry.Service_failed
           | _        -> Sun_cli_registry.Service_live
         in
-        { Sun_cli_registry.service_name; service_status }
+        { Sun_cli_registry.service_name; service_status; image = image_ref; digest }
       ) rows in
       Ok svcs
 
@@ -377,7 +386,8 @@ module Pg_registry = struct
          let services =
            List.map (fun name ->
              { Sun_cli_registry.service_name = name;
-               service_status = Sun_cli_registry.Service_live })
+               service_status = Sun_cli_registry.Service_live;
+               image = None; digest = None })
              service_names
          in
          Ok { Sun_cli_registry.
@@ -429,8 +439,8 @@ module Pg_registry = struct
      | Error e ->
        Printf.eprintf "warning: append_log_line failed: %s\n%!" (storage_err_to_string e))
 
-  let pg_update_digest pool release_id digest_str =
-    match Db.exec pool update_digest_q (digest_str, release_id) with
+  let pg_update_service_digest pool release_id service_name image_ref digest_str =
+    match Db.exec pool update_service_digest_q (image_ref, digest_str, release_id, service_name) with
     | Ok () -> Ok ()
     | Error e -> Error (storage_err_to_string e)
 
@@ -454,7 +464,7 @@ module Pg_registry = struct
     list_releases_page    = pg_list_releases_page pool;
     get_release_logs      = pg_get_release_logs pool;
     append_log_line       = pg_append_log_line pool;
-    update_release_digest = pg_update_digest pool;
+    update_service_digest = pg_update_service_digest pool;
     update_release_status = pg_update_status pool;
   }
 end
@@ -472,7 +482,9 @@ let memory_ops () =
     get_release_logs      = (fun _project_id release_id ->
                                Sun_cli_registry.get_release_logs r release_id);
     append_log_line       = Sun_cli_registry.append_log_line r;
-    update_release_digest = Sun_cli_registry.update_release_digest r;
+    update_service_digest = (fun rid svc img dig ->
+                               Sun_cli_registry.update_service_digest r rid
+                                 ~service_name:svc ~image_ref:img ~digest_str:dig);
     update_release_status = (fun rid s -> Sun_cli_registry.update_release_status r rid s);
   }
 
@@ -635,10 +647,10 @@ let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_r
       let release_id = release.Sun_cli_registry.release_id in
       ops.Sun_cli_control_plane.append_log_line release_id "[deploy] build phase starting";
       let workspace_path = Sys.getcwd () in
-      let last_digest = ref sha in
+      let built = ref [] in
       let all_ok = List.for_all (fun (svc : Sun_cli_manifest.service) ->
-        let image_ref = Printf.sprintf "%s/%s/%s:%s"
-          reg workspace (Sun_cli_deployment_plan.k8s_name_of svc.name) sha in
+        let svc_name = Sun_cli_deployment_plan.k8s_name_of svc.name in
+        let image_ref = Printf.sprintf "%s/%s/%s:%s" reg workspace svc_name sha in
         let log line = ops.Sun_cli_control_plane.append_log_line release_id line in
         match builder.build_and_push
             ~workspace_path ~service_dir:svc.dir ~image_ref ~log with
@@ -647,20 +659,34 @@ let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_r
             (Printf.sprintf "[deploy] build failed: %s" msg);
           false
         | Ok result ->
-          last_digest := result.digest;
+          ignore (ops.Sun_cli_control_plane.update_service_digest
+            release_id svc_name result.image_tag result.digest);
+          built := { Sun_cli_registry.
+            service_name = svc_name;
+            service_status = Sun_cli_registry.Service_live;
+            image = Some result.image_tag;
+            digest = Some result.digest;
+          } :: !built;
           true
       ) services in
       if all_ok then begin
-        ignore (ops.Sun_cli_control_plane.update_release_digest release_id !last_digest);
         ops.Sun_cli_control_plane.append_log_line release_id
           "[deploy] release complete: status=live";
-        let release_with_digest = { release with Sun_cli_registry.digest = Some !last_digest } in
+        let updated_release = { release with
+          Sun_cli_registry.services = List.rev !built;
+          digest = None;
+        } in
         if output_json then
           print_string (Yojson.Safe.pretty_to_string
-            (Sun_cli_registry.release_to_json release_with_digest))
+            (Sun_cli_registry.release_to_json updated_release))
         else begin
           Printf.printf "Release:  %s\n" release_id;
-          Printf.printf "Digest:   %s\n" !last_digest;
+          List.iter (fun (s : Sun_cli_registry.release_service) ->
+            match s.digest with
+            | None -> ()
+            | Some d ->
+              Printf.printf "  %s: %s\n" s.service_name d
+          ) (List.rev !built);
           Printf.printf "Status:   live\n"
         end
       end else begin

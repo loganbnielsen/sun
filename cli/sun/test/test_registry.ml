@@ -189,6 +189,56 @@ let test_project_id_of_workspace () =
   check_string "uppercase" "proj-venus"
     (Sun_cli_registry.project_id_of_workspace "VENUS")
 
+(* ── per-service digest ─────────────────────────────────────────────────── *)
+
+let test_per_service_digest_two_services () =
+  let r = Sun_cli_registry.create () in
+  let p = Sun_cli_registry.create_project r ~workspace:"pluto" |> get_ok in
+  let pid = p.Sun_cli_registry.project_id in
+  let rel = Sun_cli_registry.create_release r ~project_id:pid
+      ~environment:"production" ~image_tag:"sha-abc"
+      ~service_names:["charge-svc"; "notify-worker"]
+    |> get_ok
+  in
+  let rid = rel.Sun_cli_registry.release_id in
+  ignore (Sun_cli_registry.update_service_digest r rid
+    ~service_name:"charge-svc" ~image_ref:"reg/app/charge-svc:sha-abc"
+    ~digest_str:"sha256:aaaa");
+  ignore (Sun_cli_registry.update_service_digest r rid
+    ~service_name:"notify-worker" ~image_ref:"reg/app/notify-worker:sha-abc"
+    ~digest_str:"sha256:bbbb");
+  let rel2 = Sun_cli_registry.get_release r rid |> get_ok in
+  let svcs = rel2.Sun_cli_registry.services in
+  let find name = List.find (fun s -> s.Sun_cli_registry.service_name = name) svcs in
+  let charge  = find "charge-svc" in
+  let notify  = find "notify-worker" in
+  check_string "charge digest"  "sha256:aaaa" (Option.value ~default:"" charge.Sun_cli_registry.digest);
+  check_string "notify digest"  "sha256:bbbb" (Option.value ~default:"" notify.Sun_cli_registry.digest);
+  (* Digests must differ — fails if only last service digest is stored *)
+  check_bool "digests are distinct" true
+    (charge.Sun_cli_registry.digest <> notify.Sun_cli_registry.digest)
+
+let test_per_service_digest_in_json () =
+  let r = Sun_cli_registry.create () in
+  let p = Sun_cli_registry.create_project r ~workspace:"pluto" |> get_ok in
+  let rel = Sun_cli_registry.create_release r
+      ~project_id:p.Sun_cli_registry.project_id
+      ~environment:"production" ~image_tag:"sha-abc"
+      ~service_names:["charge-svc"]
+    |> get_ok
+  in
+  ignore (Sun_cli_registry.update_service_digest r rel.Sun_cli_registry.release_id
+    ~service_name:"charge-svc" ~image_ref:"reg/app/charge-svc:sha-abc"
+    ~digest_str:"sha256:cccc");
+  let rel2 = Sun_cli_registry.get_release r rel.Sun_cli_registry.release_id |> get_ok in
+  let json = Sun_cli_registry.release_to_json rel2 in
+  let open Yojson.Safe.Util in
+  let svc_json = json |> member "services" |> index 0 in
+  check_string "service digest in json" "sha256:cccc"
+    (svc_json |> member "digest" |> to_string);
+  check_string "service image in json" "reg/app/charge-svc:sha-abc"
+    (svc_json |> member "image" |> to_string)
+
 let () =
   Alcotest.run "registry"
     [ "create_project", [
@@ -218,5 +268,9 @@ let () =
       ];
       "project_id_of_workspace", [
         Alcotest.test_case "normalization" `Quick test_project_id_of_workspace;
+      ];
+      "per_service_digest", [
+        Alcotest.test_case "two services have distinct digests" `Quick test_per_service_digest_two_services;
+        Alcotest.test_case "digest exposed in JSON" `Quick test_per_service_digest_in_json;
       ];
     ]

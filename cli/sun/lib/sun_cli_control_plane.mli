@@ -39,7 +39,9 @@ type registry_ops = {
                           -> (Sun_cli_registry.release list * int, string) result;
   get_release_logs      : string -> string -> (string list, string) result;
   append_log_line       : string -> string -> unit;
-  update_release_digest : string -> string -> (unit, string) result;
+  update_service_digest : string -> string -> string -> string -> (unit, string) result;
+  (** [update_service_digest release_id service_name image_ref digest_str] records the image
+      and digest for one service within [release_id]. *)
   update_release_status : string -> string -> (unit, string) result;
   (** [update_release_status release_id status_str] updates the status of [release_id].
       Accepts ["failed"], ["building"], ["live"], or ["queued"]. *)

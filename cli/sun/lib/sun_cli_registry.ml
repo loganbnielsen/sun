@@ -12,6 +12,8 @@ type service_status = Service_live | Service_failed
 type release_service = {
   service_name   : string;
   service_status : service_status;
+  image          : string option;
+  digest         : string option;
 }
 
 type project = {
@@ -88,11 +90,16 @@ let append_log_line t release_id line =
   in
   Hashtbl.replace t.logs release_id (existing @ [line])
 
-let update_release_digest t release_id digest_str =
+let update_service_digest t release_id ~service_name ~image_ref ~digest_str =
   match Hashtbl.find_opt t.releases release_id with
   | None -> Error (Printf.sprintf "release %S not found" release_id)
   | Some r ->
-    Hashtbl.replace t.releases release_id { r with digest = Some digest_str };
+    let services = List.map (fun s ->
+      if s.service_name = service_name
+      then { s with image = Some image_ref; digest = Some digest_str }
+      else s
+    ) r.services in
+    Hashtbl.replace t.releases release_id { r with services };
     Ok ()
 
 let update_release_status t release_id status_str =
@@ -115,7 +122,8 @@ let create_release t ~project_id ~environment ~image_tag ~service_names =
     let release_id = next_release_id t ~project_id in
     let created_at = string_of_float (Unix.gettimeofday ()) in
     let services =
-      List.map (fun name -> { service_name = name; service_status = Service_live })
+      List.map (fun name ->
+        { service_name = name; service_status = Service_live; image = None; digest = None })
         service_names
     in
     let release = {
@@ -193,6 +201,8 @@ let release_service_to_json (s : release_service) =
   `Assoc [
     "service_name", `String s.service_name;
     "status",       `String (service_status_to_string s.service_status);
+    "image",        (match s.image  with None -> `Null | Some v -> `String v);
+    "digest",       (match s.digest with None -> `Null | Some v -> `String v);
   ]
 
 let project_to_json (p : project) =
