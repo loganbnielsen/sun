@@ -34,3 +34,6 @@ Producer and consumer configuration builders otherwise accumulate librdkafka con
 - Producer and consumer creation return typed errors for invalid security configuration.
 - Error messages identify the failing security setting.
 - Existing Kafka producer/consumer/service tests continue to pass.
+
+## Review — automated checks passed
+Kafka_security.apply now returns (unit, string) result with typed SASL validation; producer and consumer handle the result correctly; all 7 new tests pass; no failwith remains at the security boundary
