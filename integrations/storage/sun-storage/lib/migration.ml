@@ -33,11 +33,13 @@ let read_migrations dir =
     let sorted = List.sort (fun (a, _, _) (b, _, _) -> compare a b) parsed in
     Ok sorted
 
-let split_statements sql =
-  String.split_on_char ';' sql
-  |> List.filter_map (fun s ->
-    let s = String.trim s in
-    if String.length s = 0 then None else Some (s ^ ";"))
+let exec_sql_batch pool sql =
+  (* Execute the entire migration file as a single batch.  PostgreSQL's simple
+     query protocol (used by libpq PQexec / caqti-driver-postgresql ~oneshot)
+     supports multi-statement SQL natively, so semicolons inside function
+     bodies, dollar-quoted blocks, string literals, and comments are safe. *)
+  let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true sql in
+  Db.exec pool q ()
 
 (* ── Per-table helpers (table name injected at call time) ───────────────── *)
 
@@ -100,14 +102,7 @@ let apply ?(table = default_table) pool ~dir =
       in
       let* sql = content in
       Db.transaction pool (fun pool ->
-        let stmts = split_statements sql in
-        let* () = List.fold_left (fun acc stmt ->
-          match acc with
-          | Error _ as e -> e
-          | Ok () ->
-            let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true stmt in
-            Db.exec pool q ()
-        ) (Ok ()) stmts in
+        let* () = exec_sql_batch pool sql in
         record_migration table pool version name
       )
       |> Result.map_error (fun e ->
@@ -161,15 +156,7 @@ let rollback ?(table = default_table) pool ~dir =
       in
       let* sql = content in
       Db.transaction pool (fun pool ->
-        let stmts = split_statements sql in
-        let* () = List.fold_left (fun acc stmt ->
-          match acc with
-          | Error _ as e -> e
-          | Ok () ->
-            let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit)
-                      ~oneshot:true stmt in
-            Db.exec pool q ()
-        ) (Ok ()) stmts in
+        let* () = exec_sql_batch pool sql in
         Db.exec pool (delete_version_q table) version
         |> Result.map_error (fun e ->
           Storage_error.Migration_error (
