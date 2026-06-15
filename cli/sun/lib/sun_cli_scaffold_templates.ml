@@ -733,7 +733,7 @@ let () =
 |tpl}
 
 (* test/dune *)
-let ws_test_dune = {tpl|(executable
+let ws_test_dune = {tpl|(test
  (name test_schemas)
  (libraries kafka_eio_service eio_main {{name}}_payments_events))
 |tpl}
