@@ -47,7 +47,7 @@ type span_event = {
 type metric_event = {
   name    : string;
   help    : string;
-  kind    : [ `Counter of int | `Gauge of float | `Histogram of float * float list ];
+  kind    : [ `Counter of int | `Gauge of float | `Histogram of float ];
   labels  : (string * string) list;  (** call-site labels *)
   context : (string * string) list;  (** ambient context from [with_context] *)
   service : string;

@@ -91,9 +91,9 @@ let test_histogram_buckets () =
   let (backend, render) = Obs_prometheus.create () in
   (* 0.007 falls in le=0.01 bucket; 0.042 falls in le=0.05 bucket *)
   backend.Obs.emit_metric
-    (make_event ~name:"dur" ~help:"Duration" (`Histogram (0.007, [])));
+    (make_event ~name:"dur" ~help:"Duration" (`Histogram 0.007));
   backend.Obs.emit_metric
-    (make_event ~name:"dur" ~help:"Duration" (`Histogram (0.042, [])));
+    (make_event ~name:"dur" ~help:"Duration" (`Histogram 0.042));
   let out = render () in
   Alcotest.(check bool) "# TYPE histogram"
     true (has_line out "# TYPE dur histogram");
@@ -114,27 +114,12 @@ let test_histogram_labeled () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs.emit_metric
     (make_event ~name:"lat" ~help:"Latency" ~labels:[("route", "/charge")]
-       (`Histogram (0.1, [])));
+       (`Histogram 0.1));
   let out = render () in
   Alcotest.(check bool) "labeled bucket line"
     true (has_line out {|lat_bucket{route="/charge",le="0.1"} 1|});
   Alcotest.(check bool) "labeled sum line"
     true (has_line out {|lat_sum{route="/charge"} 0.1|})
-
-let test_histogram_custom_buckets () =
-  let (backend, render) = Obs_prometheus.create () in
-  (* Custom buckets: 0.1, 0.5, 1.0 — default 0.005/0.01/0.025 buckets must not appear. *)
-  backend.Obs.emit_metric
-    (make_event ~name:"rtt" ~help:"Round-trip time" (`Histogram (0.3, [0.1; 0.5; 1.0])));
-  let out = render () in
-  Alcotest.(check bool) "custom le=0.1 bucket present"
-    true (has_line out {|rtt_bucket{le="0.1"} 0|});
-  Alcotest.(check bool) "custom le=0.5 bucket present (value inside)"
-    true (has_line out {|rtt_bucket{le="0.5"} 1|});
-  Alcotest.(check bool) "custom le=1 bucket present"
-    true (has_line out {|rtt_bucket{le="1"} 1|});
-  Alcotest.(check bool) "default le=0.005 bucket absent"
-    false (has_line out {|rtt_bucket{le="0.005"} 0|})
 
 (* ------------------------------------------------------------------ *)
 (* Renderer output format                                              *)
@@ -380,7 +365,6 @@ let () =
     "histogram", [
       test_case "observations sorted into correct buckets" `Quick test_histogram_buckets;
       test_case "labeled histogram lines"                  `Quick test_histogram_labeled;
-      test_case "custom buckets rendered correctly"        `Quick test_histogram_custom_buckets;
     ];
     "renderer", [
       test_case "empty string when no events"           `Quick test_renderer_empty_when_no_events;
