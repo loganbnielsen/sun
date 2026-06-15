@@ -33,13 +33,89 @@ let read_migrations dir =
     let sorted = List.sort (fun (a, _, _) (b, _, _) -> compare a b) parsed in
     Ok sorted
 
-let exec_sql_batch pool sql =
-  (* Execute the entire migration file as a single batch.  PostgreSQL's simple
-     query protocol (used by libpq PQexec / caqti-driver-postgresql ~oneshot)
-     supports multi-statement SQL natively, so semicolons inside function
-     bodies, dollar-quoted blocks, string literals, and comments are safe. *)
-  let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true sql in
-  Db.exec pool q ()
+(* PostgreSQL-aware SQL splitter.  Correctly handles semicolons that appear
+   inside single-quoted strings, line comments, block comments, and
+   dollar-quoted bodies (PL/pgSQL functions, triggers, etc.). *)
+let split_sql_statements sql =
+  let n   = String.length sql in
+  let buf = Buffer.create 256 in
+  let acc = ref [] in
+  let i   = ref 0 in
+  let flush () =
+    let s = String.trim (Buffer.contents buf) in
+    if String.length s > 0 then acc := s :: !acc;
+    Buffer.clear buf
+  in
+  while !i < n do
+    let c = sql.[!i] in
+    (match c with
+    | '-' when !i + 1 < n && sql.[!i + 1] = '-' ->
+      (* line comment: consume to end of line *)
+      Buffer.add_char buf '-'; Buffer.add_char buf '-'; i := !i + 2;
+      while !i < n && sql.[!i] <> '\n' do
+        Buffer.add_char buf sql.[!i]; incr i
+      done
+    | '/' when !i + 1 < n && sql.[!i + 1] = '*' ->
+      (* block comment: consume until closing *\/ *)
+      Buffer.add_char buf '/'; Buffer.add_char buf '*'; i := !i + 2;
+      let closed = ref false in
+      while !i < n && not !closed do
+        let ch = sql.[!i] in
+        Buffer.add_char buf ch; incr i;
+        if ch = '*' && !i < n && sql.[!i] = '/' then begin
+          Buffer.add_char buf '/'; incr i; closed := true
+        end
+      done
+    | '\'' ->
+      (* single-quoted string; '' is an escaped quote *)
+      Buffer.add_char buf '\''; incr i;
+      let closed = ref false in
+      while !i < n && not !closed do
+        let ch = sql.[!i] in
+        Buffer.add_char buf ch; incr i;
+        if ch = '\'' then begin
+          if !i < n && sql.[!i] = '\'' then begin
+            Buffer.add_char buf '\''; incr i  (* escaped quote — stay in string *)
+          end else closed := true
+        end
+      done
+    | '$' ->
+      (* dollar-quoting: $tag$...$tag$ where tag may be empty *)
+      let j = ref (!i + 1) in
+      while !j < n && sql.[!j] <> '$' && sql.[!j] <> '\n' && sql.[!j] <> ' ' do
+        incr j
+      done;
+      if !j < n && sql.[!j] = '$' then begin
+        let delim = String.sub sql !i (!j - !i + 1) in
+        let dlen  = String.length delim in
+        Buffer.add_string buf delim; i := !j + 1;
+        let closed = ref false in
+        while !i < n && not !closed do
+          if !i + dlen <= n && String.sub sql !i dlen = delim then begin
+            Buffer.add_string buf delim; i := !i + dlen; closed := true
+          end else begin
+            Buffer.add_char buf sql.[!i]; incr i
+          end
+        done
+      end else begin
+        Buffer.add_char buf '$'; incr i
+      end
+    | ';' ->
+      flush (); incr i
+    | _ ->
+      Buffer.add_char buf c; incr i)
+  done;
+  flush ();
+  List.rev !acc
+
+let exec_statements pool stmts =
+  List.fold_left (fun acc stmt ->
+    match acc with
+    | Error _ as e -> e
+    | Ok () ->
+      let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true stmt in
+      Db.exec pool q ()
+  ) (Ok ()) stmts
 
 (* ── Per-table helpers (table name injected at call time) ───────────────── *)
 
@@ -102,7 +178,7 @@ let apply ?(table = default_table) pool ~dir =
       in
       let* sql = content in
       Db.transaction pool (fun pool ->
-        let* () = exec_sql_batch pool sql in
+        let* () = exec_statements pool (split_sql_statements sql) in
         record_migration table pool version name
       )
       |> Result.map_error (fun e ->
@@ -156,7 +232,7 @@ let rollback ?(table = default_table) pool ~dir =
       in
       let* sql = content in
       Db.transaction pool (fun pool ->
-        let* () = exec_sql_batch pool sql in
+        let* () = exec_statements pool (split_sql_statements sql) in
         Db.exec pool (delete_version_q table) version
         |> Result.map_error (fun e ->
           Storage_error.Migration_error (

@@ -219,6 +219,51 @@ let with_migration_dir f =
   in
   f dir write
 
+(* Unit tests for the SQL splitter — no database required *)
+
+let check_split input expected =
+  let got = Migration.split_sql_statements input in
+  Alcotest.(check (list string))
+    (Printf.sprintf "split(%S)" input) expected got
+
+let test_split_simple () =
+  check_split "SELECT 1" ["SELECT 1"];
+  check_split "SELECT 1;" ["SELECT 1"];
+  check_split "SELECT 1; SELECT 2" ["SELECT 1"; "SELECT 2"];
+  check_split "  ; ; SELECT 1 ;  " ["SELECT 1"]
+
+let test_split_semicolon_in_string () =
+  check_split {|INSERT INTO t VALUES ('a; b')|} [{|INSERT INTO t VALUES ('a; b')|}];
+  check_split {|INSERT INTO t VALUES ('a; b'); SELECT 1|}
+    [{|INSERT INTO t VALUES ('a; b')|}; "SELECT 1"];
+  check_split {|SELECT 'it''s; a test'|} [{|SELECT 'it''s; a test'|}]
+
+let test_split_line_comment () =
+  check_split "-- comment; stays\nSELECT 1" ["-- comment; stays\nSELECT 1"];
+  check_split "SELECT 1; -- comment\nSELECT 2" ["SELECT 1"; "-- comment\nSELECT 2"]
+
+let test_split_block_comment () =
+  check_split "/* block; comment */ SELECT 1" ["/* block; comment */ SELECT 1"];
+  check_split "SELECT 1; /* a;b */ SELECT 2" ["SELECT 1"; "/* a;b */ SELECT 2"]
+
+let test_split_dollar_quoted () =
+  check_split
+    {|CREATE FUNCTION f() RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE NOTICE 'hello; world';
+END;
+$$|}
+    [{|CREATE FUNCTION f() RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE NOTICE 'hello; world';
+END;
+$$|}];
+  check_split
+    {|CREATE FUNCTION f() AS $body$ BEGIN; RETURN; END; $body$; SELECT 1|}
+    [{|CREATE FUNCTION f() AS $body$ BEGIN; RETURN; END; $body$|}; "SELECT 1"]
+
+(* Integration tests (require POSTGRES_URL) *)
+
 let test_migration_semicolon_in_string () =
   match postgres_url () with
   | None -> Printf.printf "[skip] POSTGRES_URL not set\n%!"
@@ -243,39 +288,6 @@ INSERT INTO %s (id, note) VALUES (2, 'foo; bar; baz');|} tbl tbl tbl);
     in
     let n = or_fail (Db.find pool count_q ()) in
     Alcotest.(check (option int)) "rows with semicolons in strings" (Some 2) n;
-    let cleanup_q =
-      Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true
-        (Printf.sprintf "DROP TABLE IF EXISTS %s, %s" tbl mtable)
-    in
-    or_fail (Db.exec pool cleanup_q ())
-
-let test_migration_block_comment () =
-  match postgres_url () with
-  | None -> Printf.printf "[skip] POSTGRES_URL not set\n%!"
-  | Some url ->
-    Eio_main.run @@ fun env ->
-    Eio.Switch.run @@ fun sw ->
-    let pool = Db.create_pool ~url ~sw
-                 ~stdenv:(env :> Caqti_eio.stdenv) ()
-               |> or_fail in
-    with_migration_dir @@ fun dir write ->
-    let tbl = Printf.sprintf "sun_mig_cmt_%d" (Random.int 1000000) in
-    let mtable = Printf.sprintf "sun_test_mig_cmt_%d" (Random.int 1000000) in
-    write (Printf.sprintf "0001_create_%s.sql" tbl)
-      (Printf.sprintf
-        {|-- line comment; with semicolons; inside
-/* block comment;
-   also with semicolons */
-CREATE TABLE IF NOT EXISTS %s (id INT);
-/* another block comment; end */
-INSERT INTO %s (id) VALUES (42);|} tbl tbl);
-    or_fail (Migration.apply pool ~dir ~table:mtable);
-    let find_q =
-      Caqti_request.Infix.(Caqti_type.unit ->? Caqti_type.int) ~oneshot:true
-        (Printf.sprintf "SELECT id FROM %s LIMIT 1" tbl)
-    in
-    let v = or_fail (Db.find pool find_q ()) in
-    Alcotest.(check (option int)) "row after comment migration" (Some 42) v;
     let cleanup_q =
       Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true
         (Printf.sprintf "DROP TABLE IF EXISTS %s, %s" tbl mtable)
@@ -419,9 +431,15 @@ let () =
       test_case "migration_apply"     `Quick test_migration_apply;
       test_case "table_make"          `Quick test_table_make;
     ];
-    "migration_batch", [
+    "sql_split", [
+      test_case "simple"                `Quick test_split_simple;
+      test_case "semicolon_in_string"   `Quick test_split_semicolon_in_string;
+      test_case "line_comment"          `Quick test_split_line_comment;
+      test_case "block_comment"         `Quick test_split_block_comment;
+      test_case "dollar_quoted"         `Quick test_split_dollar_quoted;
+    ];
+    "migration_pg", [
       test_case "semicolon_in_string" `Quick test_migration_semicolon_in_string;
-      test_case "block_comment"       `Quick test_migration_block_comment;
       test_case "dollar_quoted"       `Quick test_migration_dollar_quoted;
       test_case "rollback_down_sql"   `Quick test_migration_rollback_down_sql;
     ];
