@@ -30,6 +30,8 @@ val of_env : unit -> t
     - [KAFKA_SASL_USERNAME]
     - [KAFKA_SASL_PASSWORD] *)
 
-val apply : Kafka_raw.kafka_conf -> t -> unit
+val apply : Kafka_raw.kafka_conf -> t -> (unit, string) result
 (** Set librdkafka [security.protocol], [ssl.ca.location], and [sasl.*] keys on [conf].
+    Returns [Error msg] if any key is rejected by librdkafka or if a SASL protocol
+    is configured without the required [sasl_mechanism], [sasl_username], and [sasl_password].
     Called internally by producer and consumer [conf_of_config]; not part of the public API. *)

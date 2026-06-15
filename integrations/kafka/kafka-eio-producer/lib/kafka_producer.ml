@@ -43,7 +43,9 @@ let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
   in
   set "bootstrap.servers" (String.concat "," cfg.brokers);
   (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
-  Kafka_security.apply conf cfg.security;
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> if !first_err = None then first_err := Some s
+   | Ok () -> ());
   (match cfg.delivery_mode with
    | At_most_once ->
      set "acks" "0"

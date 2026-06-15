@@ -46,12 +46,25 @@ let of_env () =
   }
 
 let apply conf t =
+  let errs = ref [] in
   let set k v = match Kafka_raw.conf_set conf k v with
     | Ok ()   -> ()
-    | Error s -> failwith ("kafka security conf " ^ k ^ ": " ^ s)
+    | Error s -> errs := ("kafka security conf " ^ k ^ ": " ^ s) :: !errs
   in
   set "security.protocol" (protocol_to_string t.protocol);
   Option.iter (set "ssl.ca.location") t.ssl_ca_location;
   Option.iter (set "sasl.mechanism") t.sasl_mechanism;
   Option.iter (set "sasl.username") t.sasl_username;
-  Option.iter (set "sasl.password") t.sasl_password
+  Option.iter (set "sasl.password") t.sasl_password;
+  (match t.protocol with
+   | Sasl_plaintext | Sasl_ssl ->
+     if t.sasl_mechanism = None then
+       errs := "kafka security: sasl_mechanism required for SASL protocols" :: !errs;
+     if t.sasl_username = None then
+       errs := "kafka security: sasl_username required for SASL protocols" :: !errs;
+     if t.sasl_password = None then
+       errs := "kafka security: sasl_password required for SASL protocols" :: !errs
+   | Plaintext | Ssl -> ());
+  match !errs with
+  | []   -> Ok ()
+  | errs -> Error (String.concat "; " (List.rev errs))
