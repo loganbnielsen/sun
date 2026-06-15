@@ -28,3 +28,6 @@ Prevent workspace infra scanning from following `vendor/` framework sources
 - A workspace whose actual service dune files reference those libraries still detects the correct infra.
 - `sun dev up` provisions only infra required by workspace code, not by vendored framework source.
 - Tests cover skipped directories and symlinked vendor paths.
+
+## Review — automated checks passed
+Workspace scan correctly skips vendor/, _build/, symlinked dirs, and .git/; build and all 27 tests pass; project/tickets/ untouched; no shell injection in production code; (wrapped false) preserved.
