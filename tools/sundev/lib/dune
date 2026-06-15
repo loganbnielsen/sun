@@ -1,5 +1,4 @@
 (library
  (name sundev_lib)
  (wrapped false)
- (libraries sun_process)
  (modules Sundev_shell))
