@@ -40,3 +40,6 @@ Split oversized CLI modules into clear entry points and reusable orchestration c
 - Port-forward logic is implemented once and reused by `sun up` and `sun dev up/down/status`.
 - Scaffold template generation is separated from command parsing.
 - Focused tests cover the extracted modules without requiring real cloud, Docker, Helm, or Kubernetes access.
+
+## Review — returned for revision
+- `cli/sun/lib/sun_cli_scaffold_templates.ml:1` — New module sun_cli_scaffold_templates.ml has no .mli interface file. Sun conventions require every new module to have a matching .mli. sun_cli_port_forward.mli was added correctly but sun_cli_scaffold_templates.mli was omitted.
