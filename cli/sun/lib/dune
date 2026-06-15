@@ -1,7 +1,7 @@
 (library
  (name sun_cli)
  (wrapped false)
- (libraries unix yojson cmdliner otoml sun_process)
+ (libraries unix yojson cmdliner otoml sun_process sun_storage caqti-eio)
  (modules
   Sun_cli_shell
   Sun_cli_scaffold
@@ -19,5 +19,6 @@
   Sun_cli_hosted_executor
   Sun_cli_registry
   Sun_cli_control_plane
+  Sun_cli_pg_registry
   Sun_cli_cmd_new
   Sun_cli_logs))
