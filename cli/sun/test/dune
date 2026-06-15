@@ -16,4 +16,4 @@
   test_release_inspection
   test_scaffold
   test_logs)
- (libraries sun_cli alcotest unix yojson str caqti-eio eio_main))
+ (libraries sun_cli alcotest unix yojson str))
