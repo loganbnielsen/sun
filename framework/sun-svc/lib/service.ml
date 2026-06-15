@@ -69,12 +69,7 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
     let uri      = Uri.of_string resource in
     let path     = Uri.path uri in
     let headers  = Http.Request.headers req in
-    let rec has_double_slash i =
-      if i >= String.length path - 1 then false
-      else if String.unsafe_get path i = '/' && String.unsafe_get path (i + 1) = '/' then true
-      else has_double_slash (i + 1)
-    in
-    if has_double_slash 0 then
+    if Route.parse_request_path path = None then
       { Response.status = 400; headers = []; body = "Bad Request" }
     else
     let observe lbl = match route_observer with Some f -> f lbl | None -> () in
