@@ -34,3 +34,6 @@ After all builds pass, `update_release_digest` records only `!last_digest`, whic
 - JSON output exposes each service's image and digest.
 - The Postgres schema and in-memory registry have equivalent behavior.
 - Tests fail if the implementation stores only the last service digest.
+
+## Review — automated checks passed
+Per-service image and digest fields added to release_service; update_service_digest replaces update_release_digest across registry, control plane, Postgres DDL, and cloud_deploy; tests confirm distinct per-service digests and JSON exposure; all 42 tests pass.

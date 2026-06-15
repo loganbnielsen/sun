@@ -28,3 +28,6 @@ Authenticate routed requests before reading request bodies when possible
 - Authenticated oversized requests still return `413`.
 - Public routes retain current body-reading behavior.
 - Existing service tests continue to pass.
+
+## Review — automated checks passed
+Auth check correctly moved before body read in Found branch; all 17 service tests pass including 3 new auth_before_body cases
