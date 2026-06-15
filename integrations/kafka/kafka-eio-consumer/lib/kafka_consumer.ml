@@ -68,7 +68,9 @@ let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
      Pinning to eager rebalancing (range,roundrobin) preserves the callback-free
      subscribe() → poll() → assignment_count > 0 invariant our poll_fiber relies on. *)
   set "partition.assignment.strategy" "range,roundrobin";
-  Kafka_security.apply conf cfg.security;
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> if !first_err = None then first_err := Some s
+   | Ok () -> ());
   match !first_err with
   | Some msg -> Error msg
   | None     -> Ok conf
