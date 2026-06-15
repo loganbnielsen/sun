@@ -30,3 +30,6 @@ Replace handwritten Kubernetes YAML templates with a structured manifest rendere
 - Deployment, Rollout, and CronJob share common pod/container rendering logic.
 - Existing manifest render tests pass, with added coverage for escaping labels/env values containing YAML-sensitive characters.
 - `sun up --dry-run`, `sun deploy --dry-run`, and `sun deploy --emit-to` produce Kubernetes-accepted manifests.
+
+## Review — automated checks passed
+Structured YAML renderer implemented correctly — all workload types use shared pod_template/container_fields, value type with all required variants is present, Quoted used for data values, Map [] renders as {}, public API surface preserved, no Printf.sprintf YAML resource bodies remain, build and all 27 tests pass.
