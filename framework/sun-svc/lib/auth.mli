@@ -1,6 +1,10 @@
 type jwt_config =
-  { scopes                     : string list
+  { secret                     : string option
+        (** Optional in-process HMAC-SHA256 signing secret.
+            Falls back to the [SUN_JWT_SECRET] environment variable. *)
+  ; scopes                     : string list
   ; allow_unverified_v1_unsafe : bool
+        (** Deprecated: skip signature verification. DO NOT USE in production. *)
   }
 
 type level =

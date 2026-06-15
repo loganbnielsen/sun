@@ -23,7 +23,7 @@ let get_json _req = Response.json {|{"ok":true}|}
 let echo_body req = Response.ok req.Request.body
 
 let jwt_cfg scopes =
-  `Jwt Auth.{ scopes; allow_unverified_v1_unsafe = true }
+  `Jwt Auth.{ secret = None; scopes; allow_unverified_v1_unsafe = true }
 
 let make_jwt ?(scopes=["read"]) () =
   let header  = Base64.encode_exn ~pad:false ~alphabet:Base64.uri_safe_alphabet
