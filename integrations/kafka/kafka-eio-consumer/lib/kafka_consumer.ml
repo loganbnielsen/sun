@@ -18,13 +18,22 @@ and partition = {
 }
 
 type config = {
-  brokers      : string list;
-  group_id     : string;
-  topics       : string list;
-  offset_reset : offset_reset;
-  auto_commit  : bool;
-  on_rebalance : (rebalance_event -> unit) option;
-  security     : Kafka_security.t;
+  brokers             : string list;
+  group_id            : string;
+  topics              : string list;
+  offset_reset        : offset_reset;
+  auto_commit         : bool;
+  on_rebalance        : (rebalance_event -> unit) option;
+  security            : Kafka_security.t;
+  partition_queue_depth : int;
+  (** Maximum number of messages buffered per partition in [consume_partitioned].
+      When the queue is full the routing loop blocks naturally, applying
+      backpressure to the librdkafka fetch path.  Default: 64. *)
+  obs                 : Obs.t option;
+  (** Optional observability handle.  When present, a gauge
+      [kafka_partition_queue_depth] is emitted each time a message is enqueued
+      into a per-partition stream.  When [None] (the default) no metrics are
+      emitted and there is no dependency on an obs backend at runtime. *)
 }
 
 type message = {
@@ -226,6 +235,16 @@ let consume_partitioned t ~sw:_ ~clock ?(retry = default_retry)
     : (int32, (message * (unit -> unit)) option Eio.Stream.t) Hashtbl.t =
     Hashtbl.create 4
   in
+  let queue_depth = t.config.partition_queue_depth in
+  (* Register a gauge for per-partition queue depth if an obs handle was provided. *)
+  let depth_gauge =
+    Option.map (fun obs ->
+      Obs.register_gauge obs
+        ~name:"kafka_partition_queue_depth"
+        ~help:"Current number of messages buffered in the per-partition queue"
+        ~label_names:["topic"; "partition"]
+    ) t.config.obs
+  in
   let signal_stop () =
     if Atomic.compare_and_set stop false true then
       Eio.Promise.resolve stop_r ()
@@ -235,7 +254,10 @@ let consume_partitioned t ~sw:_ ~clock ?(retry = default_retry)
       match Hashtbl.find_opt streams partition with
       | Some s -> s
       | None ->
-        let stream = Eio.Stream.create max_int in
+        (* Use the configurable bounded queue size.  Eio.Stream.add blocks when
+           the stream is full, providing natural backpressure to the routing
+           loop and, transitively, to the librdkafka fetch path. *)
+        let stream = Eio.Stream.create queue_depth in
         Hashtbl.add streams partition stream;
         Eio.Fiber.fork ~sw (fun () ->
           let rec loop () =
@@ -320,7 +342,19 @@ let consume_partitioned t ~sw:_ ~clock ?(retry = default_retry)
             ignore (Kafka_raw.commit_message
                       t.handle msg.topic msg.partition msg.offset false)
           in
-          Eio.Stream.add (get_or_create_stream msg.partition) (Some (msg, ack));
+          let pstream = get_or_create_stream msg.partition in
+          (* Emit queue-depth gauge before add so the value reflects the depth
+             seen by the arriving message (post-add depth may be immediately
+             decremented by the consumer fiber before we read it). *)
+          (match depth_gauge with
+           | None -> ()
+           | Some gauge ->
+             let depth = Float.of_int (Eio.Stream.length pstream) in
+             gauge ~labels:[("topic", msg.topic);
+                            ("partition", Int32.to_string msg.partition)] depth);
+          (* This add blocks when [pstream] is full (queue_depth slots taken),
+             applying backpressure to the routing loop. *)
+          Eio.Stream.add pstream (Some (msg, ack));
           routing_loop ()
       end
     in
