@@ -17,27 +17,11 @@ let require_tools () =
 
 (* ── State file ─────────────────────────────────────────────────────────── *)
 
-let state_dir =
-  (* Use an absolute path so all sun dev up/down calls share state regardless
-     of cwd.  Relative ".sun" meant cross-session port-forwards couldn't be
-     cleaned up if the user ran from a different directory. *)
-  match Sys.getenv_opt "XDG_DATA_HOME" with
-  | Some d -> Filename.concat d "sun"
-  | None ->
-    match Sys.getenv_opt "HOME" with
-    | Some h -> Filename.concat h ".local/share/sun"
-    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
-
 let cluster_name = "sun-local"
 let registry_port = 5000
 
-let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
-
-let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
-
 let write_pid name pid =
-  let oc = open_out (pid_file name) in
+  let oc = open_out (Sun_cli_state.pid_file name) in
   Printf.fprintf oc "%d\n" pid;
   close_out oc
 
@@ -59,7 +43,7 @@ let start_port_forward pf =
   let script_file = Printf.sprintf "/tmp/sun-pf-%s.sh" pf.name in
   let content = Printf.sprintf
     "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s %s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
-    (Filename.quote (pid_file pf.name))
+    (Filename.quote (Sun_cli_state.pid_file pf.name))
     (Filename.quote pf.namespace) (Filename.quote pf.target)
     pf.local_port pf.remote_port
     (Filename.quote log_file)
@@ -72,11 +56,11 @@ let start_port_forward pf =
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
 
 let stop_port_forwards () =
-  if Sys.file_exists state_dir then begin
-    let entries = try Sys.readdir state_dir with _ -> [||] in
+  if Sys.file_exists Sun_cli_state.dir then begin
+    let entries = try Sys.readdir Sun_cli_state.dir with _ -> [||] in
     Array.iter (fun f ->
       if Filename.check_suffix f ".pid" then begin
-        let path = Printf.sprintf "%s/%s" state_dir f in
+        let path = Printf.sprintf "%s/%s" Sun_cli_state.dir f in
         (try
           let ic = open_in path in
           let pid_s = String.trim (In_channel.input_all ic) in
@@ -113,7 +97,7 @@ let helm_install release chart ~namespace ?(values = []) () =
 
 let dev_up () =
   require_tools ();
-  ensure_state_dir ();
+  Sun_cli_state.ensure ();
   (* Kill any stale port-forwards from previous sessions before starting fresh
      ones.  Without this, re-running dev up after a crash or cross-directory
      down would silently fail to bind ports while reporting success. *)
@@ -273,8 +257,8 @@ let dev_status () =
     Printf.printf "\nPods:\n%!";
     ignore (Sun_cli_shell.run_cmd ~echo:false "kubectl get pods -A 2>/dev/null");
     Printf.printf "\nPort-forwards:\n%!";
-    if Sys.file_exists state_dir then begin
-      let entries = try Sys.readdir state_dir with _ -> [||] in
+    if Sys.file_exists Sun_cli_state.dir then begin
+      let entries = try Sys.readdir Sun_cli_state.dir with _ -> [||] in
       let pids = Array.to_list entries
         |> List.filter (fun f -> Filename.check_suffix f ".pid")
       in
@@ -283,7 +267,7 @@ let dev_status () =
       else
         List.iter (fun f ->
           let name = Filename.chop_suffix f ".pid" in
-          let path = Printf.sprintf "%s/%s" state_dir f in
+          let path = Printf.sprintf "%s/%s" Sun_cli_state.dir f in
           let pid_s = try
             let ic = open_in path in
             let s = String.trim (In_channel.input_all ic) in
