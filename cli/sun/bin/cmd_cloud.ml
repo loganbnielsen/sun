@@ -30,51 +30,49 @@ let resolve_sun_home () =
 (* Read terraform output -json from a temp file and print key endpoints.
    We only print non-sensitive string/list values. *)
 let print_outputs chdir_arg =
-  let tmp = Filename.temp_file "sun-tf-out-" ".json" in
-  let rc = Sys.command (Printf.sprintf "terraform output -json %s > %s 2>/dev/null"
-    chdir_arg (Filename.quote tmp))
-  in
-  if rc <> 0 then begin
-    Printf.printf "  (could not retrieve terraform outputs)\n%!";
-    (try Sys.remove tmp with _ -> ())
-  end else begin
-    (try
-      let ic = open_in tmp in
-      let raw = In_channel.input_all ic in
-      close_in ic;
-      Sys.remove tmp;
-      (* Very lightweight JSON parse: find "key": { "sensitive": false,
-         "value": "..." } entries and print them. We use Yojson. *)
-      let json = Yojson.Safe.from_string raw in
-      (match json with
-       | `Assoc pairs ->
-         List.iter (fun (key, obj) ->
-           match obj with
-           | `Assoc fields ->
-             let sensitive =
-               match List.assoc_opt "sensitive" fields with
-               | Some (`Bool b) -> b
-               | _ -> true  (* default to sensitive if unknown *)
-             in
-             if not sensitive then begin
-               match List.assoc_opt "value" fields with
-               | Some (`String v) ->
-                 Printf.printf "  %-28s  %s\n%!" key v
-               | Some (`List vs) ->
-                 let strs = List.filter_map (function
-                   | `String s -> Some s | _ -> None) vs in
-                 if strs <> [] then
-                   Printf.printf "  %-28s  [%s]\n%!" key (String.concat ", " strs)
-               | Some (`Null) ->
-                 Printf.printf "  %-28s  (none)\n%!" key
-               | _ -> ()
-             end
-           | _ -> ()
-         ) pairs
-       | _ -> ())
-    with _ ->
-      Printf.printf "  (error parsing terraform outputs)\n%!")
-  end
+  Sun_cli_shell.with_temp_file "sun-tf-out-" ".json" (fun tmp ->
+    let rc = Sys.command (Printf.sprintf "terraform output -json %s > %s 2>/dev/null"
+      chdir_arg (Filename.quote tmp))
+    in
+    if rc <> 0 then
+      Printf.printf "  (could not retrieve terraform outputs)\n%!"
+    else begin
+      (try
+        let ic = open_in tmp in
+        let raw = In_channel.input_all ic in
+        close_in ic;
+        (* Very lightweight JSON parse: find "key": { "sensitive": false,
+           "value": "..." } entries and print them. We use Yojson. *)
+        let json = Yojson.Safe.from_string raw in
+        (match json with
+         | `Assoc pairs ->
+           List.iter (fun (key, obj) ->
+             match obj with
+             | `Assoc fields ->
+               let sensitive =
+                 match List.assoc_opt "sensitive" fields with
+                 | Some (`Bool b) -> b
+                 | _ -> true  (* default to sensitive if unknown *)
+               in
+               if not sensitive then begin
+                 match List.assoc_opt "value" fields with
+                 | Some (`String v) ->
+                   Printf.printf "  %-28s  %s\n%!" key v
+                 | Some (`List vs) ->
+                   let strs = List.filter_map (function
+                     | `String s -> Some s | _ -> None) vs in
+                   if strs <> [] then
+                     Printf.printf "  %-28s  [%s]\n%!" key (String.concat ", " strs)
+                 | Some (`Null) ->
+                   Printf.printf "  %-28s  (none)\n%!" key
+                 | _ -> ()
+               end
+             | _ -> ()
+           ) pairs
+         | _ -> ())
+      with _ ->
+        Printf.printf "  (error parsing terraform outputs)\n%!")
+    end)
 
 (* ── cloud init ─────────────────────────────────────────────────────────── *)
 
@@ -510,13 +508,12 @@ let with_registry f =
 (* ── cloud deploy ────────────────────────────────────────────────────────── *)
 
 let git_sha () =
-  let tmp = Filename.temp_file "sun-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
-  let ic = open_in tmp in
-  let s = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  if s = "" then "dev" else s
+  Sun_cli_shell.with_temp_file "sun-" ".tmp" (fun tmp ->
+    ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
+    let ic = open_in tmp in
+    let s = String.trim (In_channel.input_all ic) in
+    close_in ic;
+    if s = "" then "dev" else s)
 
 let get_ok_or_exit = function
   | Ok v -> v
