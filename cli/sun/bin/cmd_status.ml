@@ -1,8 +1,5 @@
 open Cmdliner
 
-let cmd_ok cmd =
-  Sys.command (Printf.sprintf "%s >/dev/null 2>&1" cmd) = 0
-
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let discover_domains () =
@@ -40,7 +37,7 @@ let run filter_domain =
   List.iter (fun domain ->
     let ns = Sun_cli_deployment_plan.namespace_of ~workspace ~domain in
     Printf.printf "Namespace: %s\n%!" ns;
-    if cmd_ok (Printf.sprintf "kubectl get ns %s" (Filename.quote ns)) then begin
+    if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kubectl get ns %s" (Filename.quote ns)) = 0 then begin
       ignore (Sys.command (Printf.sprintf "kubectl get pods -n %s 2>&1" (Filename.quote ns)));
       (* Print port-forward hint for ClusterIP HTTP services in this namespace.
          Filter out internal services: names ending in "-headless" or equal to "kubernetes". *)
