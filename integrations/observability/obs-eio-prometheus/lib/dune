@@ -2,4 +2,4 @@
  (name obs_eio_prometheus)
  (wrapped false)
  (modules Obs_prometheus)
- (libraries obs_eio eio unix cohttp-eio http uri tls-eio x509 domain-name ptime))
+ (libraries obs_eio eio unix cohttp-eio http uri sun_tls))
