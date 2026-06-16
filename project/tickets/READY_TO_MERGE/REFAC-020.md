@@ -41,3 +41,6 @@ The temp-file variants are also vulnerable to the uncleaned-temp-file bug: if th
 - `grep -rn "let git_sha\|rev-parse.*short" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun up`, `sun deploy`, and `sun cloud` still embed the correct SHA into image tags and YAML.
+
+## Review — automated checks passed
+git_sha() centralised in Sun_cli_shell; three bin definitions removed; build clean; no rev-parse in bin/
