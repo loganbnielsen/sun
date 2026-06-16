@@ -53,3 +53,6 @@ Note: `url_encode_logql` in `sun_cli_logs.ml` is intentionally selective (encode
 - `route.ml` contains no local `percent_decode` function.
 - `dune build` passes.
 - Existing route-matching tests pass (path parameters with percent-encoded characters are decoded correctly).
+
+## Review — automated checks passed
+Hand-rolled percent_decode removed from route.ml and route.mli; Uri.pct_decode used at call site; build clean; no ticket directory changes.
