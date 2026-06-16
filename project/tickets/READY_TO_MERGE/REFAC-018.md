@@ -54,3 +54,6 @@ Replace all four call sites with `decode_dispatch`. Each site passes different `
 - `kafka_service.ml` contains exactly one definition of the wire → JSON → topic-decode pipeline.
 - `dune build` passes.
 - All Kafka integration tests pass (`KAFKA_BROKERS=localhost:9092 dune test integrations/kafka/ --force`).
+
+## Review — automated checks passed
+decode_dispatch helper unifies wire→JSON→topic-decode pipeline; both call sites updated; build clean; no API changes

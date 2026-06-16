@@ -38,3 +38,6 @@ Delete the three local discovery functions.
 - `grep -rn "let discover_domains\|let discover_namespaces\|let find_service_by_name" cli/sun/bin/` returns zero hits.
 - `sun status`, `sun secret list`, and `sun logs <service>` produce the same output as before.
 - `dune build` passes.
+
+## Review — automated checks passed
+All acceptance criteria met: no banned scanner functions, build clean, diff scoped to three cmd files only
