@@ -3,6 +3,8 @@ id: REFAC-045
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-16
+branch: REFAC-045/extract-temp-file-helpers
+worktree: ../sun-REFAC-045-extract-temp-file-helpers
 ---
 
 Replace scattered temp-file + `Sys.command` pattern with `Sun_process` helpers
