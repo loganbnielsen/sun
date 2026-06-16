@@ -62,3 +62,6 @@ The only differences between the two documents are the outer wrapper (kind: Depl
 
 ## Review — returned for revision
 - `cli/sun/lib/sun_cli_manifest.ml:524` — cronjob_doc contains its own copy of securityContext fields (runAsNonRoot, runAsUser, runAsGroup, seccompProfile, allowPrivilegeEscalation, readOnlyRootFilesystem) — these should be extracted into a shared helper or the acceptance criterion must be scoped only to deployment_doc/rollout_doc
+
+## Review — automated checks passed
+Build clean, diff scoped to cli/sun/lib/sun_cli_manifest.ml and tools/perf/perf_baseline.json, all security context fields appear exactly once, no wrapped true libraries introduced.
