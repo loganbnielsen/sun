@@ -37,3 +37,6 @@ Because all logic is in `bin/`, none of the ticket parsing or merge logic can be
 - `wc -l tools/sundev/bin/cmd_pipeline.ml` reports fewer than 120 lines.
 - `tools/sundev/lib/sundev_ticket.ml` exists and has unit tests.
 - `dune build tools/sundev/` and `dune test tools/sundev/` pass.
+
+## Review — automated checks passed
+All acceptance criteria met: cmd_pipeline.ml is 63 lines, sundev_ticket.ml and test_ticket.ml exist, dune build and dune test pass, project/tickets/ is untouched, starts_with/contains_substring removed from cmd_pipeline.ml, no wrapped true in dune files.
