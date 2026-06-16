@@ -39,3 +39,6 @@ Each copy independently handles `on_decode_error` for the same three error cases
 
 ## Review — automated checks passed
 3-stage decode pipeline correctly extracted into kafka_service_decode.ml; all 4 call sites replaced; build and tests pass
+
+## Review — automated checks passed
+3-stage decode pipeline correctly extracted into kafka_service_decode.ml; all 4 call sites replaced; build and tests pass
