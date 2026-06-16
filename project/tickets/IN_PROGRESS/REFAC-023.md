@@ -3,6 +3,8 @@ id: REFAC-023
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-15
+branch: REFAC-023/extract-port-forward
+worktree: /home/lbendtly/Code/sun-REFAC-023-extract-port-forward
 ---
 
 Extract port-forward logic to `sun_cli_port_forward.ml` — currently split across two 500+ line commands
