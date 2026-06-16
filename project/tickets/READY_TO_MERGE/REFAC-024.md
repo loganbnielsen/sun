@@ -59,3 +59,6 @@ Add `kafka_conf` to `kafka-eio-core`'s dune `modules` stanza. Both producer and 
 - `Kafka_conf.build` is the single place that calls `Kafka_raw.conf_new` and `Kafka_raw.conf_set`.
 - `dune build` passes.
 - Integration tests pass with a live broker.
+
+## Review — automated checks passed
+conf_of_config boilerplate extracted to Kafka_conf.build; producer and consumer delegate cleanly; build passes

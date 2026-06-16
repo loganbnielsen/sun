@@ -51,3 +51,6 @@ The implementation is the same code that currently lives in all three files.
 - `obs_tls.ml` is the single source of truth for CA bundle paths.
 - `dune build` passes.
 - Unit tests pass.
+
+## Review — automated checks passed
+TLS boilerplate successfully extracted to obs_tls.ml; all three consumers use Obs_tls.https_wrapper; dune build and unit tests pass

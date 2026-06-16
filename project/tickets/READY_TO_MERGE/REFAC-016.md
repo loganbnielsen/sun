@@ -48,3 +48,6 @@ Each framework module passes a different `on_signal` callback:
 - `Sun_signal.install` (or equivalent) is the single implementation.
 - `dune build` passes and all three framework packages compile.
 - Unit tests pass (`dune test framework/`).
+
+## Review — automated checks passed
+REFAC-016 correctly extracts self-pipe signal handling into Sun_signal.install; build and framework tests pass
