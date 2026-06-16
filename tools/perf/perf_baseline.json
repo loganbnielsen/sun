@@ -1145,6 +1145,17 @@
           "commit": "4c2007d",
           "duration_s": 1.390,
           "baseline": true
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.394
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.377,
+          "baseline": true
         }
       ]
     },
@@ -1746,6 +1757,17 @@
           "date": "2026-06-15",
           "commit": "4c2007d",
           "duration_s": 1.389,
+          "baseline": true
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.379
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.381,
           "baseline": true
         }
       ]
@@ -2377,6 +2399,17 @@
           "commit": "4c2007d",
           "duration_s": 1.137,
           "baseline": true
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.199
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 1.135,
+          "baseline": true
         }
       ]
     },
@@ -2986,6 +3019,17 @@
           "commit": "4c2007d",
           "duration_s": 0.353,
           "baseline": true
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 0.364
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 0.470,
+          "baseline": true
         }
       ]
     },
@@ -3544,6 +3588,17 @@
           "date": "2026-06-15",
           "commit": "4c2007d",
           "duration_s": 6.358,
+          "baseline": true
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 6.362
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "7160eb1",
+          "duration_s": 6.357,
           "baseline": true
         }
       ]
