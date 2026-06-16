@@ -3,6 +3,8 @@ id: REFAC-049
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-16
+branch: REFAC-049/eliminate-kafka-error-int-table
+worktree: ../sun-REFAC-049-eliminate-kafka-error-int-table
 ---
 
 Eliminate parallel integer-mapping table in `kafka_error.ml`
