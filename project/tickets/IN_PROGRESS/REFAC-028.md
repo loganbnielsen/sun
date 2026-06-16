@@ -3,6 +3,8 @@ id: REFAC-028
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-15
+branch: REFAC-028/decompose-cmd-cloud
+worktree: /home/lbendtly/Code/sun-REFAC-028-decompose-cmd-cloud
 ---
 
 Decompose cmd_cloud.ml (843 lines, 5+ concerns) into focused sub-modules
