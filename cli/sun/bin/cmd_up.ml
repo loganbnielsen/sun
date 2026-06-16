@@ -10,7 +10,6 @@ let wait_for_rollout ~namespace ~name =
 
 (* ── Workspace / git helpers ─────────────────────────────────────────────── *)
 
-let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
   let s = Sun_cli_shell.run_cmd_to_string "git rev-parse --short HEAD" in
@@ -36,7 +35,7 @@ let find_repo_root () =
 (* ── Pipeline ────────────────────────────────────────────────────────────── *)
 
 let run filter_path dry_run tag confirm_group_change =
-  let workspace = workspace_name () in
+  let workspace = Sun_cli_shell.workspace_name () in
   let sha       = match tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
   let repo_root = find_repo_root () in
