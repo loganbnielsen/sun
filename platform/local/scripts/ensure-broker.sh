@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/wait-port.sh"
 
 "${SCRIPT_DIR}/start-redpanda.sh"
 
@@ -13,18 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # exits immediately with no checks at all.
 KAFKA_PORT="${KAFKA_PORT:-9092}"
 echo -n "Waiting for port ${KAFKA_PORT}"
-for i in $(seq 1 20); do
-  if nc -z localhost "${KAFKA_PORT}" > /dev/null 2>&1; then
-    echo " ready."
-    break
-  fi
-  echo -n "."
-  sleep 1
-  if [ "$i" -eq 20 ]; then
-    echo ""
-    echo "ERROR: port ${KAFKA_PORT} not reachable after 20 seconds." >&2
-    exit 1
-  fi
-done
+wait_for_port "${KAFKA_PORT}" 20 1 || { echo ""; exit 1; }
+echo " ready."
 
 "${SCRIPT_DIR}/create-topics.sh"
