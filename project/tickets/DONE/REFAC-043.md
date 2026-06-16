@@ -40,3 +40,6 @@ The self-pipe trick has subtle correctness requirements (non-blocking write, clo
 
 ## Review — automated checks passed
 fork_daemon comment present, Fun.protect guarantees cleanup, build/tests clean, no signal handler boilerplate in framework lib files, project/tickets untouched
+
+## Review — automated checks passed
+fork_daemon comment present, Fun.protect guarantees cleanup, build/tests clean, no signal handler boilerplate in framework lib files
