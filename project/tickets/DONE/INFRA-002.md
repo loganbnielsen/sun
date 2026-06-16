@@ -3,6 +3,8 @@ id: INFRA-002
 type: bug
 severity: medium
 source: pipeline observation 2026-06-15
+branch: INFRA-002/per-suite-perf-thresholds
+worktree: /home/lbendtly/Code/sun-INFRA-002-per-suite-perf-thresholds
 ---
 
 Tighten perf gate: suite-specific thresholds and infra-isolated unit timing
@@ -28,3 +30,6 @@ Tighten perf gate: suite-specific thresholds and infra-isolated unit timing
 - Each suite has its own regression threshold in the runner.
 - A clean run of `run_tests.sh` on an idle machine shows no spurious regressions for changes that don't touch test or hot-path code.
 - `perf.sh status` reflects the per-suite thresholds.
+
+## Review — automated checks passed
+All ticket requirements satisfied: unit runs pre-infra, FAIL_RATIOS array present with correct values in both scripts, is_regression takes suite arg, status shows Thresh column, history annotations include threshold, project/tickets/ untouched, build clean
