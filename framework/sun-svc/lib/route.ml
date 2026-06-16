@@ -17,32 +17,6 @@ let delete p ~auth h = make `DELETE p ~auth h
 
 (* ── Path parsing and matching ───────────────────────────────────────────── *)
 
-(* Percent-decode a path segment value.
-   Applied to route parameter values so handlers receive decoded strings.
-   Literal pattern segments are matched raw (not decoded) for simplicity.
-   '+' is NOT decoded as a space — this is path decoding, not form-data. *)
-let percent_decode s =
-  let len = String.length s in
-  let buf = Buffer.create len in
-  let i = ref 0 in
-  while !i < len do
-    (match s.[!i] with
-    | '%' when !i + 2 < len ->
-      let hi = s.[!i + 1] in
-      let lo = s.[!i + 2] in
-      let is_hex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') in
-      if is_hex hi && is_hex lo then begin
-        let n = int_of_string (Printf.sprintf "0x%c%c" hi lo) in
-        Buffer.add_char buf (Char.chr n);
-        i := !i + 3
-      end else begin
-        Buffer.add_char buf '%';
-        incr i
-      end
-    | c -> Buffer.add_char buf c; incr i);
-  done;
-  Buffer.contents buf
-
 let split_path path =
   String.split_on_char '/' path |> List.filter (fun s -> s <> "")
 
@@ -78,7 +52,7 @@ let match_path pattern request_path =
         | p :: ps, r :: rs ->
           if String.length p > 0 && p.[0] = ':' then
             let key = String.sub p 1 (String.length p - 1) in
-            go ps rs ((key, percent_decode r) :: acc)
+            go ps rs ((key, Uri.pct_decode r) :: acc)
           else if p = r then go ps rs acc
           else None
         | _ -> None

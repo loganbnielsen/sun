@@ -102,22 +102,22 @@ let test_parse_root () =
 (* ── percent_decode ──────────────────────────────────────────────────────── *)
 
 let test_percent_decode_space () =
-  Alcotest.(check string) "%20 → space" " " (Route.percent_decode "%20")
+  Alcotest.(check string) "%20 → space" " " (Uri.pct_decode "%20")
 
 let test_percent_decode_slash () =
-  Alcotest.(check string) "%2F → /" "/" (Route.percent_decode "%2F")
+  Alcotest.(check string) "%2F → /" "/" (Uri.pct_decode "%2F")
 
 let test_percent_decode_lowercase () =
-  Alcotest.(check string) "%2f lowercase → /" "/" (Route.percent_decode "%2f")
+  Alcotest.(check string) "%2f lowercase → /" "/" (Uri.pct_decode "%2f")
 
 let test_percent_decode_passthrough () =
-  Alcotest.(check string) "plain text unchanged" "hello" (Route.percent_decode "hello")
+  Alcotest.(check string) "plain text unchanged" "hello" (Uri.pct_decode "hello")
 
 let test_percent_decode_malformed () =
-  Alcotest.(check string) "malformed %GG unchanged" "%GG" (Route.percent_decode "%GG")
+  Alcotest.(check string) "malformed %GG unchanged" "%GG" (Uri.pct_decode "%GG")
 
 let test_percent_decode_plus_not_space () =
-  Alcotest.(check string) "+ not decoded as space" "a+b" (Route.percent_decode "a+b")
+  Alcotest.(check string) "+ not decoded as space" "a+b" (Uri.pct_decode "a+b")
 
 (* ── match_path with encoded segments ───────────────────────────────────── *)
 
