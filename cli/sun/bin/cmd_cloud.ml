@@ -4,14 +4,6 @@
 
 open Cmdliner
 
-let cmd_ok cmd = Sun_cli_shell.run_cmd ~echo:false cmd = 0
-
-let check_tool name install_url =
-  if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
-    Printf.eprintf "error: %S not found in PATH.\n" name;
-    Printf.eprintf "  Install: %s\n" install_url;
-    exit 1
-  end
 
 (* ── Sun home resolution ─────────────────────────────────────────────────── *)
 
@@ -97,7 +89,7 @@ let cloud_init use_aws use_gcp var_file dry_run =
   let pname = provider_name provider in
 
   (* Check prerequisites *)
-  check_tool "terraform" "https://developer.hashicorp.com/terraform/install";
+  Sun_cli_shell.check_tool "terraform" "https://developer.hashicorp.com/terraform/install";
 
   (* Locate terraform module directory *)
   let sun_home = resolve_sun_home () in

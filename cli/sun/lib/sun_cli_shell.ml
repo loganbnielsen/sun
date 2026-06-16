@@ -14,3 +14,10 @@ let run_cmd_lines ?(echo = false) cmd =
 
 let run_cmd_to_string cmd =
   Sun_process.output ~echo:false cmd
+
+let check_tool name install_url =
+  if run_cmd ~echo:false (Printf.sprintf "which %s" name) <> 0 then begin
+    Printf.eprintf "error: '%s' not found in PATH.\n" name;
+    Printf.eprintf "Install: %s\n" install_url;
+    exit 1
+  end
