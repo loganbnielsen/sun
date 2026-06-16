@@ -15,6 +15,13 @@ let contains_string ~needle s =
   done;
   !found
 
+let read_file path =
+  let ic = open_in path in
+  let n = in_channel_length ic in
+  let s = really_input_string ic n in
+  close_in ic;
+  s
+
 (** Count .sql files in [dir]/db/migrations.  Returns 0 if the directory does
     not exist.  Used by [sun up] to warn users about unapplied migrations. *)
 let pending_migration_count ~dir =
@@ -41,7 +48,7 @@ let scan ~dir =
           let path = Filename.concat d entry in
           if entry = "dune" then begin
             (try
-              let content = Sun_cli_shell.read_file path in
+              let content = read_file path in
               if contains_string ~needle:"kafka_eio_service"  content then kafka      := true;
               if contains_string ~needle:"sun_storage"        content then postgres   := true;
               if contains_string ~needle:"obs_eio_loki"       content then loki       := true;
