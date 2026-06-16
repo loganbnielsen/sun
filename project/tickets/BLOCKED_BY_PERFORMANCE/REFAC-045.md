@@ -35,3 +35,6 @@ Each site independently manages temp-file cleanup, none use `Fun.protect` or sim
 
 - `grep -rn "Sys.command\|write_tmp" cli/sun/lib/` returns zero hits.
 - `dune build` and `dune test cli/sun/` pass.
+
+## Review — automated checks passed
+with_tmp_file and capture_cmd added to sun_process; all four call sites replaced; run_command and write_tmp deleted; build and acceptance grep clean
