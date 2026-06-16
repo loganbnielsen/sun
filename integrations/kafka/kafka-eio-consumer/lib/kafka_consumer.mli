@@ -20,22 +20,13 @@ and partition = {
 }
 
 type config = {
-  brokers               : string list;
-  group_id              : string;
-  topics                : string list;
-  offset_reset          : offset_reset;
-  auto_commit           : bool;
-  on_rebalance          : (rebalance_event -> unit) option;
-  security              : Kafka_security.t;
-  (** Transport security; use [Kafka_security.default] for plaintext dev. *)
-  partition_queue_depth : int;
-  (** Maximum messages buffered per partition in [consume_partitioned].
-      When the queue is full the routing loop blocks, applying backpressure
-      to the librdkafka fetch path.  Default: 64. *)
-  obs                   : Obs.t option;
-  (** Optional observability handle.  When present, a gauge
-      [kafka_partition_queue_depth] is emitted on each enqueue.  Pass [None]
-      to disable metrics without any runtime overhead. *)
+  brokers      : string list;
+  group_id     : string;
+  topics       : string list;
+  offset_reset : offset_reset;
+  auto_commit  : bool;
+  on_rebalance : (rebalance_event -> unit) option;
+  security     : Kafka_security.t;    (** transport security; use [Kafka_security.default] for plaintext dev *)
 }
 
 type message = {

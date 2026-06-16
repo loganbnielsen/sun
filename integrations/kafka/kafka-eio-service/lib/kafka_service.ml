@@ -408,15 +408,13 @@ let consume svc topic ~group_id ~sw
     on_decode_error e ~raw_bytes ~ack
   in
   let consumer_cfg : Kafka_consumer.config = {
-    brokers               = svc.brokers;
+    brokers      = svc.brokers;
     group_id;
-    topics                = [topic.name];
-    offset_reset          = Kafka_consumer.Latest;
-    auto_commit           = false;
-    on_rebalance          = None;
-    security              = svc.security;
-    partition_queue_depth = 64;
-    obs                   = None;
+    topics       = [topic.name];
+    offset_reset = Kafka_consumer.Latest;
+    auto_commit  = false;
+    on_rebalance = None;
+    security     = svc.security;
   } in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
@@ -470,15 +468,13 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     on_decode_error e ~raw_bytes ~ack
   in
   let consumer_cfg : Kafka_consumer.config = {
-    brokers               = svc.brokers;
+    brokers      = svc.brokers;
     group_id;
-    topics                = [topic.name];
-    offset_reset          = Kafka_consumer.Latest;
-    auto_commit           = false;
-    on_rebalance          = None;
-    security              = svc.security;
-    partition_queue_depth = 64;
-    obs                   = ot;
+    topics       = [topic.name];
+    offset_reset = Kafka_consumer.Latest;
+    auto_commit  = false;
+    on_rebalance = None;
+    security     = svc.security;
   } in
   match retry_strategy with
   | In_memory retry ->
@@ -558,15 +554,13 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
      | Ok consumer ->
        (* Create retry topic consumer — runs as a background fiber in sw. *)
        let retry_consumer_cfg : Kafka_consumer.config = {
-         brokers               = svc.brokers;
-         group_id              = group_id ^ "-sun-retry";
-         topics                = [retry_topic_name];
-         offset_reset          = Kafka_consumer.Earliest;
-         auto_commit           = false;
-         on_rebalance          = None;
-         security              = svc.security;
-         partition_queue_depth = 64;
-         obs                   = None;
+         brokers      = svc.brokers;
+         group_id     = group_id ^ "-sun-retry";
+         topics       = [retry_topic_name];
+         offset_reset = Kafka_consumer.Earliest;
+         auto_commit  = false;
+         on_rebalance = None;
+         security     = svc.security;
        } in
        (match Kafka_consumer.create retry_consumer_cfg ~sw with
         | Error e ->

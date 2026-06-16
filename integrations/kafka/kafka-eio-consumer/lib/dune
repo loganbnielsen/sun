@@ -2,4 +2,4 @@
  (name kafka_eio_consumer)
  (wrapped false)
  (modules kafka_consumer)
- (libraries kafka_eio_core obs_eio eio eio.unix unix))
+ (libraries kafka_eio_core eio eio.unix unix))

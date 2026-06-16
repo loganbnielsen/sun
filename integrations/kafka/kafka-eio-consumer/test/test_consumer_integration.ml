@@ -34,14 +34,12 @@ let seed_messages sw n =
 
 let make_consumer_config () : Kafka_consumer.config = {
   brokers;
-  group_id              = Printf.sprintf "sun-test-%d" (Unix.getpid ());
-  topics                = [test_topic];
-  offset_reset          = Kafka_consumer.Earliest;
-  auto_commit           = false;
-  on_rebalance          = None;
-  security              = Kafka_security.default;
-  partition_queue_depth = 64;
-  obs                   = None;
+  group_id     = Printf.sprintf "sun-test-%d" (Unix.getpid ());
+  topics       = [test_topic];
+  offset_reset = Kafka_consumer.Earliest;
+  auto_commit  = false;
+  on_rebalance = None;
+  security     = Kafka_security.default;
 }
 
 let test_poll_messages () =
@@ -112,80 +110,6 @@ let test_stream_api () =
         Alcotest.(check int) "stream yielded 4 messages" 4 (List.length !msgs);
         Kafka_consumer.close consumer
 
-(* ── Bounded per-partition queue / backpressure tests (no broker needed) ─── *)
-
-(* [test_partition_queue_bounded] verifies that [Eio.Stream.create n] with a
-   small [n] actually bounds the per-partition queue.  We use a fake consumer
-   that never receives Kafka messages — instead we directly exercise the queue
-   depth by populating an [Eio.Stream.t] of the same bounded size and checking
-   that [Eio.Stream.length] never exceeds the limit while messages are draining.
-
-   This is a pure Eio unit test: it does NOT require a live broker.  It models
-   the same semantics as the routing loop in [consume_partitioned]:
-     - producer fiber: adds messages until the stream would block
-     - consumer fiber: takes messages one-by-one with a yield between each
-   We assert that (a) the stream never holds more than [queue_depth] items at
-   once, and (b) all produced messages eventually reach the consumer. *)
-let test_partition_queue_bounded () =
-  Eio_main.run @@ fun env ->
-    let queue_depth = 4 in
-    let n_messages  = 20 in
-    let stream      = Eio.Stream.create queue_depth in
-    let received    = ref 0 in
-    let max_depth   = ref 0 in
-
-    Eio.Switch.run (fun sw ->
-      (* Producer fiber: adds n_messages then signals done via a sentinel. *)
-      Eio.Fiber.fork ~sw (fun () ->
-        for i = 0 to n_messages - 1 do
-          Eio.Stream.add stream i   (* blocks when stream is full *)
-        done
-      );
-
-      (* Consumer fiber: drains stream slowly, recording max observed depth. *)
-      Eio.Fiber.fork ~sw (fun () ->
-        while !received < n_messages do
-          let depth = Eio.Stream.length stream in
-          if depth > !max_depth then max_depth := depth;
-          ignore (Eio.Stream.take stream);
-          incr received;
-          Eio.Time.sleep env#clock 0.0   (* yield so producer can run *)
-        done
-      )
-    );
-
-    Alcotest.(check int) "all messages consumed" n_messages !received;
-    (* The maximum observed depth must not exceed the declared bound. *)
-    if !max_depth > queue_depth then
-      Alcotest.failf
-        "partition queue exceeded bound: max_depth=%d queue_depth=%d"
-        !max_depth queue_depth
-
-(* [test_partition_queue_obs_gauge] verifies that when an [Obs.t] handle is
-   provided via [config.obs], no exception is raised and the gauge registration
-   path runs without error.  We use the noop backend so no real metrics sink is
-   required; the goal is to confirm the registration and call-site compile and
-   execute correctly. *)
-let test_partition_queue_obs_gauge () =
-  Eio_main.run @@ fun env ->
-    let obs =
-      Obs.create
-        ~service:"test-consumer"
-        ~mono_clock:env#mono_clock
-        ~backend:Obs.noop
-    in
-    (* Register the same gauge the consumer would register. *)
-    let gauge =
-      Obs.register_gauge obs
-        ~name:"kafka_partition_queue_depth"
-        ~help:"Current number of messages buffered in the per-partition queue"
-        ~label_names:["topic"; "partition"]
-    in
-    (* Simulate emitting a few depth readings — must not raise. *)
-    gauge ~labels:[("topic", "test-topic"); ("partition", "0")] 3.0;
-    gauge ~labels:[("topic", "test-topic"); ("partition", "0")] 0.0;
-    Alcotest.(check pass) "obs gauge registration and emission succeed" () ()
-
 let () =
   let open Alcotest in
   run "kafka_consumer_integration" [
@@ -193,9 +117,5 @@ let () =
       test_case "poll messages"    `Slow test_poll_messages;
       test_case "consume with ack" `Slow test_consume_with_ack;
       test_case "stream api"       `Slow test_stream_api;
-    ];
-    "backpressure", [
-      test_case "partition queue bounded"   `Quick test_partition_queue_bounded;
-      test_case "partition queue obs gauge" `Quick test_partition_queue_obs_gauge;
     ];
   ]
