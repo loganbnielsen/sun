@@ -30,13 +30,12 @@ let contains haystack needle =
     go 0
 
 let read_cmdline pid =
-  let tmp = Filename.temp_file "sun-ps-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
-  let ic = open_in tmp in
-  let s = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  s
+  Sun_cli_shell.with_temp_file "sun-ps-" ".tmp" (fun tmp ->
+    ignore (Sys.command (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+    let ic = open_in tmp in
+    let s = String.trim (In_channel.input_all ic) in
+    close_in ic;
+    s)
 
 let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
 let script_file name = Printf.sprintf "/tmp/sun-pf-%s.sh" name
@@ -157,17 +156,16 @@ let pid_owning_port local_port =
   (* ss -tlnp prints lines like:
        LISTEN 0 4096 0.0.0.0:8080 0.0.0.0:* users:(("kubectl",pid=12345,...))
      We grab the users field and extract the pid. *)
-  let tmp = Filename.temp_file "sun-ss-" ".tmp" in
-  ignore (Sys.command
-    (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
-  let ic = open_in tmp in
-  let content = In_channel.input_all ic in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  (* Extract pid=<N> from the users:((...)) field — no Str dependency needed *)
-  let digits = extract_after_prefix content "pid=" in
-  if digits = "" then None
-  else (try Some (int_of_string digits) with _ -> None)
+  Sun_cli_shell.with_temp_file "sun-ss-" ".tmp" (fun tmp ->
+    ignore (Sys.command
+      (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
+    let ic = open_in tmp in
+    let content = In_channel.input_all ic in
+    close_in ic;
+    (* Extract pid=<N> from the users:((...)) field — no Str dependency needed *)
+    let digits = extract_after_prefix content "pid=" in
+    if digits = "" then None
+    else (try Some (int_of_string digits) with _ -> None))
 
 (** Parse a null-delimited /proc/<pid>/cmdline into a string list. *)
 let read_proc_cmdline pid =
@@ -180,14 +178,13 @@ let read_proc_cmdline pid =
     List.filter (fun s -> s <> "") (String.split_on_char '\x00' raw)
   with _ ->
     (* Fall back to ps if /proc is unavailable *)
-    let tmp = Filename.temp_file "sun-ps-" ".tmp" in
-    ignore (Sys.command
-      (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
-    let ic = open_in tmp in
-    let s = String.trim (In_channel.input_all ic) in
-    close_in ic;
-    (try Sys.remove tmp with _ -> ());
-    String.split_on_char ' ' s
+    Sun_cli_shell.with_temp_file "sun-ps-" ".tmp" (fun tmp ->
+      ignore (Sys.command
+        (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+      let ic = open_in tmp in
+      let s = String.trim (In_channel.input_all ic) in
+      close_in ic;
+      String.split_on_char ' ' s)
 
 (** Parse the arg list from a [kubectl port-forward -n <ns> svc/<svc> ...]
     invocation.  Returns [(namespace, service)] or raises [Not_found]. *)
@@ -286,13 +283,12 @@ let deploy_state_configmap_name workspace =
    guard is advisory; missing state never blocks a first deploy. *)
 let load_deployed_groups workspace =
   let name = deploy_state_configmap_name workspace in
-  let path = Filename.temp_file "sun-groups-" ".txt" in
-  let cmd = Printf.sprintf
-    "kubectl get configmap %s -n default \
-     -o jsonpath='{.data.consumer_groups}' 2>/dev/null > %s"
-    (Filename.quote name) (Filename.quote path)
-  in
-  let groups =
+  Sun_cli_shell.with_temp_file "sun-groups-" ".txt" (fun path ->
+    let cmd = Printf.sprintf
+      "kubectl get configmap %s -n default \
+       -o jsonpath='{.data.consumer_groups}' 2>/dev/null > %s"
+      (Filename.quote name) (Filename.quote path)
+    in
     if Sys.command cmd <> 0 then []
     else begin
       let ic = open_in path in
@@ -301,10 +297,7 @@ let load_deployed_groups workspace =
       String.split_on_char '\n' content
       |> List.map String.trim
       |> List.filter (fun s -> s <> "")
-    end
-  in
-  (try Sys.remove path with _ -> ());
-  groups
+    end)
 
 (* Persist the current consumer groups to the sun-deploy-state ConfigMap. *)
 let save_deployed_groups workspace groups =
@@ -314,12 +307,11 @@ let save_deployed_groups workspace groups =
     {|{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"%s","namespace":"default"},"data":{"consumer_groups":"%s"}}|}
     (String.escaped name) (String.escaped value)
   in
-  let path = Filename.temp_file "sun-state-" ".json" in
-  let oc = open_out path in
-  output_string oc apply_json;
-  close_out oc;
-  ignore (Sun_process.run_argv ~echo:false ["kubectl"; "apply"; "-f"; path]);
-  (try Sys.remove path with _ -> ())
+  Sun_cli_shell.with_temp_file "sun-state-" ".json" (fun path ->
+    let oc = open_out path in
+    output_string oc apply_json;
+    close_out oc;
+    ignore (Sun_process.run_argv ~echo:false ["kubectl"; "apply"; "-f"; path]))
 
 (* Check for consumer group renames/removals between the last deployed state
    and the current plan.  Returns a list of group IDs that were present before
