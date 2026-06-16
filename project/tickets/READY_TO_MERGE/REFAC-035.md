@@ -49,3 +49,6 @@ Rewrite `discover_migrations` with `fold_dir` first (it's the simplest). Then re
 - The three `discover_*` functions no longer contain inline `ref []` + `Array.iter (Sys.readdir ...)` loops.
 - `dune build` passes.
 - `sun up` produces identical plan output (topics, migrations, schema subjects unchanged).
+
+## Review — automated checks passed
+fold_dir helper added; three discover_* functions refactored to use it; no inline ref[]+Array.iter(Sys.readdir) loops remain; all deployment_plan tests pass

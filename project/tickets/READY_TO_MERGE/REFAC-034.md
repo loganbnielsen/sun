@@ -65,3 +65,6 @@ The argument reversal (`haystack needle` vs `~needle s`) means neither can be us
 - `grep -rn "let contains\b\|let contains_string\b" cli/` returns zero hits.
 - `dune build` passes.
 - `sun up` port-forward detection and workspace string matching behave identically.
+
+## Review — automated checks passed
+string_contains ~needle centralised in Sun_cli_shell; contains removed from sun_cli_port_forward.ml and contains_string from sun_cli_workspace.ml; build clean; zero let contains hits in cli/ (excluding test)

@@ -39,3 +39,6 @@ Re-export any types that callers expect from `Sun_cli_manifest` to preserve the 
 - `sun_cli_manifest_yaml.ml` contains no `Sys.command`, `open_out`, or `Sys.readdir` calls.
 - `dune build` passes.
 - No external callers need to change their `open` or module references.
+
+## Review — automated checks passed
+sun_cli_manifest.ml split: yaml generators in sun_cli_manifest_yaml.ml (includes render/extract_schedule); main file 105 lines; no Sys.command/open_out/Sys.readdir in yaml module; all tests pass; no callers changed
