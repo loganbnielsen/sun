@@ -1,5 +1,0 @@
-(library
- (name sun_core)
- (wrapped false)
- (modules Sun_signal)
- (libraries eio eio.unix unix))

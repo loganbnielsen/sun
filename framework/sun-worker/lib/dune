@@ -1,4 +1,4 @@
 (library
  (name sun_worker)
  (wrapped false)
- (libraries eio eio.unix obs_eio kafka_eio_service kafka_eio_consumer sun_core))
+ (libraries eio eio.unix obs_eio kafka_eio_service kafka_eio_consumer))
