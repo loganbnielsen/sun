@@ -2,6 +2,8 @@
 id: REFAC-032
 type: refactor
 severity: low
+branch: REFAC-032/remove-cmd-ok
+worktree: /home/lbendtly/Code/sun-REFAC-032-remove-cmd-ok
 source: codebase simplification review 2026-06-15
 ---
 

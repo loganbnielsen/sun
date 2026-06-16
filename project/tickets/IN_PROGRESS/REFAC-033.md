@@ -2,6 +2,8 @@
 id: REFAC-033
 type: refactor
 severity: low
+branch: REFAC-033/remove-dup-read-file
+worktree: /home/lbendtly/Code/sun-REFAC-033-remove-dup-read-file
 source: codebase simplification review 2026-06-15
 ---
 

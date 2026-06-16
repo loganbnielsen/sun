@@ -2,6 +2,8 @@
 id: REFAC-038
 type: refactor
 severity: low
+branch: REFAC-038/use-scaffold-mkdir
+worktree: /home/lbendtly/Code/sun-REFAC-038-use-scaffold-mkdir
 source: codebase simplification review 2026-06-15
 ---
 
