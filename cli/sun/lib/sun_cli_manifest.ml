@@ -76,7 +76,7 @@ let scan_binding ~is_let binding content =
     if is_let then
       Printf.sprintf {|let +%s *= *"\([^"]*\)"|} (Str.quote binding)
     else
-      Printf.sprintf {|%s *= *"\([^"]*\)"|} (Str.quote binding)
+      Printf.sprintf {|\b%s *= *"\([^"]*\)"|} (Str.quote binding)
   in
   let re = Str.regexp pat in
   let lines = String.split_on_char '\n' content in
