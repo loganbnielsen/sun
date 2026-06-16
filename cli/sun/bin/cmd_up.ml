@@ -276,57 +276,6 @@ let find_repo_root () =
   in
   go (Sys.getcwd ())
 
-(* ── Consumer group change detection ─────────────────────────────────────── *)
-
-let deploy_state_configmap_name workspace =
-  Printf.sprintf "sun-deploy-state-%s" workspace
-
-(* Load the last-deployed consumer groups from a ConfigMap in the default
-   namespace.  Returns [] if the ConfigMap does not exist or kubectl fails — the
-   guard is advisory; missing state never blocks a first deploy. *)
-let load_deployed_groups workspace =
-  let name = deploy_state_configmap_name workspace in
-  let path = Filename.temp_file "sun-groups-" ".txt" in
-  let cmd = Printf.sprintf
-    "kubectl get configmap %s -n default \
-     -o jsonpath='{.data.consumer_groups}' 2>/dev/null > %s"
-    (Filename.quote name) (Filename.quote path)
-  in
-  let groups =
-    if Sys.command cmd <> 0 then []
-    else begin
-      let ic = open_in path in
-      let content = In_channel.input_all ic in
-      close_in ic;
-      String.split_on_char '\n' content
-      |> List.map String.trim
-      |> List.filter (fun s -> s <> "")
-    end
-  in
-  (try Sys.remove path with _ -> ());
-  groups
-
-(* Persist the current consumer groups to the sun-deploy-state ConfigMap. *)
-let save_deployed_groups workspace groups =
-  let name = deploy_state_configmap_name workspace in
-  let value = String.concat "\n" groups in
-  let apply_json = Printf.sprintf
-    {|{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"%s","namespace":"default"},"data":{"consumer_groups":"%s"}}|}
-    (String.escaped name) (String.escaped value)
-  in
-  let path = Filename.temp_file "sun-state-" ".json" in
-  let oc = open_out path in
-  output_string oc apply_json;
-  close_out oc;
-  ignore (Sun_process.run_argv ~echo:false ["kubectl"; "apply"; "-f"; path]);
-  (try Sys.remove path with _ -> ())
-
-(* Check for consumer group renames/removals between the last deployed state
-   and the current plan.  Returns a list of group IDs that were present before
-   but are absent now.  An empty list means no breaking change. *)
-let removed_consumer_groups ~prev ~next =
-  List.filter (fun g -> not (List.mem g next)) prev
-
 (* ── Pipeline ────────────────────────────────────────────────────────────── *)
 
 let run filter_path dry_run tag confirm_group_change =
@@ -383,9 +332,9 @@ let run filter_path dry_run tag confirm_group_change =
   (* Consumer group rename/removal guard.  Skipped in dry-run — no state is
      loaded or written, and no blocking question is asked. *)
   if not dry_run then begin
-    let prev_groups = load_deployed_groups workspace in
+    let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
     let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-    let removed = removed_consumer_groups ~prev:prev_groups ~next:next_groups in
+    let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
     if removed <> [] && not confirm_group_change then begin
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
@@ -518,7 +467,7 @@ let run filter_path dry_run tag confirm_group_change =
         "\nNote: %d migration file(s) found in db/migrations/ — run 'sun migrate' to apply.\n"
         n;
     (* Persist deployed consumer groups for future change detection. *)
-    save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups;
+    Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups;
     if !pf_failed then exit 1
   end
 
