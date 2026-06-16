@@ -32,24 +32,6 @@ type t = {
 
 let err i = Error (Kafka_error.of_int i)
 
-let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let conf, set, record_error, finalize = Kafka_conf_builder.make () in
-  set "bootstrap.servers" (String.concat "," cfg.brokers);
-  (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
-  (match Kafka_security.apply conf cfg.security with
-   | Error s -> record_error s
-   | Ok () -> ());
-  (match cfg.delivery_mode with
-   | At_most_once ->
-     set "acks" "0"
-   | At_least_once ->
-     set "acks" "all";
-     set "enable.idempotence" "true"
-   | Exactly_once { transaction_id } ->
-     set "acks" "all";
-     set "enable.idempotence" "true";
-     set "transactional.id" transaction_id);
-  finalize ()
 
 let get_or_create_topic t name =
   match Hashtbl.find_opt t.topic_cache name with
@@ -166,7 +148,23 @@ let create (cfg : config) ~sw =
     Eio_unix.Fd.use_exn "kafka_write_fd"
       (Eio_unix.Resource.fd write_sink) int_of_fd
   in
-  match conf_of_config cfg with
+  let conf, set, record_error, finalize = Kafka_conf_builder.make () in
+  set "bootstrap.servers" (String.concat "," cfg.brokers);
+  (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> record_error s
+   | Ok () -> ());
+  (match cfg.delivery_mode with
+   | At_most_once ->
+     set "acks" "0"
+   | At_least_once ->
+     set "acks" "all";
+     set "enable.idempotence" "true"
+   | Exactly_once { transaction_id } ->
+     set "acks" "all";
+     set "enable.idempotence" "true";
+     set "transactional.id" transaction_id);
+  match finalize () with
   | Error msg ->
     Printf.eprintf "kafka_producer: config error: %s\n%!" msg;
     Error Kafka_error.Application

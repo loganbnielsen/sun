@@ -1051,6 +1051,11 @@
           "date": "2026-06-15",
           "commit": "8e4e73c",
           "duration_s": 1.425
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "8d95ce7",
+          "duration_s": 1.421
         }
       ]
     },
@@ -1553,6 +1558,11 @@
           "date": "2026-06-15",
           "commit": "8e4e73c",
           "duration_s": 1.382
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "8d95ce7",
+          "duration_s": 1.389
         }
       ]
     },
@@ -2083,6 +2093,11 @@
           "date": "2026-06-15",
           "commit": "8e4e73c",
           "duration_s": 1.153
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "8d95ce7",
+          "duration_s": 1.144
         }
       ]
     },
@@ -2592,6 +2607,11 @@
           "date": "2026-06-15",
           "commit": "8e4e73c",
           "duration_s": 0.354
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "8d95ce7",
+          "duration_s": 0.352
         }
       ]
     },
@@ -3051,6 +3071,11 @@
           "date": "2026-06-15",
           "commit": "8e4e73c",
           "duration_s": 6.360
+        },
+        {
+          "date": "2026-06-15",
+          "commit": "8d95ce7",
+          "duration_s": 6.361
         }
       ]
     }
