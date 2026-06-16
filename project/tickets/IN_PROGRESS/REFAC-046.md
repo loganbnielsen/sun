@@ -3,6 +3,8 @@ id: REFAC-046
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-16
+branch: REFAC-046/split-cmd-pipeline
+worktree: ../sun-REFAC-046-split-cmd-pipeline
 ---
 
 Split monolithic `cmd_pipeline.ml` (663 lines) into focused library modules
