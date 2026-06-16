@@ -108,9 +108,9 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
   (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
      since that path does not touch the cluster directly). *)
   if not dry_run && emit_to = None then begin
-    let prev_groups = Cmd_up.load_deployed_groups workspace in
+    let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
     let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-    let removed = Cmd_up.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
+    let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
     if removed <> [] && not confirm_group_change then begin
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
@@ -179,7 +179,7 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
    | None when not dry_run ->
      Printf.printf "\nDone. %d service(s) deployed.\n" (List.length services);
      Printf.printf "Run 'sun status' to check pod health.\n";
-     Cmd_up.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
+     Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
    | None -> ())
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
