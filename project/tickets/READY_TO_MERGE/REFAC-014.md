@@ -60,3 +60,6 @@ Then replace every `Filename.temp_file` + manual `Sys.remove` pair in `cmd_up.ml
 - Temp files are cleaned up even when the body raises.
 - `dune build` passes.
 - `sun up --dry-run` and `sun cloud tf-plan` (or equivalent) behave identically.
+
+## Review — automated checks passed
+with_temp_file added to sun_cli_shell.ml using Fun.protect; all five Filename.temp_file call sites in cmd_up.ml and cmd_cloud.ml migrated to the helper; build clean; no wrapped true; project/tickets untouched in worktree branch
