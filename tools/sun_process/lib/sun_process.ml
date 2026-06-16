@@ -56,3 +56,17 @@ let run_ok ?(echo = true) cmd =
   let rc = run_rc ~echo cmd in
   if rc <> 0 then
     failwith (Printf.sprintf "command failed (exit %d): %s" rc cmd)
+
+(* Write [content] to a temp file, call [f] with the path, then always delete
+   the file — whether [f] returns normally or raises. *)
+let with_tmp_file prefix content f =
+  let path = Filename.temp_file prefix ".tmp" in
+  let oc = open_out path in
+  output_string oc content;
+  close_out oc;
+  Fun.protect ~finally:(fun () -> try Sys.remove path with _ -> ()) (fun () -> f path)
+
+(* Run a shell command and return (exit_code, stdout). Stderr is discarded. *)
+let capture_cmd cmd =
+  let r = run cmd in
+  (r.exit_code, r.stdout)

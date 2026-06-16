@@ -68,50 +68,25 @@ let redacted_result = function
     String.concat "\n" keys
   | Hosted_unavailable msg -> msg
 
-let run_command cmd =
-  let rc = Sys.command cmd in
-  if rc = 0 then Ok () else Error "kubectl command failed"
-
 let validation_error = function
   | Ok () -> Ok ()
   | Error msg -> Error msg
 
-let write_tmp content =
-  let path = Filename.temp_file "sun-secret-" ".yaml" in
-  let oc = open_out path in
-  output_string oc content;
-  close_out oc;
-  path
-
 let apply_manifest yaml =
-  let path = write_tmp yaml in
-  let cmd = Printf.sprintf "kubectl apply -f %s >/dev/null" (Filename.quote path) in
-  let result =
-    match run_command cmd with
-    | Ok () -> Ok ()
-    | Error _ as e -> e
-  in
-  (try Sys.remove path with _ -> ());
-  result
+  Sun_process.with_tmp_file "sun-secret-" yaml (fun path ->
+    let cmd = Printf.sprintf "kubectl apply -f %s >/dev/null" (Filename.quote path) in
+    if Sun_process.run_rc ~echo:false cmd = 0 then Ok ()
+    else Error "kubectl command failed")
 
 let get_named_secret_json ~name namespace =
-  let path = Filename.temp_file "sun-secret-get-" ".json" in
   let cmd = Printf.sprintf
-    "kubectl get secret %s -n %s -o json > %s 2>/dev/null"
+    "kubectl get secret %s -n %s -o json 2>/dev/null"
     (Filename.quote name)
     (Filename.quote namespace)
-    (Filename.quote path)
   in
-  let result =
-    if Sys.command cmd <> 0 then Ok None
-    else
-      let ic = open_in path in
-      let json = In_channel.input_all ic in
-      close_in ic;
-      Ok (Some (Yojson.Safe.from_string json))
-  in
-  (try Sys.remove path with _ -> ());
-  result
+  let r = Sun_process.run ~echo:false cmd in
+  if r.exit_code <> 0 then Ok None
+  else Ok (Some (Yojson.Safe.from_string r.stdout))
 
 let get_secret_json namespace =
   get_named_secret_json ~name:Sun_cli_manifest.runtime_secret_name namespace
@@ -127,32 +102,19 @@ let data_keys = function
    except the shared sun-secrets object, which is patched separately for
    Argo Rollout compatibility. *)
 let list_workload_secrets namespace =
-  let path = Filename.temp_file "sun-secret-ls-" ".txt" in
   let cmd = Printf.sprintf
     "kubectl get secrets -n %s \
      -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}' \
-     2>/dev/null > %s"
-    (Filename.quote namespace) (Filename.quote path)
+     2>/dev/null"
+    (Filename.quote namespace)
   in
-  let secrets =
-    if Sys.command cmd <> 0 then []
-    else begin
-      let ic = open_in path in
-      let content = In_channel.input_all ic in
-      close_in ic;
-      let suffix = "-secrets" in
-      let slen = String.length suffix in
-      String.split_on_char '\n' content
-      |> List.map String.trim
-      |> List.filter (fun name ->
-           name <> "" &&
-           name <> Sun_cli_manifest.runtime_secret_name &&
-           String.length name >= slen &&
-           String.sub name (String.length name - slen) slen = suffix)
-    end
-  in
-  (try Sys.remove path with _ -> ());
-  secrets
+  let suffix = "-secrets" in
+  let slen = String.length suffix in
+  Sun_process.lines ~echo:false cmd
+  |> List.filter (fun name ->
+       name <> Sun_cli_manifest.runtime_secret_name &&
+       String.length name >= slen &&
+       String.sub name (String.length name - slen) slen = suffix)
 
 let apply_to_named_secret ~secret_name ~namespace ~key ~value =
   match get_named_secret_json ~name:secret_name namespace with
@@ -174,8 +136,7 @@ let rollout_restart namespace =
     "kubectl rollout restart deployment -n %s >/dev/null 2>/dev/null || true"
     (Filename.quote namespace)
   in
-  let _ = Sys.command cmd in
-  ()
+  ignore (Sun_process.run_rc ~echo:false cmd)
 
 let hosted_stub _env =
   Error "hosted secret management will use the Sun control-plane API; no hosted endpoint is configured yet"
@@ -274,7 +235,8 @@ let delete ~env ~workspace:_ ~namespaces ~key =
               (Filename.quote namespace)
               (Filename.quote patch)
             in
-            run_command cmd
+            if Sun_process.run_rc ~echo:false cmd = 0 then Ok ()
+            else Error "kubectl command failed"
           in
           let rec delete_all = function
             | [] -> Ok (Deleted namespaces)
