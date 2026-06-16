@@ -40,6 +40,3 @@ The demo binary exercises useful behavior, but it is not a dune/Alcotest test ta
 - `./platform/local/scripts/run_tests.sh e2e` runs the new e2e test target and reports named test failures.
 - The old demo still builds and can still be run manually.
 - The new tests fail if worker persistence, Kafka consumption, or service request handling is broken.
-
-## Review — automated checks passed
-All 5 acceptance criteria met: test file exists with 5 Alcotest test cases, dune registers test_e2e, run_e2e() calls dune test (not dune exec), demo and retry_demo still build, project/tickets/ untouched

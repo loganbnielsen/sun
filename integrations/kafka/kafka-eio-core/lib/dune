@@ -1,7 +1,7 @@
 (library
  (name kafka_eio_core)
  (wrapped false)
- (modules kafka_raw kafka_error kafka_consumer_handle kafka_security)
+ (modules kafka_raw kafka_error kafka_consumer_handle kafka_security kafka_conf_builder)
  (foreign_stubs
   (language c)
   (names kafka_stubs))

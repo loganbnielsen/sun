@@ -34,6 +34,3 @@ This is inside `consume_partitioned`, so a slow handler or long retry delay can 
 - A slow handler cannot enqueue more than the configured per-partition limit.
 - Tests cover queue saturation and prove messages are still processed in partition order.
 - Existing Kafka integration tests continue to pass.
-
-## Review — automated checks passed
-Bounded per-partition Kafka consumer queues implemented with configurable depth (default 64), natural backpressure via Eio.Stream blocking, optional obs gauge, and two new Quick unit tests covering queue saturation and metrics path.

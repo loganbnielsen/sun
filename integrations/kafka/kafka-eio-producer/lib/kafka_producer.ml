@@ -32,33 +32,6 @@ type t = {
 
 let err i = Error (Kafka_error.of_int i)
 
-let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let conf = Kafka_raw.conf_new () in
-  let first_err = ref None in
-  let set k v =
-    if !first_err = None then
-      match Kafka_raw.conf_set conf k v with
-      | Ok ()   -> ()
-      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
-  in
-  set "bootstrap.servers" (String.concat "," cfg.brokers);
-  (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
-  (match Kafka_security.apply conf cfg.security with
-   | Error s -> if !first_err = None then first_err := Some s
-   | Ok () -> ());
-  (match cfg.delivery_mode with
-   | At_most_once ->
-     set "acks" "0"
-   | At_least_once ->
-     set "acks" "all";
-     set "enable.idempotence" "true"
-   | Exactly_once { transaction_id } ->
-     set "acks" "all";
-     set "enable.idempotence" "true";
-     set "transactional.id" transaction_id);
-  match !first_err with
-  | Some msg -> Error msg
-  | None     -> Ok conf
 
 let get_or_create_topic t name =
   match Hashtbl.find_opt t.topic_cache name with
@@ -175,7 +148,23 @@ let create (cfg : config) ~sw =
     Eio_unix.Fd.use_exn "kafka_write_fd"
       (Eio_unix.Resource.fd write_sink) int_of_fd
   in
-  match conf_of_config cfg with
+  let conf, set, record_error, finalize = Kafka_conf_builder.make () in
+  set "bootstrap.servers" (String.concat "," cfg.brokers);
+  (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> record_error s
+   | Ok () -> ());
+  (match cfg.delivery_mode with
+   | At_most_once ->
+     set "acks" "0"
+   | At_least_once ->
+     set "acks" "all";
+     set "enable.idempotence" "true"
+   | Exactly_once { transaction_id } ->
+     set "acks" "all";
+     set "enable.idempotence" "true";
+     set "transactional.id" transaction_id);
+  match finalize () with
   | Error msg ->
     Printf.eprintf "kafka_producer: config error: %s\n%!" msg;
     Error Kafka_error.Application
