@@ -34,3 +34,6 @@ The `to_string` function converts a variant back to an integer only so it can ca
 - `to_string` is a one-liner in the source.
 - `wc -l integrations/kafka/kafka-eio-core/lib/kafka_error.ml` reports ~130 fewer lines.
 - `dune build integrations/kafka/` and `dune test integrations/kafka/` pass.
+
+## Review — automated checks passed
+to_int extracted as private function; to_string is a one-liner delegating to Kafka_raw.err2str; build and tests clean; mli does not expose to_int
