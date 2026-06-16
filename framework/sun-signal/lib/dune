@@ -1,0 +1,4 @@
+(library
+ (name sun_signal)
+ (wrapped false)
+ (libraries unix eio eio.unix))
