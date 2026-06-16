@@ -45,3 +45,6 @@ Neither version handles exceptions (channel stays open on error). Neither is the
 
 - `grep -rn "let read_file" cli/sun/lib/` returns exactly one hit (in `sun_cli_shell.ml`).
 - `dune build` passes.
+
+## Review — automated checks passed
+Exactly one read_file remains in sun_cli_shell.ml, workspace.ml caller updated, build passes

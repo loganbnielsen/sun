@@ -49,3 +49,6 @@ If REFAC-021 is already merged before this ticket is picked up: find `ensure_sta
 - `grep -rn "mkdir -p.*state_dir\|Sys.command.*mkdir" cli/sun/` returns zero hits.
 - `dune build` passes.
 - `sun up` and `sun dev up` still create the state directory on first run.
+
+## Review — automated checks passed
+sun_cli_state.ml uses Sun_cli_scaffold.mkdir_p, mli exported, build passes

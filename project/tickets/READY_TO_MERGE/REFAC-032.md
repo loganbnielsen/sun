@@ -33,3 +33,6 @@ Three bin files define a local `cmd_ok` alias with divergent implementations:
 
 - `grep -rn "^let cmd_ok" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
+
+## Review — automated checks passed
+All three cmd_ok definitions removed, build passes, diff scoped correctly
