@@ -49,6 +49,16 @@ val ingress_doc        : ?ingress_host:string -> ?ingress_path:string -> string 
 val network_policy_doc : string -> string -> string
 val cronjob_doc        : ?secret_keys:string list -> string -> string -> string -> string -> string
 
+(** Render a (namespace_yaml, workload_yaml) pair for one service.
+    [extra_env] is appended to the ConfigMap data block. *)
+val render
+  :  ?toml:Sun_cli_toml.t
+  -> service
+  -> ns:string
+  -> name:string
+  -> image:string
+  -> string * string
+
 exception Deploy_failed of string
 
 val apply     : string * string -> dry_run:bool -> unit

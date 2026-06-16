@@ -513,3 +513,54 @@ spec:
                 cpu: 250m
                 memory: 256Mi|} name ns schedule name name name image secret_env_section name name
 
+let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
+  let replicas         = Option.value toml.replicas ~default:1 in
+  let cpu              = Option.value toml.cpu      ~default:"100m" in
+  let memory           = Option.value toml.memory   ~default:"128Mi" in
+  let rollout_strategy = Option.value toml.rollout_strategy
+                           ~default:Sun_cli_toml.RollingUpdate in
+  let progressive_delivery = toml.progressive_delivery in
+  let extra_labels     = toml.extra_labels in
+  let ingress_host     = Option.value toml.ingress_host ~default:"" in
+  let ingress_path     = Option.value toml.ingress_path ~default:"/" in
+  let config_hash      = config_hash toml.env_config in
+  let ns_yaml = namespace_doc ns in
+  let workload_yaml =
+    let extra_secrets = List.map (fun k -> (k, "")) toml.Sun_cli_toml.secret_keys in
+    let common = [
+      service_account_doc ns name;
+      configmap_doc ~extra_env:toml.env_config ns name;
+      secret_doc ~extra_secrets ns name;
+      network_policy_doc ns name;
+    ] in
+    let resources = match svc.prim, progressive_delivery with
+      | (Svc | Worker), Some pd ->
+        let ports  = svc.prim = Svc in
+        let probes = svc.prim = Svc in
+        let rollout = rollout_doc ~extra_labels ~secret_keys:toml.Sun_cli_toml.secret_keys ~config_hash ~ports ~probes ~replicas ~cpu ~memory ns name image pd in
+        (match pd with
+         | Sun_cli_toml.Blue_green ->
+           [ rollout
+           ; blue_green_service_docs ns name
+           ; (if ports then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active") else "")
+           ]
+           |> List.filter (fun s -> s <> "")
+         | Sun_cli_toml.Canary _ ->
+           let svc_doc = if ports then [service_doc ns name] else [] in
+           let ingr    = if ports then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
+           [ rollout ] @ svc_doc @ ingr)
+      | Svc, None ->
+        [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
+            ~ports:true ~probes:true ~replicas ~cpu ~memory ns name image
+        ; service_doc ns name
+        ; ingress_doc ~ingress_host ~ingress_path ns name ]
+      | Worker, None ->
+        [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
+            ~ports:false ~probes:false ~replicas ~cpu ~memory ns name image ]
+      | Fn, _ ->
+        let schedule = extract_schedule ~dir:svc.dir ~name:svc.name in
+        [ cronjob_doc ns name image schedule ]
+    in
+    String.concat "\n" (common @ resources)
+  in
+  (ns_yaml, workload_yaml)
