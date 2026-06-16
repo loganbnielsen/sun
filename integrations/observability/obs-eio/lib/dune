@@ -1,5 +1,5 @@
 (library
  (name obs_eio)
  (wrapped false)
- (modules obs_trace obs_metrics obs)
- (libraries eio eio.unix unix mtime))
+ (modules obs_trace obs_metrics obs obs_tls)
+ (libraries eio eio.unix unix mtime tls-eio tls x509 domain-name ptime uri))
