@@ -610,7 +610,7 @@ let fake_builder ?(digest = "sha256:deadbeef") () = {
 }
 
 let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_run output_json =
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = Filename.basename (Sys.getcwd ()) in
   let sha = match image_tag with Some t -> t | None -> git_sha () in
 
   if dry_run then begin
@@ -742,7 +742,7 @@ let deploy_cmd =
 (* ── cloud releases ──────────────────────────────────────────────────────── *)
 
 let cloud_releases project_id_opt page page_size =
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = Filename.basename (Sys.getcwd ()) in
   let project_id = match project_id_opt with
     | Some id -> id
     | None -> Sun_cli_registry.project_id_of_workspace workspace
@@ -806,7 +806,7 @@ let releases_cmd =
 (* ── cloud logs ──────────────────────────────────────────────────────────── *)
 
 let cloud_logs release_id =
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = Filename.basename (Sys.getcwd ()) in
   let project_id = Sun_cli_registry.project_id_of_workspace workspace in
   with_registry (fun ops ->
     let resp = Sun_cli_control_plane.handle ops

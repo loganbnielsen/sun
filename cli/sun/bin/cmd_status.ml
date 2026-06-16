@@ -3,6 +3,7 @@ open Cmdliner
 let cmd_ok cmd =
   Sys.command (Printf.sprintf "%s >/dev/null 2>&1" cmd) = 0
 
+let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let discover_domains () =
   let app_dir = "app" in
@@ -20,7 +21,7 @@ let discover_domains () =
   end
 
 let run filter_domain =
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = workspace_name () in
   let all_domains = discover_domains () in
   let domains = match filter_domain with
     | None   -> all_domains

@@ -5,6 +5,7 @@
 open Cmdliner
 open Sun_cli_manifest
 
+let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
   let tmp = Filename.temp_file "sun-" ".tmp" in
@@ -53,7 +54,7 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
   let secret_backend =
     parse_secret_backend secret_backend_str store_ref store_kind key_prefix refresh_interval emit_to
   in
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = workspace_name () in
   let sha       = match image_tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
 
