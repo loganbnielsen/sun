@@ -88,22 +88,8 @@ let run filter_path dry_run tag confirm_group_change =
 
   (* Consumer group rename/removal guard.  Skipped in dry-run — no state is
      loaded or written, and no blocking question is asked. *)
-  if not dry_run then begin
-    let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
-    let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-    let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-    if removed <> [] && not confirm_group_change then begin
-      Printf.eprintf
-        "\nwarning: the following consumer group(s) are no longer present in \
-         this deploy plan:\n";
-      List.iter (fun g -> Printf.eprintf "  - %s\n" g) removed;
-      Printf.eprintf
-        "\nMessages produced while the old group is absent will be consumed\n\
-         from the latest offset when the group is re-added, silently skipping\n\
-         any backlog.  Pass --confirm-group-change to acknowledge and proceed.\n\n";
-      exit 1
-    end
-  end;
+  if not dry_run then
+    Sun_cli_deployment_state.check_consumer_group_change ~workspace ~plan ~confirm_group_change;
 
   (* The multi-stage Dockerfile compiles from source inside ubuntu-24.04, so
      vendor/ symlinks (which point outside the workspace) must be resolved into
@@ -241,13 +227,8 @@ let tag_arg =
        info ["tag"] ~docv:"TAG"
          ~doc:"Docker image tag (default: short git SHA)")
 
-let confirm_group_change_flag =
-  Arg.(value & flag &
-       info ["confirm-group-change"]
-         ~doc:"Acknowledge that consumer group IDs have changed and proceed with deploy")
-
 let cmd =
   Cmd.v
     (Cmd.info "up"
        ~doc:"Build images, synthesize k8s manifests, and deploy to the cluster")
-    Term.(const run $ path_arg $ dry_run_flag $ tag_arg $ confirm_group_change_flag)
+    Term.(const run $ path_arg $ dry_run_flag $ tag_arg $ Sun_cli_deploy_args.confirm_group_change_flag)
