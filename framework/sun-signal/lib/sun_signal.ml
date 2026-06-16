@@ -16,6 +16,9 @@ let await_signal r w =
       let buf = Bytes.create 1 in
       (try ignore (Unix.read r buf 0 1) with _ -> ()))
 
+(* Uses fork_daemon so the enclosing switch can close normally (e.g. after the
+   server stops) without waiting for the signal fiber to drain. Fun.protect
+   guarantees the pipe is closed whether the fiber exits or is cancelled. *)
 let install_promise_handler ~sw resolver =
   let r, w = setup_pipe () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
