@@ -103,19 +103,6 @@ let default_on_decode_error e ~raw_bytes:_ ~ack =
   ack ();
   Kafka_consumer.Continue
 
-let decode_dispatch raw_msg topic ~on_ok ~on_error =
-  let raw_bytes = raw_msg.Kafka_consumer.value in
-  match decode_wire raw_bytes with
-  | Error e -> on_error e ~raw_bytes
-  | Ok (_schema_id, json_str) ->
-    match (try Ok (Yojson.Safe.from_string json_str)
-           with exn -> Error (Printexc.to_string exn)) with
-    | Error e -> on_error ("json parse: " ^ e) ~raw_bytes
-    | Ok json ->
-      match topic.decode json with
-      | Error e -> on_error ("message decode: " ^ e) ~raw_bytes
-      | Ok msg  -> on_ok msg
-
 let consume svc topic ~group_id ~sw
     ?(on_ready = ignore)
     ?(on_decode_error = default_on_decode_error)
@@ -138,9 +125,20 @@ let consume svc topic ~group_id ~sw
   | Ok consumer ->
     let decode_and_handle raw_msg ~ack =
       let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
-      decode_dispatch raw_msg topic
-        ~on_ok:(fun msg -> handler msg ~ack ~trace_ctx)
-        ~on_error:(fun e ~raw_bytes -> on_decode_error e ~raw_bytes ~ack)
+      let raw_bytes = raw_msg.Kafka_consumer.value in
+      match decode_wire raw_bytes with
+      | Error e -> on_decode_error e ~raw_bytes ~ack
+      | Ok (_schema_id, json_str) ->
+        let json_result =
+          try Ok (Yojson.Safe.from_string json_str)
+          with exn -> Error (Printexc.to_string exn)
+        in
+        match json_result with
+        | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
+        | Ok json ->
+          match topic.decode json with
+          | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
+          | Ok msg  -> handler msg ~ack ~trace_ctx
     in
     let result = Kafka_consumer.consume consumer ~handler:decode_and_handle in
     Kafka_consumer.close consumer;
@@ -172,9 +170,20 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
      | Ok consumer ->
        let decode_and_handle raw_msg ~ack =
          let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
-         decode_dispatch raw_msg topic
-           ~on_ok:(fun msg -> handler msg ~ack ~trace_ctx)
-           ~on_error:(fun e ~raw_bytes -> on_decode_error e ~raw_bytes ~ack)
+         let raw_bytes = raw_msg.Kafka_consumer.value in
+         match decode_wire raw_bytes with
+         | Error e -> on_decode_error e ~raw_bytes ~ack
+         | Ok (_schema_id, json_str) ->
+           let json_result =
+             try Ok (Yojson.Safe.from_string json_str)
+             with exn -> Error (Printexc.to_string exn)
+           in
+           match json_result with
+           | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
+           | Ok json ->
+             match topic.decode json with
+             | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
+             | Ok msg  -> handler msg ~ack ~trace_ctx
        in
        let result =
          Kafka_consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
