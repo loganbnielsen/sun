@@ -2,6 +2,8 @@
 id: REFAC-022
 type: refactor
 severity: low
+branch: REFAC-022/centralise-check-tool
+worktree: /home/lbendtly/Code/sun-REFAC-022-centralise-check-tool
 source: codebase simplification review 2026-06-15
 ---
 

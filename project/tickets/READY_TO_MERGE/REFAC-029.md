@@ -39,3 +39,6 @@ The YAML rendering logic is non-trivial (~150 lines) and is a natural unit to te
 - `sun_cli_helm.ml` has unit tests for `render_values` (no broker or Kubernetes needed).
 - `dune build` passes.
 - `sun up --dry-run` output is identical before and after.
+
+## Review — automated checks passed
+cmd_up.ml reduced to 115 lines via Sun_cli_docker and Sun_cli_deploy extraction; build passes; diff scoped; Fun.protect cleanup present

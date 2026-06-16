@@ -2,6 +2,8 @@
 id: REFAC-019
 type: refactor
 severity: medium
+branch: REFAC-019/centralise-workspace-name
+worktree: /home/lbendtly/Code/sun-REFAC-019-centralise-workspace-name
 source: codebase simplification review 2026-06-15
 ---
 

@@ -2,6 +2,8 @@
 id: REFAC-020
 type: refactor
 severity: medium
+branch: REFAC-020/unify-git-sha
+worktree: /home/lbendtly/Code/sun-REFAC-020-unify-git-sha
 source: codebase simplification review 2026-06-15
 ---
 
