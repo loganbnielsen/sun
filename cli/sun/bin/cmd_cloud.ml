@@ -509,14 +509,6 @@ let with_registry f =
 
 (* ── cloud deploy ────────────────────────────────────────────────────────── *)
 
-let git_sha () =
-  let tmp = Filename.temp_file "sun-" ".tmp" in
-  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
-  let ic = open_in tmp in
-  let s = String.trim (In_channel.input_all ic) in
-  close_in ic;
-  (try Sys.remove tmp with _ -> ());
-  if s = "" then "dev" else s
 
 let get_ok_or_exit = function
   | Ok v -> v
@@ -611,7 +603,7 @@ let fake_builder ?(digest = "sha256:deadbeef") () = {
 
 let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_run output_json =
   let workspace = Filename.basename (Sys.getcwd ()) in
-  let sha = match image_tag with Some t -> t | None -> git_sha () in
+  let sha = match image_tag with Some t -> t | None -> Sun_cli_shell.git_sha () in
 
   if dry_run then begin
     let project_id = Sun_cli_registry.project_id_of_workspace workspace in

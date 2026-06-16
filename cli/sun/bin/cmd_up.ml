@@ -12,9 +12,6 @@ let wait_for_rollout ~namespace ~name =
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
-let git_sha () =
-  let s = Sun_cli_shell.run_cmd_to_string "git rev-parse --short HEAD" in
-  if s = "" then "dev" else s
 
 let current_kube_context () =
   Sun_cli_shell.run_cmd_to_string "kubectl config current-context"
@@ -37,7 +34,7 @@ let find_repo_root () =
 
 let run filter_path dry_run tag confirm_group_change =
   let workspace = workspace_name () in
-  let sha       = match tag with Some t -> t | None -> git_sha () in
+  let sha       = match tag with Some t -> t | None -> Sun_cli_shell.git_sha () in
   let services  = discover_services ~filter_path in
   let repo_root = find_repo_root () in
   let pf_failed = ref false in
