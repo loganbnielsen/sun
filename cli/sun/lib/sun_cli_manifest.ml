@@ -231,11 +231,31 @@ let render_extra_labels labels =
 
 (* ── Shared pod template ─────────────────────────────────────────────────── *)
 
+(* Security-context fields — defined once, rendered at caller-specified indent. *)
+let pod_security_context ~pad =
+  let i  = String.make pad       ' ' in
+  let i2 = String.make (pad + 2) ' ' in
+  let i4 = String.make (pad + 4) ' ' in
+  Printf.sprintf
+    "%ssecurityContext:\n%srunAsNonRoot: true\n%srunAsUser: 65534\n\
+     %srunAsGroup: 65534\n%sseccompProfile:\n%stype: RuntimeDefault"
+    i i2 i2 i2 i2 i4
+
+let container_security_context ~pad =
+  let i  = String.make pad       ' ' in
+  let i2 = String.make (pad + 2) ' ' in
+  Printf.sprintf
+    "%ssecurityContext:\n%sallowPrivilegeEscalation: false\n\
+     %sreadOnlyRootFilesystem: true"
+    i i2 i2
+
 (** [render_pod_template] produces the shared [template:] YAML block used by
     both [deployment_doc] (Deployment) and [rollout_doc] (Argo Rollout).
     Security-context fields appear here and nowhere else. *)
 let render_pod_template ~name ~image ~ports_section ~probe_section
     ~extra_labels_section ~secret_env_section ~cpu ~memory ~config_hash =
+  let pod_sec = pod_security_context ~pad:6 in
+  let ctr_sec = container_security_context ~pad:8 in
   f {|  template:
     metadata:
       labels:
@@ -244,19 +264,12 @@ let render_pod_template ~name ~image ~ports_section ~probe_section
         sun.dev/config-hash: "%s"
     spec:
       serviceAccountName: %s
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
-        seccompProfile:
-          type: RuntimeDefault
+%s
       containers:
       - name: %s
         image: %s
         imagePullPolicy: Always
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+%s
 %s%s        envFrom:
         - configMapRef:
             name: %s-env
@@ -269,7 +282,7 @@ let render_pod_template ~name ~image ~ports_section ~probe_section
           limits:
             cpu: %s
             memory: %s
-%s|} name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
+%s|} name extra_labels_section config_hash name pod_sec name image ctr_sec ports_section secret_env_section name name cpu memory cpu memory probe_section
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
@@ -501,8 +514,44 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: monitoring|} name ns name
 
+(** [render_job_pod_template] produces the [template:] YAML block used by
+    [cronjob_doc].  It mirrors [render_pod_template] but uses the deeper
+    indentation required inside a CronJob's [jobTemplate.spec] and adds
+    [restartPolicy: OnFailure].  Security-context fields appear here and in
+    [render_pod_template] only — never inline in the callers. *)
+let render_job_pod_template ~name ~image ~secret_env_section ~cpu ~memory =
+  let pod_sec = pod_security_context ~pad:10 in
+  let ctr_sec = container_security_context ~pad:12 in
+  f {|        metadata:
+          labels:
+            app: %s
+        spec:
+          serviceAccountName: %s
+          restartPolicy: OnFailure
+%s
+          containers:
+          - name: %s
+            image: %s
+            imagePullPolicy: Always
+%s
+%s
+            envFrom:
+            - configMapRef:
+                name: %s-env
+            - secretRef:
+                name: %s-secrets
+            resources:
+              requests:
+                cpu: %s
+                memory: %s
+              limits:
+                cpu: %s
+                memory: %s|} name name pod_sec name image ctr_sec secret_env_section name name cpu memory cpu memory
+
 let cronjob_doc ?(secret_keys = []) ns name image schedule =
   let secret_env_section = render_secret_key_refs ~name secret_keys in
+  let job_pod_template = render_job_pod_template ~name ~image ~secret_env_section
+      ~cpu:"100m" ~memory:"128Mi" in
   f {|---
 apiVersion: batch/v1
 kind: CronJob
@@ -515,38 +564,7 @@ spec:
     spec:
       backoffLimit: 3
       template:
-        metadata:
-          labels:
-            app: %s
-        spec:
-          serviceAccountName: %s
-          restartPolicy: OnFailure
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
-            runAsGroup: 65534
-            seccompProfile:
-              type: RuntimeDefault
-          containers:
-          - name: %s
-            image: %s
-            imagePullPolicy: Always
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
-%s
-            envFrom:
-            - configMapRef:
-                name: %s-env
-            - secretRef:
-                name: %s-secrets
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 250m
-                memory: 256Mi|} name ns schedule name name name image secret_env_section name name
+%s|} name ns schedule job_pod_template
 
 let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
   let replicas         = Option.value toml.replicas ~default:1 in
