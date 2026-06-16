@@ -42,3 +42,6 @@ Every copy is identical. There is already a natural shared home: `cli/sun/lib/su
 - `grep -rn "workspace_name\|Filename.basename.*getcwd" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun up`, `sun deploy`, `sun logs`, `sun status`, `sun secret`, `sun rollback` all still resolve the workspace name correctly.
+
+## Review — automated checks passed
+workspace_name() centralised in Sun_cli_shell; eight local definitions removed from bin files; build clean; zero let workspace_name hits in bin/
