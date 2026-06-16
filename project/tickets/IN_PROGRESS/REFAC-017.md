@@ -3,6 +3,8 @@ id: REFAC-017
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-15
+branch: REFAC-017/decompose-kafka-service
+worktree: /home/lbendtly/Code/sun-REFAC-017-decompose-kafka-service
 ---
 
 Decompose kafka_service.ml (679 lines, 6 concerns) into focused sub-modules
