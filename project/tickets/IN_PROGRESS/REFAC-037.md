@@ -3,6 +3,8 @@ id: REFAC-037
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-037/workspace-scan-module
+worktree: /home/lbendtly/Code/sun-REFAC-037-workspace-scan-module
 ---
 
 Decompose sun_cli_deployment_plan.ml (430 lines) — separate discovery from plan construction
