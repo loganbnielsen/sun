@@ -1,21 +1,11 @@
 (** Integration tests for kafka-eio-consumer against a local Redpanda broker.
     Seeds test messages via kafka-eio-producer, then consumes and verifies them.
-    Run with: KAFKA_BROKERS=localhost:9092 dune test *)
-
-let brokers =
-  match Sys.getenv_opt "KAFKA_BROKERS" with
-  | Some b -> [b]
-  | None   -> ["localhost:9092"]
+    Override broker location with the standard Kafka broker environment variable. *)
 
 let test_topic = "sun-consumer-test"
 
 let seed_messages sw n =
-  let cfg : Kafka_producer.config = {
-    brokers;
-    delivery_mode = Kafka_producer.At_least_once;
-    linger_ms = None;
-    security  = Kafka_security.default;
-  } in
+  let cfg = Kafka_test_helpers.default_producer_config () in
   match Kafka_producer.create cfg ~sw with
   | Error e -> Alcotest.failf "seed producer create failed: %s" (Kafka_error.to_string e)
   | Ok producer ->
@@ -32,15 +22,11 @@ let seed_messages sw n =
     ) promises;
     Kafka_producer.close producer
 
-let make_consumer_config () : Kafka_consumer.config = {
-  brokers;
-  group_id     = Printf.sprintf "sun-test-%d" (Unix.getpid ());
-  topics       = [test_topic];
-  offset_reset = Kafka_consumer.Earliest;
-  auto_commit  = false;
-  on_rebalance = None;
-  security     = Kafka_security.default;
-}
+let make_consumer_config () : Kafka_consumer.config =
+  Kafka_test_helpers.default_consumer_config
+    ~group_id:(Printf.sprintf "sun-test-%d" (Unix.getpid ()))
+    ~topics:[ test_topic ]
+    ()
 
 let test_poll_messages () =
   Eio_main.run @@ fun env ->

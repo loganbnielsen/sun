@@ -2,17 +2,12 @@
     Verifies that every blocking stub correctly releases/reacquires the OCaml
     domain lock by calling each one sequentially and checking for crashes. *)
 
-let brokers =
-  match Sys.getenv_opt "KAFKA_BROKERS" with
-  | Some b -> b
-  | None   -> "localhost:9092"
-
 let () =
   Printf.printf "1: conf_new\n%!";
   let conf = Kafka_raw.conf_new () in
 
   Printf.printf "2: conf_set bootstrap.servers\n%!";
-  (match Kafka_raw.conf_set conf "bootstrap.servers" brokers with
+  (match Kafka_raw.conf_set conf "bootstrap.servers" (Kafka_test_brokers.broker_csv ()) with
    | Error s -> Printf.printf "FAIL conf_set brokers: %s\n%!" s; exit 1
    | Ok () -> ());
 

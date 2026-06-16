@@ -1,25 +1,13 @@
 (** Integration tests for kafka-eio-producer against a local Redpanda broker.
     Requires: rpk redpanda start (or equivalent) before running.
-    Run with: KAFKA_BROKERS=localhost:9092 dune test *)
-
-let brokers =
-  match Sys.getenv_opt "KAFKA_BROKERS" with
-  | Some b -> [b]
-  | None   -> ["localhost:9092"]
+    Override broker location with the standard Kafka broker environment variable. *)
 
 let test_topic = "sun-producer-test"
-
-let make_config () : Kafka_producer.config = {
-  brokers;
-  delivery_mode = Kafka_producer.At_least_once;
-  linger_ms = None;
-  security  = Kafka_security.default;
-}
 
 let test_produce_fire_and_forget () =
   Eio_main.run @@ fun _ ->
     Eio.Switch.run @@ fun sw ->
-      match Kafka_producer.create (make_config ()) ~sw with
+      match Kafka_producer.create (Kafka_test_helpers.default_producer_config ()) ~sw with
       | Error e ->
         Alcotest.failf "create failed: %s" (Kafka_error.to_string e)
       | Ok producer ->
@@ -35,7 +23,7 @@ let test_produce_fire_and_forget () =
 let test_produce_await () =
   Eio_main.run @@ fun _ ->
     Eio.Switch.run @@ fun sw ->
-      match Kafka_producer.create (make_config ()) ~sw with
+      match Kafka_producer.create (Kafka_test_helpers.default_producer_config ()) ~sw with
       | Error e ->
         Alcotest.failf "create failed: %s" (Kafka_error.to_string e)
       | Ok producer ->
@@ -52,7 +40,7 @@ let test_produce_await () =
 let test_produce_with_key () =
   Eio_main.run @@ fun _ ->
     Eio.Switch.run @@ fun sw ->
-      match Kafka_producer.create (make_config ()) ~sw with
+      match Kafka_producer.create (Kafka_test_helpers.default_producer_config ()) ~sw with
       | Error e ->
         Alcotest.failf "create failed: %s" (Kafka_error.to_string e)
       | Ok producer ->
@@ -70,7 +58,7 @@ let test_produce_with_key () =
 let test_produce_many () =
   Eio_main.run @@ fun _ ->
     Eio.Switch.run @@ fun sw ->
-      match Kafka_producer.create (make_config ()) ~sw with
+      match Kafka_producer.create (Kafka_test_helpers.default_producer_config ()) ~sw with
       | Error e ->
         Alcotest.failf "create failed: %s" (Kafka_error.to_string e)
       | Ok producer ->
