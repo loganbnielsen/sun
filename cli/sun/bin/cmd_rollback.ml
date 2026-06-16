@@ -3,7 +3,6 @@
 open Cmdliner
 open Sun_cli_manifest
 
-let workspace_name () = Filename.basename (Sys.getcwd ())
 
 
 (** Check whether the kubectl-argo-rollouts plugin is available.
@@ -14,7 +13,7 @@ let argo_plugin_available () =
   || Sys.command "kubectl argo rollouts version >/dev/null 2>&1" = 0
 
 let run filter_path =
-  let workspace = workspace_name () in
+  let workspace = Sun_cli_shell.workspace_name () in
   let services  = discover_services ~filter_path in
 
   if services = [] then begin

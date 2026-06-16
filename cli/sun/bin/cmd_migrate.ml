@@ -5,7 +5,7 @@ open Cmdliner
    workspaces share the same local Postgres instance (e.g. from sun dev up).
    The --table flag always overrides this default. *)
 let default_table_name =
-  let cwd_name = Filename.basename (Sys.getcwd ()) in
+  let cwd_name = Sun_cli_shell.workspace_name () in
   let buf = Buffer.create (String.length cwd_name) in
   String.iter (fun c ->
     if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') then Buffer.add_char buf c
