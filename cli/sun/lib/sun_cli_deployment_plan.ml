@@ -1,3 +1,16 @@
+(* Fold over entries in [dir], silently returning [init] if the dir is absent. *)
+let fold_dir dir ~init ~f =
+  if not (Sys.file_exists dir && Sys.is_directory dir) then init
+  else begin
+    let acc = ref init in
+    (try Array.iter (fun entry ->
+       let path = Filename.concat dir entry in
+       acc := f !acc entry path
+     ) (Sys.readdir dir)
+    with _ -> ());
+    !acc
+  end
+
 type deployment_mode = Local | Customer_cloud | Sun_hosted
 
 type env_config = {
@@ -174,33 +187,18 @@ let pp_summary fmt t =
     [events/<event>.ml] files (no domain prefix).  Returns a sorted,
     deduplicated list. *)
 let discover_schema_subjects () =
-  let events_dir = "events" in
-  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
-  else begin
-    let subjects = ref [] in
-    (try
-      Array.iter (fun entry ->
-        let path = Filename.concat events_dir entry in
-        if Sys.is_directory path && entry.[0] <> '.' then begin
-          (* events/<domain>/<event>.ml *)
-          (try
-            Array.iter (fun fname ->
-              if Filename.check_suffix fname ".ml" then begin
-                let stem = Filename.chop_suffix fname ".ml" in
-                let capitalized = String.capitalize_ascii stem in
-                subjects := (entry ^ "." ^ capitalized) :: !subjects
-              end
-            ) (Sys.readdir path)
-          with _ -> ())
-        end else if Filename.check_suffix entry ".ml" then begin
-          (* events/<event>.ml (top-level, no domain) *)
-          let stem = Filename.chop_suffix entry ".ml" in
-          subjects := stem :: !subjects
-        end
-      ) (Sys.readdir events_dir)
-    with _ -> ());
-    List.sort_uniq String.compare !subjects
-  end
+  let subjects = fold_dir "events" ~init:[] ~f:(fun acc entry path ->
+    if entry.[0] = '.' then acc
+    else if Sys.is_directory path then
+      fold_dir path ~init:acc ~f:(fun acc2 fname _p ->
+        if Filename.check_suffix fname ".ml" then
+          (entry ^ "." ^ String.capitalize_ascii (Filename.chop_suffix fname ".ml")) :: acc2
+        else acc2)
+    else if Filename.check_suffix entry ".ml" then
+      Filename.chop_suffix entry ".ml" :: acc
+    else acc
+  ) in
+  List.sort_uniq String.compare subjects
 
 (** Derive consumer group identifiers for all Worker service specs.
     Convention: ["<workspace>.<domain>.<worker_name>"]. *)
@@ -216,59 +214,44 @@ let derive_consumer_groups workspace services =
     Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
     so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
 let discover_topics () =
-  let events_dir = "events" in
-  if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
-  else begin
-    let topics = ref [] in
-    let marker = {|let topic_name = "|} in
-    let ml = String.length marker in
-    let scan_file path =
-      try
-        let ic = open_in path in
-        let content = In_channel.input_all ic in
-        close_in ic;
-        let sl = String.length content in
-        for i = 0 to sl - ml - 1 do
-          if String.sub content i ml = marker then begin
-            let j = ref (i + ml) in
-            while !j < sl && content.[!j] <> '"' do incr j done;
-            let name = String.sub content (i + ml) (!j - i - ml) in
-            if name <> "" then topics := name :: !topics
-          end
-        done
-      with _ -> ()
-    in
-    (try
-      Array.iter (fun fname ->
-        let path = Filename.concat events_dir fname in
-        if Sys.is_directory path then begin
-          (* One level deep: scan events/<subdir>/*.ml *)
-          (try
-            Array.iter (fun child ->
-              let child_path = Filename.concat path child in
-              if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
-                scan_file child_path
-            ) (Sys.readdir path)
-          with _ -> ())
-        end else if Filename.check_suffix fname ".ml" then
-          scan_file path
-      ) (Sys.readdir events_dir)
-    with _ -> ());
-    List.sort_uniq String.compare (List.rev !topics)
-  end
+  let marker = {|let topic_name = "|} in
+  let ml = String.length marker in
+  let scan_file path =
+    try
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      let sl = String.length content in
+      let acc = ref [] in
+      for i = 0 to sl - ml - 1 do
+        if String.sub content i ml = marker then begin
+          let j = ref (i + ml) in
+          while !j < sl && content.[!j] <> '"' do incr j done;
+          let name = String.sub content (i + ml) (!j - i - ml) in
+          if name <> "" then acc := name :: !acc
+        end
+      done;
+      !acc
+    with _ -> []
+  in
+  let topics = fold_dir "events" ~init:[] ~f:(fun acc fname path ->
+    if Sys.is_directory path then
+      fold_dir path ~init:acc ~f:(fun acc2 child child_path ->
+        if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
+          scan_file child_path @ acc2
+        else acc2)
+    else if Filename.check_suffix fname ".ml" then
+      scan_file path @ acc
+    else acc
+  ) in
+  List.sort_uniq String.compare topics
 
 (** Scan [db/migrations/] for SQL files, sorted by filename. *)
 let discover_migrations () =
-  let mig_dir = "db/migrations" in
-  if not (Sys.file_exists mig_dir && Sys.is_directory mig_dir) then []
-  else begin
-    (try
-      let files = Sys.readdir mig_dir in
-      Array.sort String.compare files;
-      Array.to_list files
-      |> List.filter (fun f -> Filename.check_suffix f ".sql")
-    with _ -> [])
-  end
+  let files = fold_dir "db/migrations" ~init:[] ~f:(fun acc f _path ->
+    if Filename.check_suffix f ".sql" then f :: acc else acc
+  ) in
+  List.sort String.compare files
 
 let k8s_name_of name =
   String.map (fun c -> if c = '_' then '-' else c)
