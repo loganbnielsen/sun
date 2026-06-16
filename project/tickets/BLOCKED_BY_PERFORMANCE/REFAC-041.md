@@ -3,6 +3,8 @@ id: REFAC-041
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-16
+branch: REFAC-041/extract-consumer-group-guard
+worktree: ../sun-REFAC-041-extract-consumer-group-guard
 ---
 
 Extract duplicated consumer-group guard into `Sun_cli_deployment_state`
@@ -26,3 +28,6 @@ Any change to the warning text, the check semantics, or the flag name must be ap
 - `grep -n "confirm_group_change" cli/sun/bin/cmd_up.ml cli/sun/bin/cmd_deploy.ml` shows only the import/call, not the flag definition.
 - `dune build` passes.
 - `dune test cli/sun/` passes.
+
+## Review — automated checks passed
+REFAC-041 correctly extracts the consumer-group guard and shared flag; build and tests pass with no violations.
