@@ -2,32 +2,6 @@ open Cmdliner
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
-(* Scan app/ to find which domain owns a bare service name.
-   Returns a list of matching (domain, name) pairs. *)
-let find_service_by_name name =
-  let app_dir = "app" in
-  if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
-  else begin
-    let matches = ref [] in
-    (try
-      Array.iter (fun domain ->
-        let domain_path = Filename.concat app_dir domain in
-        if domain.[0] <> '.' && Sys.is_directory domain_path then begin
-          (try
-            Array.iter (fun svc ->
-              if svc.[0] <> '.' then begin
-                let svc_path = Filename.concat domain_path svc in
-                if Sys.is_directory svc_path && svc = name then
-                  matches := (domain, svc) :: !matches
-              end
-            ) (Sys.readdir domain_path)
-          with _ -> ())
-        end
-      ) (Sys.readdir app_dir)
-    with _ -> ());
-    List.rev !matches
-  end
-
 (* Parse a service argument in one of these forms:
    - "domain/name_svc"  → (domain, name_svc)
    - "domain/name"      → (domain, name)
@@ -41,8 +15,10 @@ let resolve_service arg =
       Printf.eprintf "error: service path must be in 'domain/name' form, got '%s'.\n" arg;
       exit 1
   end else begin
-    (* bare name — scan app/ *)
-    match find_service_by_name arg with
+    let matches = List.filter_map (fun (s : Sun_cli_manifest.service) ->
+      if s.name = arg then Some (s.domain, s.name) else None
+    ) (Sun_cli_manifest.discover_services ~filter_path:None) in
+    match matches with
     | [] ->
       Printf.eprintf "error: service '%s' not found in app/.\n" arg;
       Printf.eprintf "  Use 'domain/name' form or run from the workspace root.\n";

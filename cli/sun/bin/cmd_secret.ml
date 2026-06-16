@@ -2,23 +2,6 @@ open Cmdliner
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
-let discover_namespaces () =
-  let workspace = workspace_name () in
-  let app_dir = "app" in
-  if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
-  else
-    let domains = ref [] in
-    (try
-      Array.iter (fun entry ->
-        let path = Filename.concat app_dir entry in
-        if entry <> "" && entry.[0] <> '.' && Sys.is_directory path then
-          domains := entry :: !domains
-      ) (Sys.readdir app_dir)
-    with _ -> ());
-    List.rev_map (fun domain ->
-      Sun_cli_deployment_plan.namespace_of ~workspace ~domain
-    ) !domains
-
 let read_stdin () =
   String.trim (In_channel.input_all stdin)
 
@@ -30,6 +13,13 @@ let print_result = function
     Printf.eprintf "error: %s\n%!" msg;
     exit 1
 
+let namespaces () =
+  let workspace = workspace_name () in
+  List.sort_uniq String.compare
+    (List.map (fun s ->
+       Sun_cli_deployment_plan.namespace_of ~workspace ~domain:s.Sun_cli_manifest.domain)
+       (Sun_cli_manifest.discover_services ~filter_path:None))
+
 let run_set env value key =
   let value = match value with
     | Some v -> v
@@ -39,7 +29,7 @@ let run_set env value key =
     (Sun_cli_secret.set
        ~env
        ~workspace:(workspace_name ())
-       ~namespaces:(discover_namespaces ())
+       ~namespaces:(namespaces ())
        ~key
        ~value)
 
@@ -48,14 +38,14 @@ let run_list env =
     (Sun_cli_secret.list
        ~env
        ~workspace:(workspace_name ())
-       ~namespaces:(discover_namespaces ()))
+       ~namespaces:(namespaces ()))
 
 let run_delete env key =
   print_result
     (Sun_cli_secret.delete
        ~env
        ~workspace:(workspace_name ())
-       ~namespaces:(discover_namespaces ())
+       ~namespaces:(namespaces ())
        ~key)
 
 let env_arg =
