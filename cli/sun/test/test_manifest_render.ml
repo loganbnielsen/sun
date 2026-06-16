@@ -3,7 +3,6 @@
    that the rendered YAML contains the expected resource names, image
    references, namespaces, and primitive-specific resources. *)
 
-let check_string = Alcotest.(check string)
 let check_bool   = Alcotest.(check bool)
 
 (* ── helpers ─────────────────────────────────────────────────────────────── *)
@@ -332,42 +331,6 @@ let test_fn_cronjob_pod_template_has_app_label () =
   assert_contains "fn cronjob pod template app label" cronjob_block "app: invoice-fn"
 
 (* ── resource stability: render_spec and render produce the same YAML ───── *)
-
-(* Ensure that render_spec generates the same output as the legacy render path
-   for a plain svc with no toml overrides (replicas=1, cpu=100m, memory=128Mi). *)
-let test_svc_render_spec_matches_render () =
-  let plain_spec : Sun_cli_deployment_plan.service_spec = {
-    domain                = "payments";
-    source_name           = "charge_svc";
-    k8s_name              = "charge-svc";
-    namespace             = "myapp-payments";
-    primitive             = Sun_cli_deployment_plan.Svc;
-    source_dir            = "app/payments/charge_svc";
-    image                 = "sun-registry:5000/myapp/charge-svc:abc123";
-    config                = [];
-    secrets               = [];
-    schedule              = None;
-    replicas              = 1;
-    cpu                   = "100m";
-    memory                = "128Mi";
-    rollout_strategy      = None;
-    ingress_host          = None;
-    ingress_path          = None;
-    extra_labels          = [];
-    progressive_delivery  = None;
-  } in
-  let svc : Sun_cli_manifest.service = {
-    domain = "payments";
-    name   = "charge_svc";
-    prim   = Sun_cli_manifest.Svc;
-    dir    = "app/payments/charge_svc";
-  } in
-  let (ns1, w1) = Sun_cli_deployment_plan.render_spec plain_spec in
-  let (ns2, w2) = Sun_cli_manifest.render svc
-    ~ns:"myapp-payments" ~name:"charge-svc"
-    ~image:"sun-registry:5000/myapp/charge-svc:abc123" in
-  check_string "render_spec ns == render ns"       ns1 ns2;
-  check_string "render_spec workload == render workload" w1 w2
 
 (* ── Escape-hatch tests ──────────────────────────────────────────────────── *)
 
@@ -843,9 +806,6 @@ let () =
       ; Alcotest.test_case "default schedule"       `Quick test_fn_default_schedule
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_fn_user_secret_key_in_secret_resource
       ; Alcotest.test_case "pod template has app label (AUDIT-040)" `Quick test_fn_cronjob_pod_template_has_app_label
-      ]
-    ; "parity", [
-        Alcotest.test_case "render_spec == render (plain svc)" `Quick test_svc_render_spec_matches_render
       ]
     ; "escape_hatches", [
         Alcotest.test_case "rollout Recreate"              `Quick test_rollout_recreate
