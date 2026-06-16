@@ -1,10 +1,8 @@
 open Cmdliner
 open Sun_cli_manifest
 
-let cmd_ok cmd = Sun_cli_shell.run_cmd ~echo:false cmd = 0
-
 let check_tool name install_url =
-  if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
+  if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "which %s" name) <> 0 then begin
     Printf.eprintf "error: %S not found in PATH.\n" name;
     Printf.eprintf "  Install: %s\n" install_url;
     exit 1
@@ -52,7 +50,7 @@ let dev_up () =
   (* 1. Cluster *)
   Printf.printf "\n[1/4] Provisioning cluster...\n%!";
   let cluster_exists =
-    cmd_ok (Printf.sprintf "k3d cluster get %s >/dev/null 2>&1" cluster_name)
+    Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "k3d cluster get %s" cluster_name) = 0
   in
   if cluster_exists then
     Printf.printf "  cluster %s already exists, skipping\n%!" cluster_name
@@ -201,7 +199,7 @@ let dev_down delete_cluster =
 let dev_status () =
   check_tool "kubectl" "https://kubernetes.io/docs/tasks/tools/";
   let cluster_running =
-    cmd_ok (Printf.sprintf "k3d cluster get %s >/dev/null 2>&1" cluster_name)
+    Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "k3d cluster get %s" cluster_name) = 0
   in
   Printf.printf "\nCluster:  %s  %s\n" cluster_name
     (if cluster_running then "✓ running" else "✗ not found");

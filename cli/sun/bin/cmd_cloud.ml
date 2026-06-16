@@ -4,10 +4,8 @@
 
 open Cmdliner
 
-let cmd_ok cmd = Sun_cli_shell.run_cmd ~echo:false cmd = 0
-
 let check_tool name install_url =
-  if not (cmd_ok (Printf.sprintf "which %s >/dev/null 2>&1" name)) then begin
+  if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "which %s" name) <> 0 then begin
     Printf.eprintf "error: %S not found in PATH.\n" name;
     Printf.eprintf "  Install: %s\n" install_url;
     exit 1
