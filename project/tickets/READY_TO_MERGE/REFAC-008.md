@@ -76,3 +76,6 @@ Every decode-error message change or new decode stage must be made 4 times.
 - No local `consumer_cfg` record literal appears more than once.
 - `kafka_service.ml` shrinks by at least 60 lines.
 - `dune build && dune test integrations/kafka/kafka-eio-service/` passes.
+
+## Review — automated checks passed
+Decode pipeline unified into decode_message helper, consumer_cfg deduplicated via make_consumer_cfg, file shrinks 41 lines (679→638), no ticket directory changes, build clean

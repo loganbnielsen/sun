@@ -52,3 +52,6 @@ The copies are structurally identical — the only difference is the error-messa
 - `obs_loki.ml`, `obs_prometheus.ml`, and `kafka_service.ml` each contain no local `tls_authenticator`/`make_https_wrapper`/`https_wrapper` definitions.
 - `dune build` passes.
 - Existing HTTPS connectivity (Loki push, Prometheus Pushgateway, schema registry) is unaffected.
+
+## Review — automated checks passed
+CA bundle path list consolidated into sun_tls library; all three consumers delegate to Sun_tls.make_https_wrapper; (wrapped false) set; dune build clean; project/tickets/ untouched

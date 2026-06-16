@@ -59,3 +59,6 @@ The only differences between the two documents are the outer wrapper (kind: Depl
 - The security context fields (`runAsNonRoot`, `runAsUser`, `runAsGroup`, `seccompProfile`, `allowPrivilegeEscalation`, `readOnlyRootFilesystem`) appear in exactly one place in `sun_cli_manifest.ml`.
 - `dune build` passes.
 - `sun up --dry-run` and `sun deploy --dry-run` produce the same YAML as before the change (manually diff against a snapshot if no golden-file test exists).
+
+## Review — returned for revision
+- `cli/sun/lib/sun_cli_manifest.ml:524` — cronjob_doc contains its own copy of securityContext fields (runAsNonRoot, runAsUser, runAsGroup, seccompProfile, allowPrivilegeEscalation, readOnlyRootFilesystem) — these should be extracted into a shared helper or the acceptance criterion must be scoped only to deployment_doc/rollout_doc

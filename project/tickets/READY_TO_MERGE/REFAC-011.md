@@ -84,3 +84,6 @@ After Helm installs infra, we sleep 2 full seconds before starting port-forwards
 - `sun up` successfully establishes port-forwards (test by running `curl http://localhost:<port>/healthz` after `sun up` completes).
 - `sun dev up` port-forward setup does not regress.
 - `dune build` passes.
+
+## Review — automated checks passed
+All readiness probe replacements implemented correctly: check_port_forward_liveness uses probe_port (TCP socket), 400ms SIGTERM sleep replaced with probe_port_released, sleep 2 in cmd_dev.ml replaced with kubectl wait; build passes; project/tickets/ unchanged

@@ -67,3 +67,6 @@ So `env_config.secret_backend : string` is only used for plan JSON serialization
 - `parse_secret_backend` in `cmd_deploy.ml` returns `Sun_cli_manifest.secret_backend` and assigns it directly into `env_config`.
 - `dune build` passes.
 - `sun deploy --dry-run` produces the same YAML as before.
+
+## Review — automated checks passed
+env_config.secret_backend is now typed as Sun_cli_manifest.secret_backend, secret_backend_to_string removed from cmd_deploy.ml, parse_secret_backend returns the variant directly, dune build passes, project/tickets/ untouched
