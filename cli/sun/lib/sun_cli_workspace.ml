@@ -5,15 +5,6 @@ type infra_requirements = {
   prometheus : bool;
 }
 
-let contains_string ~needle s =
-  let nl = String.length needle in
-  let sl = String.length s in
-  let found = ref false in
-  for i = 0 to sl - nl do
-    if not !found && String.sub s i nl = needle then
-      found := true
-  done;
-  !found
 
 let read_file path =
   let ic = open_in path in
@@ -49,10 +40,10 @@ let scan ~dir =
           if entry = "dune" then begin
             (try
               let content = read_file path in
-              if contains_string ~needle:"kafka_eio_service"  content then kafka      := true;
-              if contains_string ~needle:"sun_storage"        content then postgres   := true;
-              if contains_string ~needle:"obs_eio_loki"       content then loki       := true;
-              if contains_string ~needle:"obs_eio_prometheus" content then prometheus := true;
+              if Sun_cli_shell.string_contains ~needle:"kafka_eio_service"  content then kafka      := true;
+              if Sun_cli_shell.string_contains ~needle:"sun_storage"        content then postgres   := true;
+              if Sun_cli_shell.string_contains ~needle:"obs_eio_loki"       content then loki       := true;
+              if Sun_cli_shell.string_contains ~needle:"obs_eio_prometheus" content then prometheus := true;
             with _ -> ())
           end else if Sys.is_directory path then
             collect path
