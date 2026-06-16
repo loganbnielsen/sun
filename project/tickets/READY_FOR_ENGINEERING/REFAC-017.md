@@ -45,3 +45,8 @@ No public API changes — all exported names stay the same. This is a pure file 
 - No changes to the public `.mli` (if one exists) or to any module signatures visible outside `kafka-eio-service`.
 - `dune build` passes.
 - All Kafka integration tests pass (`KAFKA_BROKERS=localhost:9092 dune test integrations/kafka/ --force`).
+
+## Review — returned for revision
+- `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:442` — kafka_service.ml is 442 lines, exceeding the ≤200-line acceptance criterion
+- `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:64` — config_of_env and env-var reading remain in kafka_service.ml; the spec requires them extracted to kafka_service_config.ml
+- `integrations/kafka/kafka-eio-service/lib/:0` — kafka_service_config.ml was not created; the remediation explicitly requires this file for config_of_env
