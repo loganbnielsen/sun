@@ -14,3 +14,13 @@ let run_cmd_lines ?(echo = false) cmd =
 
 let run_cmd_to_string cmd =
   Sun_process.output ~echo:false cmd
+
+let string_contains ~needle haystack =
+  let nl = String.length needle and hl = String.length haystack in
+  if nl = 0 then true
+  else if nl > hl then false
+  else
+    let rec go i = i <= hl - nl
+      && (String.sub haystack i nl = needle || go (i + 1))
+    in
+    go 0
