@@ -1,16 +1,3 @@
-(* Fold over entries in [dir], silently returning [init] if the dir is absent. *)
-let fold_dir dir ~init ~f =
-  if not (Sys.file_exists dir && Sys.is_directory dir) then init
-  else begin
-    let acc = ref init in
-    (try Array.iter (fun entry ->
-       let path = Filename.concat dir entry in
-       acc := f !acc entry path
-     ) (Sys.readdir dir)
-    with _ -> ());
-    !acc
-  end
-
 type deployment_mode = Local | Customer_cloud | Sun_hosted
 
 type env_config = {
@@ -182,80 +169,20 @@ let pp_summary fmt t =
      Format.fprintf fmt "@\n";
      Format.fprintf fmt "consumer groups:  %s@\n" (String.concat ", " cgs))
 
-(** Scan [events/<domain>/] subdirectories for [*.ml] files and derive schema
-    subject names as ["<domain>.<EventName>"].  Also handles top-level
-    [events/<event>.ml] files (no domain prefix).  Returns a sorted,
-    deduplicated list. *)
-let discover_schema_subjects () =
-  let subjects = fold_dir "events" ~init:[] ~f:(fun acc entry path ->
-    if entry.[0] = '.' then acc
-    else if Sys.is_directory path then
-      fold_dir path ~init:acc ~f:(fun acc2 fname _p ->
-        if Filename.check_suffix fname ".ml" then
-          (entry ^ "." ^ String.capitalize_ascii (Filename.chop_suffix fname ".ml")) :: acc2
-        else acc2)
-    else if Filename.check_suffix entry ".ml" then
-      Filename.chop_suffix entry ".ml" :: acc
-    else acc
-  ) in
-  List.sort_uniq String.compare subjects
+let discover_schema_subjects = Sun_cli_workspace_scan.discover_schema_subjects
+let discover_topics = Sun_cli_workspace_scan.discover_topics
+let discover_migrations = Sun_cli_workspace_scan.discover_migrations
 
-(** Derive consumer group identifiers for all Worker service specs.
-    Convention: ["<workspace>.<domain>.<worker_name>"]. *)
 let derive_consumer_groups workspace services =
   List.filter_map (fun (s : service_spec) ->
     match s.primitive with
-    | Worker -> Some (Printf.sprintf "%s.%s.%s" workspace s.domain s.source_name)
+    | Worker -> Some (s.domain, s.source_name)
     | _      -> None
   ) services
-  |> List.sort_uniq String.compare
-
-(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations.
-    Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
-    so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
-let discover_topics () =
-  let marker = {|let topic_name = "|} in
-  let ml = String.length marker in
-  let scan_file path =
-    try
-      let ic = open_in path in
-      let content = In_channel.input_all ic in
-      close_in ic;
-      let sl = String.length content in
-      let acc = ref [] in
-      for i = 0 to sl - ml - 1 do
-        if String.sub content i ml = marker then begin
-          let j = ref (i + ml) in
-          while !j < sl && content.[!j] <> '"' do incr j done;
-          let name = String.sub content (i + ml) (!j - i - ml) in
-          if name <> "" then acc := name :: !acc
-        end
-      done;
-      !acc
-    with _ -> []
-  in
-  let topics = fold_dir "events" ~init:[] ~f:(fun acc fname path ->
-    if Sys.is_directory path then
-      fold_dir path ~init:acc ~f:(fun acc2 child child_path ->
-        if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
-          scan_file child_path @ acc2
-        else acc2)
-    else if Filename.check_suffix fname ".ml" then
-      scan_file path @ acc
-    else acc
-  ) in
-  List.sort_uniq String.compare topics
-
-(** Scan [db/migrations/] for SQL files, sorted by filename. *)
-let discover_migrations () =
-  let files = fold_dir "db/migrations" ~init:[] ~f:(fun acc f _path ->
-    if Filename.check_suffix f ".sql" then f :: acc else acc
-  ) in
-  List.sort String.compare files
+  |> Sun_cli_workspace_scan.derive_consumer_groups workspace
 
 let k8s_name_of name =
-  String.map (fun c -> if c = '_' then '-' else c)
-    (String.lowercase_ascii name)
+  String.map (fun c -> if c = '_' then '-' else c) (String.lowercase_ascii name)
 
 let namespace_of ~workspace ~domain =
   Printf.sprintf "%s-%s" (k8s_name_of workspace) (k8s_name_of domain)
@@ -267,6 +194,10 @@ let prim_of_manifest = function
   | Sun_cli_manifest.Svc    -> Svc
   | Sun_cli_manifest.Worker -> Worker
   | Sun_cli_manifest.Fn     -> Fn
+
+let render_primitive = function
+  | Svc -> Sun_cli_deployment_render.Render_svc | Worker -> Sun_cli_deployment_render.Render_worker
+  | Fn  -> Sun_cli_deployment_render.Render_fn
 
 let of_services ~workspace ~env services =
   let to_spec svc =
@@ -311,103 +242,9 @@ let of_services ~workspace ~env services =
   ; consumer_groups = derive_consumer_groups workspace resolved_services
   }
 
-(** Render a (namespace_yaml, workload_yaml) pair from a resolved [service_spec].
-    All deployment identity fields (namespace, k8s name, image, primitive,
-    config, secrets, schedule, replicas, cpu, memory, rollout_strategy,
-    ingress_host, ingress_path, extra_labels, progressive_delivery) come from [spec].
-    Pass [~image] to override [spec.image] — used by [sun up] where the
-    dry-run display image (localhost:5000) differs from the cluster image.
-
-    When [spec.progressive_delivery] is [Some _], the workload section emits an
-    Argo [Rollout] resource instead of a standard [Deployment].  Blue-green also
-    emits two Service resources ([<name>-active] and [<name>-preview]) instead of
-    the single ClusterIP [Service] used by the default path. *)
-let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) spec =
-  let ns               = spec.namespace in
-  let name             = spec.k8s_name in
-  let img              = if image = "" then spec.image else image in
-  let replicas         = spec.replicas in
-  let cpu              = spec.cpu in
-  let memory           = spec.memory in
-  let rollout_strategy = Option.value spec.rollout_strategy
-                           ~default:Sun_cli_toml.RollingUpdate in
-  let extra_labels     = spec.extra_labels in
-  let ingress_host     = Option.value spec.ingress_host ~default:"" in
-  let ingress_path     = Option.value spec.ingress_path ~default:"/" in
-  let cfg_hash         = Sun_cli_manifest.config_hash spec.config in
-  Sun_cli_manifest.(
-    let ns_yaml = namespace_doc ns in
-    let workload_yaml =
-      (* Build the secret resource document depending on backend:
-         - Kubernetes_live (default): emit a Secret with real values (sun up / live deploy).
-         - Kubernetes_placeholder: emit a Secret with empty stringData (GitOps fill-in).
-         - External_secrets _: emit an ExternalSecret CRD so ESO materialises the Secret. *)
-      let secret_resource = match secret_backend with
-        | Kubernetes_live ->
-          let value_from_env key =
-            match Sys.getenv_opt key with
-            | Some value -> value
-            | None       -> ""
-          in
-          let extra_secrets =
-            List.map (fun (k, _) -> (k, value_from_env k)) spec.secrets
-          in
-          let base_secrets =
-            List.map (fun (k, _) -> (k, value_from_env k)) default_secrets
-          in
-          secret_doc ~base_secrets ~extra_secrets ns name
-        | Kubernetes_placeholder ->
-          let extra_secrets = List.map (fun (k, _) -> (k, "")) spec.secrets in
-          secret_doc ~extra_secrets ~redact:true ns name
-        | External_secrets { store_ref; store_kind; key_prefix; refresh_interval } ->
-          let all_keys =
-            List.map fst default_secrets @ List.map fst spec.secrets
-          in
-          external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval
-            ~secret_keys:all_keys ns name
-      in
-      let common = [
-        service_account_doc ns name;
-        configmap_doc ~extra_env:spec.config ns name;
-        secret_resource;
-        network_policy_doc ns name;
-      ] in
-      let resources = match spec.primitive, spec.progressive_delivery with
-        (* ── Argo Rollouts paths ─────────────────────────────────────────── *)
-        | (Svc | Worker), Some pd ->
-          let ports  = spec.primitive = Svc in
-          let probes = spec.primitive = Svc in
-          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst spec.secrets) ~config_hash:cfg_hash ~ports ~probes ~replicas ~cpu ~memory ns name img pd in
-          (match pd with
-           | Sun_cli_toml.Blue_green ->
-             (* Blue-green needs active + preview services instead of one service *)
-             let is_svc = spec.primitive = Svc in
-             [ rollout
-             ; blue_green_service_docs ns name
-             ; (if is_svc then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active")
-                else "")
-             ]
-             |> List.filter (fun s -> s <> "")
-           | Sun_cli_toml.Canary _ ->
-             let svc    = if ports then [service_doc ns name] else [] in
-             let ingr   = if ports then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
-             [ rollout ] @ svc @ ingr)
-        (* ── Standard Deployment paths ────────────────────────────────────── *)
-        | Svc, None ->
-          [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
-              ~secret_keys:(List.map fst spec.secrets)
-              ~ports:true ~probes:true ~replicas ~cpu ~memory ns name img
-          ; service_doc ns name
-          ; ingress_doc ~ingress_host ~ingress_path ns name ]
-        | Worker, None ->
-          [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
-              ~secret_keys:(List.map fst spec.secrets)
-              ~ports:false ~probes:false ~replicas ~cpu ~memory ns name img ]
-        | Fn, _ ->
-          let schedule = Option.value spec.schedule ~default:"0 * * * *" in
-          [ cronjob_doc ~secret_keys:(List.map fst spec.secrets) ns name img schedule ]
-      in
-      String.concat "\n" (common @ resources)
-    in
-    (ns_yaml, workload_yaml)
-  )
+let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) s =
+  Sun_cli_deployment_render.render_spec ~image ~secret_backend ~namespace:s.namespace
+    ~k8s_name:s.k8s_name ~primitive:(render_primitive s.primitive) ~spec_image:s.image
+    ~config:s.config ~secrets:s.secrets ~schedule:s.schedule ~replicas:s.replicas
+    ~cpu:s.cpu ~memory:s.memory ~rollout_strategy:s.rollout_strategy
+    ~ingress_host:s.ingress_host ~ingress_path:s.ingress_path ~extra_labels:s.extra_labels ~progressive_delivery:s.progressive_delivery ()
