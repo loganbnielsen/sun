@@ -1,11 +1,6 @@
 (** E2E integration tests for kafka-eio-service.
     Requires: rpk redpanda start (broker + schema registry on port 8081)
-    Run with: KAFKA_BROKERS=localhost:9092 dune test kafka-eio-service/test/ *)
-
-let brokers =
-  match Sys.getenv_opt "KAFKA_BROKERS" with
-  | Some b -> [b]
-  | None   -> ["localhost:9092"]
+    Override broker location with the standard Kafka broker environment variable. *)
 
 let registry_url =
   match Sys.getenv_opt "SCHEMA_REGISTRY_URL" with
@@ -112,7 +107,7 @@ end
 (* ------------------------------------------------------------------ *)
 
 let make_config () : Kafka_service.config = {
-  brokers;
+  brokers = Kafka_test_helpers.brokers ();
   schema_registry_url = registry_url;
   admin_url;
   linger_ms           = 5;
@@ -282,7 +277,7 @@ let test_decode_error_callback () =
            | Ok () -> ());
           (* Publish raw bytes (no Confluent wire framing) via the raw producer. *)
           let producer_cfg : Kafka_producer.config = {
-            brokers;
+            brokers = Kafka_test_helpers.brokers ();
             delivery_mode = Kafka_producer.At_least_once;
             linger_ms     = None;
             security      = Kafka_security.default;
