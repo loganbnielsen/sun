@@ -31,3 +31,6 @@ Any change to the warning text, the check semantics, or the flag name must be ap
 
 ## Review — automated checks passed
 REFAC-041 correctly extracts the consumer-group guard and shared flag; build and tests pass with no violations.
+
+## Review — automated checks passed
+REFAC-041 correctly extracts the consumer-group guard and shared flag; build and tests pass with no violations.
