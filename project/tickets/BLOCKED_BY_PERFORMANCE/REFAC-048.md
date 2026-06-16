@@ -40,3 +40,6 @@ This is ~20 lines duplicated across two packages. The only difference is consume
 
 - The `conf_of_config` functions in both files are ≤15 lines each.
 - `dune build integrations/kafka/` and `dune test integrations/kafka/` pass.
+
+## Review — automated checks passed
+make_base_conf extracted to kafka_security.ml; both conf_of_config callers correctly delegate to it; build clean; cooperative-sticky comment preserved; no ticket files touched in implementation commit
