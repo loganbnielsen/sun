@@ -42,3 +42,6 @@ Any refactoring of `cmd_up.ml` risks silently breaking `cmd_deploy.ml` unless bo
 - `cmd_up.ml` contains no `let load_deployed_groups`, `let removed_consumer_groups`, `let save_deployed_groups` definitions.
 - `dune build` passes.
 - `sun up` and `sun deploy` consumer group change warnings still fire correctly.
+
+## Review — automated checks passed
+All three functions extracted correctly; Cmd_up.* references eliminated; Sys.command rc checked; Filename.quote used; dune wrapped false; perf_baseline.json diff is expected pre-commit hook artifact
