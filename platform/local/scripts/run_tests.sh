@@ -132,12 +132,12 @@ run_storage() {
 }
 
 run_e2e() {
-  info "End-to-end demo: charge_svc → Kafka → notify_worker → Postgres"
+  info "End-to-end golden workflow tests"
   eval $(opam env)
   KAFKA_BROKERS=localhost:9092 \
   LOKI_URL=http://localhost:3100 \
   POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
-    dune exec examples/local-demo/bin/demo.exe 2>&1
+    dune test examples/local-demo/test/ --force 2>&1
 }
 
 # ── Infrastructure setup ──────────────────────────────────────────────────────

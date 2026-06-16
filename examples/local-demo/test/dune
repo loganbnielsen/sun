@@ -1,0 +1,13 @@
+(tests
+ (names test_e2e)
+ (libraries
+  demo_events
+  eio eio_main eio.unix
+  obs_eio obs_eio_loki obs_eio_prometheus
+  kafka_eio_service
+  sun_svc sun_worker
+  sun_storage
+  caqti caqti-eio caqti-eio.unix caqti-driver-postgresql
+  unix
+  yojson
+  alcotest))
