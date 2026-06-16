@@ -7,7 +7,7 @@ let dir =
     | None   -> Filename.concat (Sys.getcwd ()) ".sun"
 
 let ensure () =
-  ignore (Sun_process.run_rc ~echo:false (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
 
 let pid_file name    = Printf.sprintf "%s/pf-%s.pid" dir name
 let log_file name    = Printf.sprintf "/tmp/sun-pf-%s.log" name

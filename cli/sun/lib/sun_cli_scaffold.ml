@@ -20,7 +20,7 @@ let subst vars s =
   ) s vars
 
 let mkdir_p dir =
-  ignore (Sun_process.run_rc ~echo:false (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
 
 let write_file ~path ~content =
   mkdir_p (Filename.dirname path);

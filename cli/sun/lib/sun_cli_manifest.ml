@@ -60,22 +60,35 @@ let discover_services ~filter_path =
 
 exception Deploy_failed of string
 
+let write_tmp content =
+  let tmp = Filename.temp_file "sun-manifest-" ".yaml" in
+  let oc = open_out tmp in
+  output_string oc content;
+  close_out oc;
+  tmp
+
 let apply_live yaml =
-  Sun_process.with_tmp_file "sun-manifest-" yaml (fun tmp ->
-    let rc = Sun_process.run_rc ~echo:false (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
-    if rc <> 0 then raise (Deploy_failed "kubectl apply failed"))
+  let tmp = write_tmp yaml in
+  let rc = Sys.command (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
+  Sys.remove tmp;
+  if rc <> 0 then raise (Deploy_failed "kubectl apply failed")
 
 let apply (ns_yaml, workload_yaml) ~dry_run =
   if dry_run then
     Printf.printf "%s\n%s\n" ns_yaml workload_yaml
   else begin
     apply_live ns_yaml;
-    Sun_process.with_tmp_file "sun-manifest-" workload_yaml (fun tmp ->
-      let rc = Sun_process.run_rc ~echo:false (Printf.sprintf "kubectl apply -f %s --dry-run=server 2>&1" (Filename.quote tmp)) in
+    let tmp = write_tmp workload_yaml in
+    (try
+      let rc = Sys.command (Printf.sprintf "kubectl apply -f %s --dry-run=server 2>&1" (Filename.quote tmp)) in
       if rc <> 0 then
         raise (Deploy_failed "kubectl server-side dry-run failed (invalid manifest)");
-      let rc = Sun_process.run_rc ~echo:false (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
-      if rc <> 0 then raise (Deploy_failed "kubectl apply failed"))
+      let rc = Sys.command (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
+      if rc <> 0 then raise (Deploy_failed "kubectl apply failed")
+    with e ->
+      (try Sys.remove tmp with _ -> ());
+      raise e);
+    Sys.remove tmp
   end
 
 (* Write YAML for one service to <dir>/<ns>-<name>.yaml.
