@@ -3,6 +3,8 @@ id: REFAC-025
 type: refactor
 severity: low
 source: codebase simplification review 2026-06-15
+branch: REFAC-025/metric-registration-helper
+worktree: /home/lbendtly/Code/sun-REFAC-025-metric-registration-helper
 ---
 
 Extract metric registration boilerplate repeated across all three framework modules
