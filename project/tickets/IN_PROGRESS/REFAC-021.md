@@ -3,6 +3,8 @@ id: REFAC-021
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-15
+branch: REFAC-021/state-dir-module
+worktree: /home/lbendtly/Code/sun-REFAC-021-state-dir-module
 ---
 
 Extract `state_dir` / `pid_file` / `ensure_state_dir` to a shared CLI module
