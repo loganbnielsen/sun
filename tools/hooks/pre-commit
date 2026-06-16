@@ -2,24 +2,24 @@
 # Blocks the commit if tests fail or a performance regression is detected.
 # Runs unit tests always; other suites when their infra is up.
 #
-# Install: bash platform/deploy/scripts/install-hooks.sh
+# Install: bash platform/local/scripts/install-hooks.sh
 # Skip once: SUN_SKIP_HOOKS=1 git commit ...
 
 [ "${SUN_SKIP_HOOKS:-0}" = "1" ] && exit 0
 
 # ── Worktree guard ─────────────────────────────────────────────────────────────
-# hygiene/tickets/ is only ever modified in the main checkout — never inside a worktree
+# project/tickets/ is only ever modified in the main checkout — never inside a worktree
 # branch. Catching this at commit time prevents rename/rename merge conflicts.
 GIT_DIR_ABS="$(git rev-parse --absolute-git-dir 2>/dev/null)"
 if printf '%s\n' "$GIT_DIR_ABS" | grep -q "/worktrees/"; then
-  STAGED_TICKETS="$(git diff --cached --name-only | grep '^hygiene/tickets/' || true)"
+  STAGED_TICKETS="$(git diff --cached --name-only | grep '^project/tickets/' || true)"
   if [ -n "$STAGED_TICKETS" ]; then
     echo ""
-    echo "✗ Cannot commit hygiene/tickets/ changes inside a worktree branch."
-    echo "  hygiene/tickets/ is managed exclusively in the main checkout."
+    echo "✗ Cannot commit project/tickets/ changes inside a worktree branch."
+    echo "  project/tickets/ is managed exclusively in the main checkout."
     echo "  Staged paths:"
     printf '    %s\n' $STAGED_TICKETS
-    echo "  Fix: git restore --staged hygiene/tickets/"
+    echo "  Fix: git restore --staged project/tickets/"
     exit 1
   fi
 fi
@@ -38,9 +38,9 @@ fi
 # If every staged file is a ticket markdown, a doc, or the perf baseline,
 # there is no code change to verify.
 OTHER_FILES="$(git diff --cached --name-only \
-  | grep -v '^hygiene/tickets/' \
+  | grep -v '^project/tickets/' \
   | grep -v '\.md$' \
-  | grep -v '^hygiene/test/perf_baseline\.json$' \
+  | grep -v '^tools/perf/perf_baseline\.json$' \
   || true)"
 if [ -z "$OTHER_FILES" ]; then
   echo ""
@@ -49,9 +49,12 @@ if [ -z "$OTHER_FILES" ]; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-RUNNER="$REPO_ROOT/platform/deploy/scripts/run_tests.sh"
+RUNNER="$REPO_ROOT/platform/local/scripts/run_tests.sh"
 
-[ -x "$RUNNER" ] || exit 0
+if [ ! -x "$RUNNER" ]; then
+  echo "✗ Test runner not found or not executable: $RUNNER"
+  exit 1
+fi
 
 eval "$(opam env)"
 
@@ -114,7 +117,7 @@ if [ $BROKER_UP -eq 1 ]; then
 else
   echo ""
   echo "  (Redpanda not running — kafka + e2e tests skipped)"
-  git -C "$REPO_ROOT" add hygiene/test/perf_baseline.json 2>/dev/null || true
+  git -C "$REPO_ROOT" add tools/perf/perf_baseline.json 2>/dev/null || true
   exit 0
 fi
 
@@ -127,5 +130,5 @@ else
   [ $POSTGRES_UP -eq 0 ] && echo "  (Postgres not running — e2e skipped)"
 fi
 
-git -C "$REPO_ROOT" add hygiene/test/perf_baseline.json 2>/dev/null || true
+git -C "$REPO_ROOT" add tools/perf/perf_baseline.json 2>/dev/null || true
 exit 0

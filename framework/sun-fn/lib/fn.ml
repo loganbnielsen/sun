@@ -7,7 +7,9 @@ end
 
 (* Self-pipe trick: POSIX signal handler writes one byte to a non-blocking
    pipe; an Eio fiber awaits the read end and resolves the stop promise.
-   This is async-signal-safe — no OCaml allocation in the signal handler. *)
+   The OCaml runtime dispatches Sys.Signal_handle callbacks at GC-safe
+   checkpoints, so allocation inside the handler is safe — but we avoid it
+   anyway to stay close to the OS boundary. *)
 let install_signal_handler ~sw resolver =
   let r, w = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock w;

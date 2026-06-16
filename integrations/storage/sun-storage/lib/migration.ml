@@ -108,13 +108,29 @@ let split_sql_statements sql =
   flush ();
   List.rev !acc
 
+(* SELECT/WITH/TABLE/VALUES statements return Tuples_ok; DDL returns Command_ok.
+   Caqti requires the multiplicity to match, so we route accordingly. *)
+let returns_rows stmt =
+  let s = String.trim stmt in
+  let n = String.length s in
+  let i = ref 0 in
+  while !i < n && Char.code s.[!i] > 32 && s.[!i] <> '(' do incr i done;
+  let kw = String.uppercase_ascii (String.sub s 0 !i) in
+  kw = "SELECT" || kw = "WITH" || kw = "TABLE" || kw = "VALUES"
+
 let exec_statements pool stmts =
   List.fold_left (fun acc stmt ->
     match acc with
     | Error _ as e -> e
     | Ok () ->
-      let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true stmt in
-      Db.exec pool q ()
+      if returns_rows stmt then
+        let q = Caqti_request.Infix.(Caqti_type.unit ->* Caqti_type.unit) ~oneshot:true stmt in
+        (match Db.collect pool q () with
+         | Ok _   -> Ok ()
+         | Error e -> Error e)
+      else
+        let q = Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true stmt in
+        Db.exec pool q ()
   ) (Ok ()) stmts
 
 (* ── Per-table helpers (table name injected at call time) ───────────────── *)

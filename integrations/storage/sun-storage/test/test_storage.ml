@@ -324,12 +324,16 @@ SELECT %s();|} tbl fn_name tbl fn_name);
     in
     let v = or_fail (Db.find pool find_q ()) in
     Alcotest.(check (option int)) "row inserted via dollar-quoted fn" (Some 99) v;
-    let cleanup_q =
+    let drop_fn_q =
       Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true
-        (Printf.sprintf "DROP FUNCTION IF EXISTS %s(); DROP TABLE IF EXISTS %s, %s"
-           fn_name tbl mtable)
+        (Printf.sprintf "DROP FUNCTION IF EXISTS %s()" fn_name)
     in
-    or_fail (Db.exec pool cleanup_q ())
+    let drop_tbl_q =
+      Caqti_request.Infix.(Caqti_type.unit ->. Caqti_type.unit) ~oneshot:true
+        (Printf.sprintf "DROP TABLE IF EXISTS %s, %s" tbl mtable)
+    in
+    or_fail (Db.exec pool drop_fn_q ());
+    or_fail (Db.exec pool drop_tbl_q ())
 
 let test_migration_rollback_down_sql () =
   match postgres_url () with
