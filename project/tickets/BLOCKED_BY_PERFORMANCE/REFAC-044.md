@@ -1,6 +1,8 @@
 ---
 id: REFAC-044
 type: refactor
+branch: REFAC-044/deduplicate-tls-loader
+worktree: ../sun-REFAC-044-deduplicate-tls-loader
 severity: high
 source: codebase simplification review 2026-06-16
 ---
@@ -34,3 +36,6 @@ The only difference is the error-message prefix string (`"obs-loki"` vs `"obs-pr
 - `grep -rn "tls_authenticator\|make_https_wrapper" integrations/observability/obs-eio-loki integrations/observability/obs-eio-prometheus` returns zero hits.
 - `dune build integrations/observability/` passes.
 - `dune test integrations/observability/` passes.
+
+## Review — automated checks passed
+TLS CA-bundle loader and https_wrapper extracted to obs_tls.ml; both obs_loki.ml and obs_prometheus.ml delegate to Obs_tls.https_wrapper; build clean; no duplication remains
