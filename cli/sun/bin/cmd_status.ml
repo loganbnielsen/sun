@@ -1,7 +1,5 @@
 open Cmdliner
 
-let workspace_name () = Filename.basename (Sys.getcwd ())
-
 let discover_domains () =
   let app_dir = "app" in
   if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
@@ -18,7 +16,7 @@ let discover_domains () =
   end
 
 let run filter_domain =
-  let workspace = workspace_name () in
+  let workspace = Sun_cli_shell.workspace_name () in
   let all_domains = discover_domains () in
   let domains = match filter_domain with
     | None   -> all_domains
