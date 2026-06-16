@@ -3,6 +3,8 @@ id: REFAC-042
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-16
+branch: REFAC-042/extract-decode-pipeline
+worktree: ../sun-REFAC-042-extract-decode-pipeline
 ---
 
 Extract duplicated 3-stage decode pipeline in `kafka_service`
@@ -34,3 +36,6 @@ Each copy independently handles `on_decode_error` for the same three error cases
 
 - `grep -n "on_decode_error" integrations/kafka/kafka-eio-service/lib/kafka_service.ml` returns at most 2 lines (the function definition and one call site).
 - `dune build` and `dune test integrations/kafka/` pass.
+
+## Review — automated checks passed
+3-stage decode pipeline correctly extracted into kafka_service_decode.ml; all 4 call sites replaced; build and tests pass
