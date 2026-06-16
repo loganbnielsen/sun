@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Runs pipeline gc after any git merge to clean up DONE worktrees.
+# Install: bash platform/local/scripts/install-hooks.sh
+# Skip: SUN_SKIP_HOOKS=1 git merge ...
+
+[ "${SUN_SKIP_HOOKS:-0}" = "1" ] && exit 0
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SUNDEV="$REPO_ROOT/_build/default/tools/sundev/bin/main.exe"
+
+[ -x "$SUNDEV" ] || exit 0
+"$SUNDEV" pipeline gc

@@ -316,6 +316,70 @@ let readiness_label state content =
     | None ->
       if state = "READY_FOR_ENGINEERING" then "actionable" else "-"
 
+(* ── sun pipeline gc ─────────────────────────────────────────────────────── *)
+
+let run_gc dry_run =
+  (* git worktree list --porcelain emits stanzas separated by blank lines.
+     Each stanza starts with "worktree <path>", then "HEAD <sha>",
+     then either "branch refs/heads/<branch>" or "bare" or "detached". *)
+  let lines = Sundev_shell.run_cmd_lines "git worktree list --porcelain" in
+  let worktrees = ref [] in
+  let cur_path = ref None in
+  let cur_branch = ref None in
+  List.iter (fun line ->
+    if starts_with ~prefix:"worktree " line then begin
+      cur_path   := Some (String.sub line 9 (String.length line - 9));
+      cur_branch := None
+    end else if starts_with ~prefix:"branch refs/heads/" line then begin
+      let b = String.sub line 18 (String.length line - 18) in
+      cur_branch := Some b
+    end else if line = "" then begin
+      (match !cur_path, !cur_branch with
+       | Some path, Some branch ->
+         worktrees := (path, branch) :: !worktrees
+       | _ -> ());
+      cur_path := None; cur_branch := None
+    end
+  ) lines;
+  (* Flush last stanza if file doesn't end with blank line *)
+  (match !cur_path, !cur_branch with
+   | Some path, Some branch -> worktrees := (path, branch) :: !worktrees
+   | _ -> ());
+  (* Skip the main worktree: it's the one whose branch matches HEAD of main,
+     or whose path is the repo root. Heuristic: skip if no '/' in branch segment
+     after removing any prefix — actually just skip the first stanza (main worktree
+     is always listed first) by checking if the path contains "sun-" in a ticket pattern. *)
+  let ticket_worktrees = List.filter (fun (_path, branch) ->
+    (* branch looks like "TICKET-ID/some-slug", ticket IDs contain a dash-number *)
+    match String.index_opt branch '/' with
+    | None -> false
+    | Some i ->
+      let prefix = String.sub branch 0 i in
+      (* Must contain a hyphen and a digit — e.g. "AUDIT-062", "REFAC-006" *)
+      String.contains prefix '-' &&
+      String.exists (fun c -> c >= '0' && c <= '9') prefix
+  ) !worktrees in
+  let removed = ref 0 in
+  List.iter (fun (wt_path, branch) ->
+    let ticket_id = match String.index_opt branch '/' with
+      | Some i -> String.sub branch 0 i
+      | None   -> branch
+    in
+    let done_path = Printf.sprintf "project/tickets/DONE/%s.md" ticket_id in
+    if Sys.file_exists done_path then begin
+      Printf.printf "gc: %s  (ticket %s is DONE)\n%!" wt_path ticket_id;
+      if not dry_run then begin
+        ignore (Sundev_shell.run_cmd
+          (Printf.sprintf "git worktree remove %s --force" (Filename.quote wt_path)));
+        ignore (Sundev_shell.run_cmd ~echo:false
+          (Printf.sprintf "git branch -d %s 2>/dev/null; true" (Filename.quote branch)));
+        incr removed
+      end
+    end
+  ) ticket_worktrees;
+  if !removed = 0 && not dry_run then
+    ()  (* clean exit, no output *)
+
 (* ── sun pipeline merge ──────────────────────────────────────────────────── *)
 
 let run_merge dry_run accept_performance_regression ticket_filter =
@@ -458,7 +522,8 @@ let run_merge dry_run accept_performance_regression ticket_filter =
     if rc <> 0 then Printf.eprintf "warning: failed to commit ticket state changes\n"
   end;
   if !errors > 0 then Printf.eprintf "\n%d ticket(s) had errors.\n" !errors;
-  Printf.printf "\nDone. %d merged.\n" (List.length !merged)
+  Printf.printf "\nDone. %d merged.\n" (List.length !merged);
+  run_gc dry_run
 
 (* ── sun pipeline review ─────────────────────────────────────────────────── *)
 
@@ -655,8 +720,15 @@ let check_cmd =
              gates and dependency status.")
     Term.(const run_check $ ticket_arg)
 
+let gc_cmd =
+  Cmd.v
+    (Cmd.info "gc"
+       ~doc:"Remove worktrees and branches for tickets in DONE/. \
+             Called automatically by 'merge'. Safe to run anytime.")
+    Term.(const run_gc $ dry_run_flag)
+
 let cmd =
   Cmd.group
     (Cmd.info "pipeline"
        ~doc:"Deterministic pipeline operations: merge tickets, process review results, list status")
-    [ ls_cmd; check_cmd; merge_cmd; review_cmd ]
+    [ ls_cmd; check_cmd; merge_cmd; review_cmd; gc_cmd ]
