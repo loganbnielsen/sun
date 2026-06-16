@@ -50,3 +50,6 @@ No public API changes — all exported names stay the same. This is a pure file 
 - `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:442` — kafka_service.ml is 442 lines, exceeding the ≤200-line acceptance criterion
 - `integrations/kafka/kafka-eio-service/lib/kafka_service.ml:64` — config_of_env and env-var reading remain in kafka_service.ml; the spec requires them extracted to kafka_service_config.ml
 - `integrations/kafka/kafka-eio-service/lib/:0` — kafka_service_config.ml was not created; the remediation explicitly requires this file for config_of_env
+
+## Review — automated checks passed
+kafka_service.ml decomposed to 196 lines with four focused sub-modules; build clean, mli unchanged, no ticket dir touched
