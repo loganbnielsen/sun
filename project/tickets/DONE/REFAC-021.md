@@ -67,3 +67,6 @@ Both commands also define `log_file` and `script_file` using the same temp-path 
 - `grep -rn "let pid_file\|let log_file\|let script_file" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun up` and `sun dev up` still write PID files to the same path as before.
+
+## Review — automated checks passed
+REFAC-021 correctly extracts state_dir/ensure/pid_file/log_file/script_file into Sun_cli_state; build passes, diff scope is clean, conventions are met
