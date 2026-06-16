@@ -3,6 +3,8 @@ id: REFAC-036
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-15
+branch: REFAC-036/decompose-manifest
+worktree: /home/lbendtly/Code/sun-REFAC-036-decompose-manifest
 ---
 
 Decompose sun_cli_manifest.ml (667 lines, 3 concerns) into focused modules

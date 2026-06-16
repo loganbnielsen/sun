@@ -3,6 +3,8 @@ id: REFAC-035
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-035/extract-scan-dir
+worktree: /home/lbendtly/Code/sun-REFAC-035-extract-scan-dir
 ---
 
 Extract shared `scan_dir` skeleton from three near-identical discovery functions in deployment_plan

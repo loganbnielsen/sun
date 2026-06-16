@@ -3,6 +3,8 @@ id: REFAC-034
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-034/consolidate-string-contains
+worktree: /home/lbendtly/Code/sun-REFAC-034-consolidate-string-contains
 ---
 
 Consolidate two substring-search implementations with conflicting argument conventions
