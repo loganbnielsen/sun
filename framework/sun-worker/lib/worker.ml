@@ -20,26 +20,8 @@ let default_retry_strategy = Kafka_service.default_retry_strategy
 
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
-(* Self-pipe: signal handler writes one byte; an Eio fiber reads it and sets
-   the atomic stop flag. The consumer checks the flag on each message boundary
-   and returns Stop, allowing the current message to finish before shutting down. *)
 let install_signal_handler ~sw stop_flag =
-  let r, w = Unix.pipe ~cloexec:true () in
-  Unix.set_nonblock w;
-  let handle _ =
-    (try ignore (Unix.single_write w (Bytes.make 1 '\x00') 0 1) with _ -> ())
-  in
-  Sys.set_signal Sys.sigterm (Sys.Signal_handle handle);
-  Sys.set_signal Sys.sigint  (Sys.Signal_handle handle);
-  Eio.Fiber.fork_daemon ~sw (fun () ->
-    Fun.protect
-      ~finally:(fun () -> Unix.close r; (try Unix.close w with _ -> ()))
-      (fun () ->
-        Eio_unix.await_readable r;
-        let buf = Bytes.create 1 in
-        (try ignore (Unix.read r buf 0 1) with _ -> ());
-        Atomic.set stop_flag true;
-        `Stop_daemon))
+  Sun_signal.install_atomic_handler ~sw stop_flag
 
 (* ── Make functor ───────────────────────────────────────────────────────── *)
 
