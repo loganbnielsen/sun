@@ -20,60 +20,6 @@ let require_tools () =
 let cluster_name = "sun-local"
 let registry_port = 5000
 
-let write_pid name pid =
-  let oc = open_out (Sun_cli_state.pid_file name) in
-  Printf.fprintf oc "%d\n" pid;
-  close_out oc
-
-(* ── Port-forward management ─────────────────────────────────────────────── *)
-
-type pf_spec = {
-  name        : string;
-  namespace   : string;
-  (* Full kubectl resource target, e.g. "svc/redpanda" or "pod/redpanda-0". *)
-  target      : string;
-  local_port  : int;
-  remote_port : int;
-}
-
-let start_port_forward pf =
-  Printf.printf "  port-forward  %-12s localhost:%d → %s/%s:%d\n%!"
-    pf.name pf.local_port pf.namespace pf.target pf.remote_port;
-  let log_file = Printf.sprintf "/tmp/sun-pf-%s.log" pf.name in
-  let script_file = Printf.sprintf "/tmp/sun-pf-%s.sh" pf.name in
-  let content = Printf.sprintf
-    "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s %s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
-    (Filename.quote (Sun_cli_state.pid_file pf.name))
-    (Filename.quote pf.namespace) (Filename.quote pf.target)
-    pf.local_port pf.remote_port
-    (Filename.quote log_file)
-  in
-  let oc = open_out script_file in
-  output_string oc content;
-  close_out oc;
-  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote script_file)));
-  ignore (Sun_cli_shell.run_cmd ~echo:false
-    (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote script_file)))
-
-let stop_port_forwards () =
-  if Sys.file_exists Sun_cli_state.dir then begin
-    let entries = try Sys.readdir Sun_cli_state.dir with _ -> [||] in
-    Array.iter (fun f ->
-      if Filename.check_suffix f ".pid" then begin
-        let path = Printf.sprintf "%s/%s" Sun_cli_state.dir f in
-        (try
-          let ic = open_in path in
-          let pid_s = String.trim (In_channel.input_all ic) in
-          close_in ic;
-          (match int_of_string_opt pid_s with
-           | Some pid -> ignore (Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kill %d 2>/dev/null" pid))
-           | None -> ());
-          Sys.remove path
-        with _ -> ())
-      end
-    ) entries
-  end
-
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
 type set_val =
@@ -101,7 +47,7 @@ let dev_up () =
   (* Kill any stale port-forwards from previous sessions before starting fresh
      ones.  Without this, re-running dev up after a crash or cross-directory
      down would silently fail to bind ports while reporting success. *)
-  stop_port_forwards ();
+  Sun_cli_port_forward.stop_all ();
 
   (* 1. Cluster *)
   Printf.printf "\n[1/4] Provisioning cluster...\n%!";
@@ -196,28 +142,34 @@ let dev_up () =
   Printf.printf "\n[4/4] Starting port-forwards...\n%!";
   ignore (Sys.command "sleep 2");  (* brief pause for service endpoints to settle *)
 
+  let pf pf_spec =
+    Printf.printf "  port-forward  %-14s localhost:%d → %s/%s:%d\n%!"
+      pf_spec.Sun_cli_port_forward.name pf_spec.local_port
+      pf_spec.namespace pf_spec.target pf_spec.remote_port;
+    Sun_cli_port_forward.start pf_spec
+  in
   if req.kafka then begin
     (* Port-forward to the pod (not svc) so we reach the external listener on
        9094.  The Redpanda headless service only exposes the internal port 9093;
        9094 is only reachable via the pod directly. *)
-    start_port_forward { name = "kafka"; namespace = "redpanda";
-                         target = "pod/redpanda-0"; local_port = 9092; remote_port = 9094 };
-    start_port_forward { name = "schema-registry"; namespace = "redpanda";
-                         target = "svc/redpanda"; local_port = 8081; remote_port = 8081 };
+    pf { name = "kafka"; namespace = "redpanda";
+         target = "pod/redpanda-0"; local_port = 9092; remote_port = 9094 };
+    pf { name = "schema-registry"; namespace = "redpanda";
+         target = "svc/redpanda"; local_port = 8081; remote_port = 8081 };
   end;
   if req.postgres then
-    start_port_forward { name = "postgres"; namespace = "postgresql";
-                         target = "svc/postgresql"; local_port = 5432; remote_port = 5432 };
+    pf { name = "postgres"; namespace = "postgresql";
+         target = "svc/postgresql"; local_port = 5432; remote_port = 5432 };
   if req.loki then
-    start_port_forward { name = "loki"; namespace = "monitoring";
-                         target = "svc/loki"; local_port = 3100; remote_port = 3100 };
+    pf { name = "loki"; namespace = "monitoring";
+         target = "svc/loki"; local_port = 3100; remote_port = 3100 };
   if need_grafana then
-    start_port_forward { name = "grafana"; namespace = "monitoring";
-                         target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
+    pf { name = "grafana"; namespace = "monitoring";
+         target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
   if req.prometheus then
-    start_port_forward { name = "pushgateway"; namespace = "monitoring";
-                         target = "svc/prometheus-prometheus-pushgateway";
-                         local_port = 9091; remote_port = 9091 };
+    pf { name = "pushgateway"; namespace = "monitoring";
+         target = "svc/prometheus-prometheus-pushgateway";
+         local_port = 9091; remote_port = 9091 };
 
   (* Summary *)
   Printf.printf "\n";
@@ -236,7 +188,7 @@ let dev_up () =
 let dev_down delete_cluster =
   check_tool "kubectl" "https://kubernetes.io/docs/tasks/tools/";
   Printf.printf "Stopping port-forwards...\n%!";
-  stop_port_forwards ();
+  Sun_cli_port_forward.stop_all ();
   if delete_cluster then begin
     check_tool "k3d" "https://k3d.io/";
     Printf.printf "Deleting cluster %s...\n%!" cluster_name;
