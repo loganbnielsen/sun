@@ -3,4 +3,4 @@
  (wrapped false)
  (modules kafka_service)
  (libraries kafka_eio_core kafka_eio_producer kafka_eio_consumer eio eio.unix unix yojson obs_eio
-            cohttp-eio http uri sun_tls cstruct))
+            cohttp-eio http uri tls-eio x509 domain-name ptime cstruct))
