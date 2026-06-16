@@ -382,11 +382,21 @@ let default_on_decode_error e ~raw_bytes:_ ~ack =
   ack ();
   Kafka_consumer.Continue
 
-let consume svc topic ~group_id ~sw
-    ?(on_ready = ignore)
-    ?(on_decode_error = default_on_decode_error)
-    ?ot
-    ~handler () =
+(* ------------------------------------------------------------------ *)
+(* Shared helpers used by consume and consume_partitioned              *)
+(* ------------------------------------------------------------------ *)
+
+let make_consumer_cfg svc ~group_id ~topic_name : Kafka_consumer.config = {
+  brokers      = svc.brokers;
+  group_id;
+  topics       = [topic_name];
+  offset_reset = Kafka_consumer.Latest;
+  auto_commit  = false;
+  on_rebalance = None;
+  security     = svc.security;
+}
+
+let make_decode_error_handler ~ot ~topic ~on_decode_error_user =
   let decode_err_count = match ot with
     | None -> None
     | Some o ->
@@ -395,7 +405,7 @@ let consume svc topic ~group_id ~sw
         ~help:"Total Kafka messages dropped due to decode errors"
         ~label_names:[])
   in
-  let on_decode_error e ~raw_bytes ~ack =
+  fun e ~raw_bytes ~ack ->
     (match decode_err_count with Some c -> c 1 | None -> ());
     (match ot with
      | None -> ()
@@ -405,36 +415,38 @@ let consume svc topic ~group_id ~sw
                   ("raw_bytes_len", string_of_int (Bytes.length raw_bytes));
                   ("topic", topic.name)]
          "sun-worker: decode error, skipping message");
-    on_decode_error e ~raw_bytes ~ack
+    on_decode_error_user e ~raw_bytes ~ack
+
+let decode_message ~topic raw_bytes =
+  match decode_wire raw_bytes with
+  | Error e -> Error e
+  | Ok (_schema_id, json_str) ->
+    match (try Ok (Yojson.Safe.from_string json_str)
+           with exn -> Error (Printexc.to_string exn)) with
+    | Error e -> Error ("json parse: " ^ e)
+    | Ok json ->
+      match topic.decode json with
+      | Error e -> Error ("message decode: " ^ e)
+      | Ok msg  -> Ok msg
+
+let consume svc topic ~group_id ~sw
+    ?(on_ready = ignore)
+    ?(on_decode_error = default_on_decode_error)
+    ?ot
+    ~handler () =
+  let on_decode_error =
+    make_decode_error_handler ~ot ~topic ~on_decode_error_user:on_decode_error
   in
-  let consumer_cfg : Kafka_consumer.config = {
-    brokers      = svc.brokers;
-    group_id;
-    topics       = [topic.name];
-    offset_reset = Kafka_consumer.Latest;
-    auto_commit  = false;
-    on_rebalance = None;
-    security     = svc.security;
-  } in
+  let consumer_cfg = make_consumer_cfg svc ~group_id ~topic_name:topic.name in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
   | Ok consumer ->
     let decode_and_handle raw_msg ~ack =
       let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
       let raw_bytes = raw_msg.Kafka_consumer.value in
-      match decode_wire raw_bytes with
+      match decode_message ~topic raw_bytes with
       | Error e -> on_decode_error e ~raw_bytes ~ack
-      | Ok (_schema_id, json_str) ->
-        let json_result =
-          try Ok (Yojson.Safe.from_string json_str)
-          with exn -> Error (Printexc.to_string exn)
-        in
-        match json_result with
-        | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-        | Ok json ->
-          match topic.decode json with
-          | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-          | Ok msg  -> handler msg ~ack ~trace_ctx
+      | Ok msg  -> handler msg ~ack ~trace_ctx
     in
     let result = Kafka_consumer.consume consumer ~handler:decode_and_handle in
     Kafka_consumer.close consumer;
@@ -447,35 +459,10 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     ?(on_retry = fun ~partition:_ ~attempt:_ ~delay_s:_ -> ())
     ?ot
     ~handler () =
-  let decode_err_count = match ot with
-    | None -> None
-    | Some o ->
-      Some (Obs.register_counter o
-        ~name:"sun_worker_decode_errors_total"
-        ~help:"Total Kafka messages dropped due to decode errors"
-        ~label_names:[])
+  let on_decode_error =
+    make_decode_error_handler ~ot ~topic ~on_decode_error_user:on_decode_error
   in
-  let on_decode_error e ~raw_bytes ~ack =
-    (match decode_err_count with Some c -> c 1 | None -> ());
-    (match ot with
-     | None -> ()
-     | Some o ->
-       Obs.log_t o Obs.Error
-         ~fields:[("error", e);
-                  ("raw_bytes_len", string_of_int (Bytes.length raw_bytes));
-                  ("topic", topic.name)]
-         "sun-worker: decode error, skipping message");
-    on_decode_error e ~raw_bytes ~ack
-  in
-  let consumer_cfg : Kafka_consumer.config = {
-    brokers      = svc.brokers;
-    group_id;
-    topics       = [topic.name];
-    offset_reset = Kafka_consumer.Latest;
-    auto_commit  = false;
-    on_rebalance = None;
-    security     = svc.security;
-  } in
+  let consumer_cfg = make_consumer_cfg svc ~group_id ~topic_name:topic.name in
   match retry_strategy with
   | In_memory retry ->
     (match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
@@ -484,19 +471,9 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
        let decode_and_handle raw_msg ~ack =
          let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
          let raw_bytes = raw_msg.Kafka_consumer.value in
-         match decode_wire raw_bytes with
+         match decode_message ~topic raw_bytes with
          | Error e -> on_decode_error e ~raw_bytes ~ack
-         | Ok (_schema_id, json_str) ->
-           let json_result =
-             try Ok (Yojson.Safe.from_string json_str)
-             with exn -> Error (Printexc.to_string exn)
-           in
-           match json_result with
-           | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-           | Ok json ->
-             match topic.decode json with
-             | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-             | Ok msg  -> handler msg ~ack ~trace_ctx
+         | Ok msg  -> handler msg ~ack ~trace_ctx
        in
        let result =
          Kafka_consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
@@ -574,35 +551,26 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
               Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers
             in
             let raw_bytes = raw_msg.Kafka_consumer.value in
-            match decode_wire raw_bytes with
+            match decode_message ~topic raw_bytes with
             | Error e -> on_decode_error e ~raw_bytes ~ack
-            | Ok (_schema_id, json_str) ->
-              match
-                (try Ok (Yojson.Safe.from_string json_str)
-                 with exn -> Error (Printexc.to_string exn))
-              with
-              | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-              | Ok json ->
-                match topic.decode json with
-                | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-                | Ok msg  ->
-                  match handler msg ~ack ~trace_ctx with
-                  | Kafka_consumer.Continue -> Kafka_consumer.Continue
-                  | Kafka_consumer.Stop     -> Kafka_consumer.Stop
-                  | Kafka_consumer.Error _  ->
-                    let next = attempt + 1 in
-                    let target, delay =
-                      if next >= max_attempts then (dlq_topic_name, 0.0)
-                      else (retry_topic_name, backoff_s next)
-                    in
-                    (match publish_raw ~target_topic:target ~attempt:next
-                             ~raw_bytes:raw_msg.Kafka_consumer.value
-                             ~headers:raw_msg.Kafka_consumer.headers
-                             ~delay_s:delay
-                             ~partition:raw_msg.Kafka_consumer.partition with
-                     | Ok ()  -> ack ()
-                     | Error _ -> ());
-                    Kafka_consumer.Continue
+            | Ok msg  ->
+              match handler msg ~ack ~trace_ctx with
+              | Kafka_consumer.Continue -> Kafka_consumer.Continue
+              | Kafka_consumer.Stop     -> Kafka_consumer.Stop
+              | Kafka_consumer.Error _  ->
+                let next = attempt + 1 in
+                let target, delay =
+                  if next >= max_attempts then (dlq_topic_name, 0.0)
+                  else (retry_topic_name, backoff_s next)
+                in
+                (match publish_raw ~target_topic:target ~attempt:next
+                         ~raw_bytes:raw_msg.Kafka_consumer.value
+                         ~headers:raw_msg.Kafka_consumer.headers
+                         ~delay_s:delay
+                         ~partition:raw_msg.Kafka_consumer.partition with
+                 | Ok ()  -> ack ()
+                 | Error _ -> ());
+                Kafka_consumer.Continue
           in
           Eio.Fiber.fork ~sw (fun () ->
             let retry_stream = Kafka_consumer.stream retry_consumer in
@@ -639,31 +607,22 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
          let raw_bytes = raw_msg.Kafka_consumer.value in
          let headers   = raw_msg.Kafka_consumer.headers in
          let partition = raw_msg.Kafka_consumer.partition in
-         match decode_wire raw_bytes with
+         match decode_message ~topic raw_bytes with
          | Error e -> on_decode_error e ~raw_bytes ~ack
-         | Ok (_schema_id, json_str) ->
-           match
-             (try Ok (Yojson.Safe.from_string json_str)
-              with exn -> Error (Printexc.to_string exn))
-           with
-           | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-           | Ok json ->
-             match topic.decode json with
-             | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-             | Ok msg  ->
-               match handler msg ~ack ~trace_ctx with
-               | Kafka_consumer.Continue -> Kafka_consumer.Continue
-               | Kafka_consumer.Stop     -> Kafka_consumer.Stop
-               | Kafka_consumer.Error _  ->
-                 let target, delay =
-                   if max_attempts <= 1 then (dlq_topic_name, 0.0)
-                   else (retry_topic_name, backoff_s 1)
-                 in
-                 (match publish_raw ~target_topic:target ~attempt:1
-                          ~raw_bytes ~headers ~delay_s:delay ~partition with
-                  | Ok ()  -> ack ()
-                  | Error _ -> ());
-                 Kafka_consumer.Continue
+         | Ok msg  ->
+           match handler msg ~ack ~trace_ctx with
+           | Kafka_consumer.Continue -> Kafka_consumer.Continue
+           | Kafka_consumer.Stop     -> Kafka_consumer.Stop
+           | Kafka_consumer.Error _  ->
+             let target, delay =
+               if max_attempts <= 1 then (dlq_topic_name, 0.0)
+               else (retry_topic_name, backoff_s 1)
+             in
+             (match publish_raw ~target_topic:target ~attempt:1
+                      ~raw_bytes ~headers ~delay_s:delay ~partition with
+              | Ok ()  -> ack ()
+              | Error _ -> ());
+             Kafka_consumer.Continue
        in
        (* No in-memory retry: Error never fires (we return Continue after publishing). *)
        let no_retry : Kafka_consumer.retry_policy =
