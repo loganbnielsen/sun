@@ -49,14 +49,7 @@ type t = {
 let err i = Result.error (Kafka_error.of_int i)
 
 let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let conf = Kafka_raw.conf_new () in
-  let first_err = ref None in
-  let set k v =
-    if !first_err = None then
-      match Kafka_raw.conf_set conf k v with
-      | Ok ()   -> ()
-      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
-  in
+  let conf, set, record_error, finalize = Kafka_conf_builder.make () in
   set "bootstrap.servers" (String.concat "," cfg.brokers);
   set "group.id" cfg.group_id;
   set "auto.offset.reset"
@@ -69,11 +62,9 @@ let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
      subscribe() → poll() → assignment_count > 0 invariant our poll_fiber relies on. *)
   set "partition.assignment.strategy" "range,roundrobin";
   (match Kafka_security.apply conf cfg.security with
-   | Error s -> if !first_err = None then first_err := Some s
+   | Error s -> record_error s
    | Ok () -> ());
-  match !first_err with
-  | Some msg -> Error msg
-  | None     -> Ok conf
+  finalize ()
 
 let tuple_to_message (topic, partition, offset, key, value, timestamp, headers) =
   { topic; partition; offset; key; value; timestamp; headers }
