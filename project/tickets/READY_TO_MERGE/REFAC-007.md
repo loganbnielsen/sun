@@ -43,3 +43,6 @@ A bug in that scaffold (e.g. missing the `if !first_err = None` guard on the sec
 
 - Neither `kafka_producer.ml` nor `kafka_consumer.ml` contains a local `first_err` ref or a local `set` closure.
 - `dune build && dune test integrations/kafka/` passes.
+
+## Review — automated checks passed
+Deduplication of conf_of_config is clean: kafka_conf_builder.{ml,mli} added to kafka-eio-core, producer and consumer delegate to Kafka_conf_builder.make(), build and tests pass, no ticket-directory changes, (wrapped false) preserved.
