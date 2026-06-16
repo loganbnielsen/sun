@@ -35,12 +35,3 @@ val apply : Kafka_raw.kafka_conf -> t -> (unit, string) result
     Returns [Error msg] if any key is rejected by librdkafka or if a SASL protocol
     is configured without the required [sasl_mechanism], [sasl_username], and [sasl_password].
     Called internally by producer and consumer [conf_of_config]; not part of the public API. *)
-
-val make_base_conf
-  :  brokers:string list
-  -> security:t
-  -> Kafka_raw.kafka_conf * (string -> string -> unit) * string option ref
-(** Allocate a fresh rdkafka conf, set [bootstrap.servers], apply [security], and
-    return [(conf, set, first_err)] where [set k v] applies one additional key with
-    the same first-error-wins guard.  Callers set their own keys then check
-    [!first_err] to produce the final [(kafka_conf, string) result]. *)

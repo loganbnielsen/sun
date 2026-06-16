@@ -68,18 +68,3 @@ let apply conf t =
   match !errs with
   | []   -> Ok ()
   | errs -> Error (String.concat "; " (List.rev errs))
-
-let make_base_conf ~brokers ~security =
-  let conf = Kafka_raw.conf_new () in
-  let first_err = ref None in
-  let set k v =
-    if !first_err = None then
-      match Kafka_raw.conf_set conf k v with
-      | Ok ()   -> ()
-      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
-  in
-  set "bootstrap.servers" (String.concat "," brokers);
-  (match apply conf security with
-   | Error s -> if !first_err = None then first_err := Some s
-   | Ok () -> ());
-  (conf, set, first_err)

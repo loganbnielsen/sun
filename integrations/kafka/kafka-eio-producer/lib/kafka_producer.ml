@@ -33,9 +33,19 @@ type t = {
 let err i = Error (Kafka_error.of_int i)
 
 let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let (conf, set, first_err) =
-    Kafka_security.make_base_conf ~brokers:cfg.brokers ~security:cfg.security in
+  let conf = Kafka_raw.conf_new () in
+  let first_err = ref None in
+  let set k v =
+    if !first_err = None then
+      match Kafka_raw.conf_set conf k v with
+      | Ok ()   -> ()
+      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
+  in
+  set "bootstrap.servers" (String.concat "," cfg.brokers);
   (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> if !first_err = None then first_err := Some s
+   | Ok () -> ());
   (match cfg.delivery_mode with
    | At_most_once ->
      set "acks" "0"
