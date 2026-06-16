@@ -18,7 +18,7 @@ type span_event = {
 type metric_event = {
   name    : string;
   help    : string;
-  kind    : [ `Counter of int | `Gauge of float | `Histogram of float * float list ];
+  kind    : [ `Counter of int | `Gauge of float | `Histogram of float ];
   labels  : (string * string) list;
   context : (string * string) list;
   service : string;
@@ -91,7 +91,7 @@ let stdout =
       let kind = match e.kind with
         | `Counter n   -> Printf.sprintf "counter=%d" n
         | `Gauge f     -> Printf.sprintf "gauge=%g" f
-        | `Histogram (f, _) -> Printf.sprintf "hist=%g" f
+        | `Histogram f -> Printf.sprintf "hist=%g" f
       in
       Printf.printf "METRIC svc=%s name=%s %s%s%s\n%!"
         e.service e.name kind
@@ -168,29 +168,21 @@ let current_trace_ctx sp = sp.sp_ctx
 (* Metrics                                                             *)
 (* ------------------------------------------------------------------ *)
 
-let filter_labels ~label_names labels =
-  List.filter (fun (k, _) -> List.mem k label_names) labels
-
-let register_counter t ~name ~help ~label_names : Obs_metrics.counter_fn =
+let register_counter t ~name ~help ~label_names:_ : Obs_metrics.counter_fn =
   fun ?(labels = []) value ->
     t.backend.emit_metric {
-      name; help; kind = `Counter value;
-      labels = filter_labels ~label_names labels;
-      context = t.context; service = t.service;
+      name; help; kind = `Counter value; labels; context = t.context; service = t.service;
     }
 
-let register_gauge t ~name ~help ~label_names : Obs_metrics.gauge_fn =
+let register_gauge t ~name ~help ~label_names:_ : Obs_metrics.gauge_fn =
   fun ?(labels = []) value ->
     t.backend.emit_metric {
-      name; help; kind = `Gauge value;
-      labels = filter_labels ~label_names labels;
-      context = t.context; service = t.service;
+      name; help; kind = `Gauge value; labels; context = t.context; service = t.service;
     }
 
-let register_histogram t ~name ~help ~label_names ?(buckets = []) : Obs_metrics.histogram_fn =
+let register_histogram t ~name ~help ~label_names:_ ?(buckets = []) : Obs_metrics.histogram_fn =
+  ignore buckets;
   fun ?(labels = []) value ->
     t.backend.emit_metric {
-      name; help; kind = `Histogram (value, buckets);
-      labels = filter_labels ~label_names labels;
-      context = t.context; service = t.service;
+      name; help; kind = `Histogram value; labels; context = t.context; service = t.service;
     }
