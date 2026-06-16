@@ -39,19 +39,3 @@ let save_deployed_groups workspace groups =
 
 let removed_consumer_groups ~prev ~next =
   List.filter (fun g -> not (List.mem g next)) prev
-
-let check_consumer_group_change ~workspace ~plan ~confirm_group_change =
-  let prev_groups = load_deployed_groups workspace in
-  let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-  let removed = removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-  if removed <> [] && not confirm_group_change then begin
-    Printf.eprintf
-      "\nwarning: the following consumer group(s) are no longer present in \
-       this deploy plan:\n";
-    List.iter (fun g -> Printf.eprintf "  - %s\n" g) removed;
-    Printf.eprintf
-      "\nMessages produced while the old group is absent will be consumed\n\
-       from the latest offset when the group is re-added, silently skipping\n\
-       any backlog.  Pass --confirm-group-change to acknowledge and proceed.\n\n";
-    exit 1
-  end
