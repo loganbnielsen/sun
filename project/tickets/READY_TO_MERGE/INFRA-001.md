@@ -88,3 +88,6 @@ Install via `platform/local/scripts/install-hooks.sh` alongside the existing hoo
 - The `post-merge` hook runs `gc` after a manual `git merge` (verify: merge a branch manually, confirm the worktree disappears).
 - The 15 existing orphaned worktrees in `~/Code/sun-*` are cleaned up by the first `gc` run.
 - `dune build` passes.
+
+## Review — automated checks passed
+run_gc added with Filename.quote safety, gc_cmd registered in pipeline group, run_merge calls run_gc at tail, post-merge hook is executable and SUN_SKIP_HOOKS-guarded, dune build clean, project/tickets/ untouched

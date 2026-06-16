@@ -70,3 +70,7 @@ Both functions are also structurally duplicated: same `found = ref None` loop, s
 - Comment lines containing either pattern are not extracted.
 - `dune build` passes.
 - A unit test covers the whitespace variants and the comment case for both bindings.
+
+## Review — returned for revision
+- `cli/sun/test/test_deployment_plan.ml:0` — No unit tests added for scan_binding: acceptance criteria require tests covering whitespace variants (e.g. 'let topic_name="foo"' and 'let topic_name =  "foo"') and the comment-skip behaviour (lines starting with '(')
+- `cli/sun/lib/sun_cli_manifest.ml:79` — Regex for ~is_let:false ('schedule *= *"..."') lacks a word-boundary anchor: it will also match identifiers like 'my_schedule = "..."', producing false positives for extract_schedule
