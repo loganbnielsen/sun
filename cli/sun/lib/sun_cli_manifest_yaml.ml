@@ -1,4 +1,4 @@
-(* Pure YAML generators — no Sys.command, open_out, or Sys.readdir. *)
+(* Pure YAML generators — no process calls, open_out, or Sys.readdir. *)
 
 (* ── Service model ───────────────────────────────────────────────────────── *)
 
