@@ -214,6 +214,27 @@ let test_histogram_emits_event () =
   Alcotest.(check bool) "is histogram"
     true (match (List.hd !metrics).Obs.kind with `Histogram 42.5 -> true | _ -> false)
 
+let test_counter_and_histogram_helper_emits_both () =
+  Eio_main.run @@ fun env ->
+  let metrics = ref [] in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun e -> metrics := e :: !metrics) } in
+  let c, h =
+    Obs.register_counter_and_histogram ot
+      ~counter_name:"items_total"
+      ~counter_help:"Total items"
+      ~counter_labels:["status"]
+      ~histogram_name:"item_duration_seconds"
+      ~histogram_help:"Item duration"
+      ~histogram_labels:[]
+  in
+  c ~labels:[("status", "ok")] 1;
+  h 0.25;
+  let names = List.map (fun e -> e.Obs.name) (List.rev !metrics) in
+  Alcotest.(check (list string)) "emits both metrics"
+    ["items_total"; "item_duration_seconds"] names
+
 let test_noop_compiles_and_runs () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
@@ -267,6 +288,7 @@ let () =
     "metrics", [
       test_case "counter emits metric event"   `Quick test_counter_emits_event;
       test_case "histogram emits metric event" `Quick test_histogram_emits_event;
+      test_case "counter and histogram helper emits both" `Quick test_counter_and_histogram_helper_emits_both;
       test_case "noop backend runs silently"   `Quick test_noop_compiles_and_runs;
     ];
     "compose", [

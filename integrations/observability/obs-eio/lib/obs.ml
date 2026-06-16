@@ -186,3 +186,21 @@ let register_histogram t ~name ~help ~label_names:_ ?(buckets = []) : Obs_metric
     t.backend.emit_metric {
       name; help; kind = `Histogram value; labels; context = t.context; service = t.service;
     }
+
+let register_counter_and_histogram t
+    ~counter_name ~counter_help ~counter_labels
+    ~histogram_name ~histogram_help ~histogram_labels =
+  let counter =
+    register_counter t
+      ~name:counter_name
+      ~help:counter_help
+      ~label_names:counter_labels
+  in
+  let histogram =
+    register_histogram t
+      ~name:histogram_name
+      ~help:histogram_help
+      ~label_names:histogram_labels
+      ?buckets:None
+  in
+  (counter, histogram)

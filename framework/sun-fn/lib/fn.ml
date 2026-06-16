@@ -46,14 +46,15 @@ module Make (F : FN) = struct
       | None      -> Obs_prometheus.create ()
     in
     let ot = Obs.create ~service:job ~mono_clock:env#mono_clock ~backend in
-    let invocations = Obs.register_counter ot
-      ~name:"sun_fn_invocations_total"
-      ~help:"Total function invocations by status"
-      ~label_names:["status"] in
-    let duration_h = Obs.register_histogram ot
-      ~name:"sun_fn_duration_seconds"
-      ~help:"Function run duration in seconds"
-      ~label_names:[] in
+    let invocations, duration_h =
+      Obs.register_counter_and_histogram ot
+        ~counter_name:"sun_fn_invocations_total"
+        ~counter_help:"Total function invocations by status"
+        ~counter_labels:["status"]
+        ~histogram_name:"sun_fn_duration_seconds"
+        ~histogram_help:"Function run duration in seconds"
+        ~histogram_labels:[]
+    in
     let t0 = Eio.Time.now env#clock in
     let stop, stop_r = Eio.Promise.create () in
     (* Fiber.first arms return a typed outcome only — no telemetry inside *)
