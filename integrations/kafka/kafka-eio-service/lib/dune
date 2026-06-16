@@ -1,6 +1,6 @@
 (library
  (name kafka_eio_service)
  (wrapped false)
- (modules kafka_service_intf kafka_service_http kafka_service_schema kafka_service)
+ (modules kafka_service_intf kafka_service_http kafka_service_schema kafka_service_config kafka_service_retry_topics kafka_service)
  (libraries kafka_eio_core kafka_eio_producer kafka_eio_consumer eio eio.unix unix yojson obs_eio
             cohttp-eio http uri tls-eio x509 domain-name ptime cstruct))
