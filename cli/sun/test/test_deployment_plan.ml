@@ -57,7 +57,7 @@ let sample_plan () : Sun_cli_deployment_plan.t =
     image_tag      = "abc1234";
     region         = Some "us-east-1";
     base_domain    = Some "example.com";
-    secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
+    secret_backend = "kubernetes-placeholder";
   } in
   let svc : Sun_cli_deployment_plan.service_spec = {
     domain      = "orders";
@@ -131,7 +131,7 @@ let test_to_json_mode_strings () =
   let check_mode mode expected =
     let env : Sun_cli_deployment_plan.env_config = {
       name = "env"; mode; registry = "r"; image_tag = "t";
-      region = None; base_domain = None; secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
+      region = None; base_domain = None; secret_backend = "kubernetes-placeholder";
     } in
     let plan : Sun_cli_deployment_plan.t = {
       workspace = "ws"; environment = env; services = []; topics = []; migrations = [];
