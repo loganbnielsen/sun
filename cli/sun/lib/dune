@@ -1,7 +1,7 @@
 (library
  (name sun_cli)
  (wrapped false)
- (libraries unix str yojson cmdliner otoml sun_process)
+ (libraries unix yojson cmdliner otoml sun_process)
  (modules
   Sun_cli_shell
   Sun_cli_scaffold

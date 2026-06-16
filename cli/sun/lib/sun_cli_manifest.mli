@@ -20,13 +20,6 @@ type service = {
 val prim_of_suffix  : string -> primitive option
 val prim_label      : primitive -> string
 val discover_services : filter_path:string option -> service list
-
-(** [scan_binding ~is_let binding content] scans [content] for OCaml bindings
-    of the form [let <binding> = "<value>"] (when [is_let] is [true]) or
-    [<binding> = "<value>"] (when [is_let] is [false]) with flexible whitespace.
-    Skips blank lines and lines starting with '('. Returns all matched values. *)
-val scan_binding : is_let:bool -> string -> string -> string list
-
 val extract_schedule  : dir:string -> name:string -> string
 
 val default_cluster_env : (string * string) list

@@ -66,31 +66,6 @@ let discover_services ~filter_path =
   with _ -> ());
   List.rev !services
 
-(* ── Shared binding scanner ──────────────────────────────────────────────── *)
-
-(* Scan [content] for OCaml bindings of the form [let <binding> = "<value>"]
-   or [<binding> = "<value>"] with flexible whitespace. Skips blank lines and
-   lines that start with '(' (OCaml comments). Returns all matched values. *)
-let scan_binding ~is_let binding content =
-  let pat =
-    if is_let then
-      Printf.sprintf {|let +%s *= *"\([^"]*\)"|} (Str.quote binding)
-    else
-      Printf.sprintf {|\b%s *= *"\([^"]*\)"|} (Str.quote binding)
-  in
-  let re = Str.regexp pat in
-  let lines = String.split_on_char '\n' content in
-  List.filter_map (fun line ->
-    let t = String.trim line in
-    if t = "" || t.[0] = '(' then None
-    else
-      (try
-        ignore (Str.search_forward re line 0);
-        let v = Str.matched_group 1 line in
-        if v = "" then None else Some v
-      with Not_found -> None)
-  ) lines
-
 (* ── Schedule extraction for -fn ─────────────────────────────────────────── *)
 
 let extract_schedule ~dir ~name =
@@ -103,13 +78,24 @@ let extract_schedule ~dir ~name =
     Filename.concat dir (Printf.sprintf "lib/%s.ml"    base);
     Filename.concat dir (Printf.sprintf "bin/%s.ml"    base);
   ] in
+  let marker = {|schedule = "|} in
+  let ml = String.length marker in
   let try_file path =
     if not (Sys.file_exists path) then None
     else begin
       let ic = open_in path in
       let content = In_channel.input_all ic in
       close_in ic;
-      List.find_opt (fun _ -> true) (scan_binding ~is_let:false "schedule" content)
+      let sl = String.length content in
+      let found = ref None in
+      for i = 0 to sl - ml - 1 do
+        if !found = None && String.sub content i ml = marker then begin
+          let j = ref (i + ml) in
+          while !j < sl && content.[!j] <> '"' do incr j done;
+          found := Some (String.sub content (i + ml) (!j - i - ml))
+        end
+      done;
+      !found
     end
   in
   let rec go = function

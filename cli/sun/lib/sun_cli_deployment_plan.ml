@@ -220,13 +220,22 @@ let discover_topics () =
   if not (Sys.file_exists events_dir && Sys.is_directory events_dir) then []
   else begin
     let topics = ref [] in
+    let marker = {|let topic_name = "|} in
+    let ml = String.length marker in
     let scan_file path =
       try
         let ic = open_in path in
         let content = In_channel.input_all ic in
         close_in ic;
-        let found = Sun_cli_manifest.scan_binding ~is_let:true "topic_name" content in
-        topics := found @ !topics
+        let sl = String.length content in
+        for i = 0 to sl - ml - 1 do
+          if String.sub content i ml = marker then begin
+            let j = ref (i + ml) in
+            while !j < sl && content.[!j] <> '"' do incr j done;
+            let name = String.sub content (i + ml) (!j - i - ml) in
+            if name <> "" then topics := name :: !topics
+          end
+        done
       with _ -> ()
     in
     (try
@@ -245,18 +254,7 @@ let discover_topics () =
           scan_file path
       ) (Sys.readdir events_dir)
     with _ -> ());
-    let topics = List.sort_uniq String.compare !topics in
-    let valid_topic_name s =
-      String.length s > 0 && String.length s <= 249 &&
-      String.to_seq s |> Seq.for_all (fun c ->
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-        (c >= '0' && c <= '9') || c = '.' || c = '_' || c = '-')
-    in
-    List.iter (fun t ->
-      if not (valid_topic_name t) then
-        Printf.eprintf "warning: discover_topics: invalid topic name %S\n%!" t
-    ) topics;
-    topics
+    List.sort_uniq String.compare (List.rev !topics)
   end
 
 (** Scan [db/migrations/] for SQL files, sorted by filename. *)
