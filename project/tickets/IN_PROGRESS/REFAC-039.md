@@ -3,6 +3,8 @@ id: REFAC-039
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-039/use-string-starts-with
+worktree: /home/lbendtly/Code/sun-REFAC-039-use-string-starts-with
 ---
 
 Replace two hand-rolled string utilities with stdlib equivalents (OCaml 5.4)
