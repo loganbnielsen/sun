@@ -23,6 +23,4 @@
   Sun_cli_logs
   Sun_cli_deployment_state
   Sun_cli_state
-  Sun_cli_port_forward
-  Sun_cli_docker
-  Sun_cli_deploy))
+  Sun_cli_port_forward))
