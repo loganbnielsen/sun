@@ -2,6 +2,8 @@
 id: REFAC-018
 type: refactor
 severity: medium
+branch: REFAC-018/decode-dispatch
+worktree: /home/lbendtly/Code/sun-REFAC-018-decode-dispatch
 source: codebase simplification review 2026-06-15
 ---
 

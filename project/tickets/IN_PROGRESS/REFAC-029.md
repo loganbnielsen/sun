@@ -2,6 +2,8 @@
 id: REFAC-029
 type: refactor
 severity: medium
+branch: REFAC-029/extract-helm-rendering
+worktree: /home/lbendtly/Code/sun-REFAC-029-extract-helm-rendering
 source: codebase simplification review 2026-06-15
 ---
 

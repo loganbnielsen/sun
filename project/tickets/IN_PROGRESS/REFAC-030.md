@@ -2,6 +2,8 @@
 id: REFAC-030
 type: refactor
 severity: high
+branch: REFAC-030/unified-app-scanner
+worktree: /home/lbendtly/Code/sun-REFAC-030-unified-app-scanner
 source: codebase simplification review 2026-06-15
 ---
 
