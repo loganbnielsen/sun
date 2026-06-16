@@ -12,9 +12,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 BASELINE="$REPO_ROOT/tools/perf/perf_baseline.json"
-FAIL_RATIO=1.2
 
 ALL_SUITES=(unit kafka observability storage e2e)
+
+# ── Per-suite regression thresholds (mirrors run_tests.sh) ───────────────────
+declare -A FAIL_RATIOS=(
+  [unit]=1.5
+  [kafka]=1.4
+  [observability]=1.4
+  [storage]=1.4
+  [e2e]=1.5
+)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -33,35 +41,38 @@ drift_pct() {
 }
 
 is_regression() {
-  local base=$1 val=$2
+  local suite=$1 base=$2 val=$3
   [ "$base" = "null" ] || [ "$val" = "null" ] && return 1
-  awk "BEGIN { exit !($val / $base >= $FAIL_RATIO) }"
+  local ratio=${FAIL_RATIOS[$suite]}
+  awk "BEGIN { exit !($val / $base >= $ratio) }"
 }
 
 # ── status ────────────────────────────────────────────────────────────────────
 cmd_status() {
   echo ""
-  printf "  ${BOLD}%-16s %-11s %-11s %-9s %s${NC}\n" \
-    "Suite" "Baseline" "Latest" "Drift" "Runs"
-  printf "  %-16s %-11s %-11s %-9s %s\n" \
-    "───────────────" "──────────" "──────────" "────────" "────"
+  printf "  ${BOLD}%-16s %-11s %-11s %-9s %-8s %s${NC}\n" \
+    "Suite" "Baseline" "Latest" "Drift" "Thresh" "Runs"
+  printf "  %-16s %-11s %-11s %-9s %-8s %s\n" \
+    "───────────────" "──────────" "──────────" "────────" "───────" "────"
 
   for suite in "${ALL_SUITES[@]}"; do
     local base; base=$(suite_baseline "$suite")
     local latest; latest=$(suite_latest "$suite")
     local count; count=$(suite_count "$suite")
     local drift; drift=$(drift_pct "$base" "$latest")
+    local threshold="${FAIL_RATIOS[$suite]}×"
 
     local base_s="—";   [ "$base"   != "null" ] && base_s="${base}s"
     local latest_s="—"; [ "$latest" != "null" ] && latest_s="${latest}s"
 
     printf "  %-16s %-11s %-11s " "$suite" "$base_s" "$latest_s"
-    if is_regression "$base" "$latest"; then
+    if is_regression "$suite" "$base" "$latest"; then
       echo -ne "${RED}${drift}${NC}"
     else
       echo -ne "$drift"
     fi
-    printf " %*s\n" $((9 - ${#drift} + ${#count})) "$count"
+    printf " %*s" $((9 - ${#drift} + ${#threshold})) "$threshold"
+    printf " %s\n" "$count"
   done
   echo ""
 }
@@ -76,8 +87,9 @@ cmd_history() {
     local count; count=$(suite_count "$suite")
     local base; base=$(suite_baseline "$suite")
     local base_s="none"; [ "$base" != "null" ] && base_s="${base}s"
+    local threshold="${FAIL_RATIOS[$suite]}×"
 
-    echo -e "\n  ${BOLD}${suite}${NC} — ${count} run(s), baseline: ${base_s}"
+    echo -e "\n  ${BOLD}${suite}${NC} — ${count} run(s), baseline: ${base_s}, threshold: ${threshold}"
 
     if [ "$count" -eq 0 ]; then
       echo -e "  ${DIM}no data yet — run: platform/local/scripts/run_tests.sh ${suite}${NC}"
@@ -94,10 +106,10 @@ cmd_history() {
       [ "$is_baseline" = "true" ] && suffix=" ${DIM}● baseline${NC}"
       [ "$idx" -eq "$total" ]     && suffix="${suffix} ${DIM}← latest${NC}"
 
-      if [ "$is_baseline" != "true" ] && is_regression "$base" "$duration"; then
+      if [ "$is_baseline" != "true" ] && is_regression "$suite" "$base" "$duration"; then
         color="$RED"
         local ratio; ratio=$(awk "BEGIN { printf \"%.2f\", $duration / $base }")
-        suffix=" ${RED}✗ regression (${ratio}×)${NC}"
+        suffix=" ${RED}✗ regression (${ratio}×, threshold ${FAIL_RATIOS[$suite]}×)${NC}"
       fi
 
       echo -e "  ${color}${date}   ${commit}   ${duration}s${NC}${suffix}"
