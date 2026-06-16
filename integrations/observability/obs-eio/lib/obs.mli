@@ -153,3 +153,15 @@ val register_histogram
   -> Obs_metrics.histogram_fn
 (** [buckets] is passed to the backend for bucket boundary configuration.
     The noop and stdout backends ignore it. *)
+
+val register_counter_and_histogram
+  :  t
+  -> counter_name:string
+  -> counter_help:string
+  -> counter_labels:string list
+  -> histogram_name:string
+  -> histogram_help:string
+  -> histogram_labels:string list
+  -> Obs_metrics.counter_fn * Obs_metrics.histogram_fn
+(** Register a counter and histogram metric family together. Use for framework
+    startup paths that always expose a count metric plus a duration metric. *)

@@ -55,14 +55,15 @@ module Make (W : WORKER) = struct
       match ot with
       | None -> (None, None)
       | Some o ->
-        let c = Obs.register_counter o
-          ~name:"sun_worker_messages_total"
-          ~help:"Total messages processed by status"
-          ~label_names:["status"] in
-        let h = Obs.register_histogram o
-          ~name:"sun_worker_message_duration_seconds"
-          ~help:"Message processing latency in seconds"
-          ~label_names:[] in
+        let c, h =
+          Obs.register_counter_and_histogram o
+            ~counter_name:"sun_worker_messages_total"
+            ~counter_help:"Total messages processed by status"
+            ~counter_labels:["status"]
+            ~histogram_name:"sun_worker_message_duration_seconds"
+            ~histogram_help:"Message processing latency in seconds"
+            ~histogram_labels:[]
+        in
         (Some c, Some h)
     in
     let stop_flag = match stop with Some f -> f | None -> Atomic.make false in
