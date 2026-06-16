@@ -32,3 +32,6 @@ Any bug fix or behavioural change (e.g. handling detached HEAD, trimming trailin
 - `grep -rn "let git_sha\|let workspace_name" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun up`, `sun deploy`, and `sun cloud deploy` all produce the same git SHA on a clean HEAD.
+
+## Review — automated checks passed
+git_sha and workspace_name consolidated into Sun_cli_shell; all call sites updated, build passes, and zero local definitions remain in cli/sun/bin/
