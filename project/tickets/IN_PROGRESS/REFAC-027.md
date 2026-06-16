@@ -3,6 +3,8 @@ id: REFAC-027
 type: refactor
 severity: low
 source: codebase simplification review 2026-06-15
+branch: REFAC-027/kafka-test-helpers
+worktree: /home/lbendtly/Code/sun-REFAC-027-kafka-test-helpers
 ---
 
 Consolidate Kafka test broker config into a shared test utility module
