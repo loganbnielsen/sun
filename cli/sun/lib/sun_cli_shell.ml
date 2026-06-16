@@ -14,3 +14,7 @@ let run_cmd_lines ?(echo = false) cmd =
 
 let run_cmd_to_string cmd =
   Sun_process.output ~echo:false cmd
+
+let git_sha () =
+  let s = String.trim (run_cmd_to_string "git rev-parse --short HEAD 2>/dev/null") in
+  if s = "" then "dev" else s
