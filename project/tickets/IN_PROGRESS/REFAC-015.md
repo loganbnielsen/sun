@@ -3,6 +3,8 @@ id: REFAC-015
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-015/extract-tls-wrapper
+worktree: /home/lbendtly/Code/sun-REFAC-015-extract-tls-wrapper
 ---
 
 Extract shared TLS/HTTPS wrapper to eliminate three identical copy-pastes

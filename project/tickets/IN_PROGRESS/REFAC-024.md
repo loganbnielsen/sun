@@ -3,6 +3,8 @@ id: REFAC-024
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-024/extract-kafka-conf-builder
+worktree: /home/lbendtly/Code/sun-REFAC-024-extract-kafka-conf-builder
 ---
 
 Extract Kafka config builder to eliminate near-duplicate `conf_of_config` in producer and consumer

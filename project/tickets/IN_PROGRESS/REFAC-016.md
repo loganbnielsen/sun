@@ -3,6 +3,8 @@ id: REFAC-016
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-016/extract-signal-handler
+worktree: /home/lbendtly/Code/sun-REFAC-016-extract-signal-handler
 ---
 
 Extract self-pipe signal handler to a shared framework module
