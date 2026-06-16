@@ -61,3 +61,6 @@ REFAC-021 moves the state directory helpers out first; this ticket builds on tha
 - `grep -rn "let start_port_forward\|let stop_port_forward\|let port_forward_running" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun up` and `sun dev up` port-forward behaviour is unchanged (PID files in same location, same restart-loop script).
+
+## Review — automated checks passed
+Port-forward logic correctly extracted to sun_cli_port_forward.ml; all acceptance criteria met, build clean, no old function names remain in bin/
