@@ -11,7 +11,7 @@
 # Exit codes:
 #   0  all suites passed, no regression
 #   1  one or more suites failed or timed out
-#   2  performance regression (>1.2× slower than baseline)
+#   2  performance regression (exceeded per-suite threshold)
 
 set -euo pipefail
 
@@ -35,10 +35,18 @@ declare -A TIMEOUTS=(
   [e2e]=180
 )
 
-# ── Regression threshold ──────────────────────────────────────────────────────
-# Hard fail if a suite runs >1.2× slower than its baseline. 10% variance is
-# plausible from system load; 20% is unambiguously a regression.
-FAIL_RATIO=1.2
+# ── Per-suite regression thresholds ──────────────────────────────────────────
+# unit/e2e: 1.5× — pure OCaml or sequential workflow; only GC/scheduler noise.
+# kafka/observability/storage: 1.4× — I/O-bound; more variance is expected.
+# These replace the old single FAIL_RATIO=1.2 which produced false positives
+# when infra containers ran concurrently with the unit suite.
+declare -A FAIL_RATIOS=(
+  [unit]=1.5
+  [kafka]=1.4
+  [observability]=1.4
+  [storage]=1.4
+  [e2e]=1.5
+)
 
 # ── Flags ────────────────────────────────────────────────────────────────────
 UPDATE_BASELINE=0
@@ -94,12 +102,13 @@ check_regression() {
   local base; base=$(baseline_get "$suite")
   [ "$base" = "null" ] && return 0   # no baseline yet
 
+  local ratio=${FAIL_RATIOS[$suite]}
   local threshold
-  threshold=$(awk "BEGIN { printf \"%.2f\", $base * $FAIL_RATIO }")
+  threshold=$(awk "BEGIN { printf \"%.2f\", $base * $ratio }")
 
   if awk "BEGIN { exit !($actual_s >= $threshold) }"; then
-    local ratio; ratio=$(awk "BEGIN { printf \"%.2f\", $actual_s / $base }")
-    fail "$suite: ${actual_s}s vs baseline ${base}s (${ratio}× — regression)"
+    local actual_ratio; actual_ratio=$(awk "BEGIN { printf \"%.2f\", $actual_s / $base }")
+    fail "$suite: ${actual_s}s vs baseline ${base}s (${actual_ratio}× — regression, threshold ${ratio}×)"
     return 1
   fi
   return 0
@@ -163,29 +172,28 @@ declare -A RESULTS   # suite → pass|fail|timeout
 declare -A TIMINGS   # suite → elapsed seconds
 REGRESSION_FAIL=0
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}Sun test runner${NC}"
 echo "Suites: ${SUITES[*]}"
 [ $UPDATE_BASELINE -eq 1 ] && echo "Mode: --update-baseline"
 [ $HAS_JQ -eq 0 ] && echo -e "${DIM}jq not found — regression checks disabled${NC}"
 
-[ $SKIP_INFRA -eq 0 ] && ensure_infra
-
-header "Suites"
-
-for suite in "${SUITES[@]}"; do
+# ── Run unit first (before infra) ─────────────────────────────────────────────
+# unit has no infrastructure dependencies. Running it before ensure_infra keeps
+# its timing isolated from I/O contention caused by starting Redpanda/Loki/Postgres.
+run_suite() {
+  local suite=$1
   echo -e "\n  ${BOLD}${suite}${NC}"
-  timeout_s=${TIMEOUTS[$suite]}
+  local timeout_s=${TIMEOUTS[$suite]}
 
-  start=$(now_ms)
+  local start; start=$(now_ms)
   set +e
   timeout "$timeout_s" bash -c "$(declare -f info pass fail header now_ms elapsed_s "run_${suite}"); run_${suite}" 2>&1 \
     | sed 's/^/    /'
-  exit_code=${PIPESTATUS[0]}
+  local exit_code=${PIPESTATUS[0]}
   set -e
-  end=$(now_ms)
+  local end; end=$(now_ms)
 
-  elapsed=$(elapsed_s "$start" "$end")
+  local elapsed; elapsed=$(elapsed_s "$start" "$end")
   TIMINGS[$suite]=$elapsed
 
   if [ $exit_code -eq 124 ]; then
@@ -198,24 +206,53 @@ for suite in "${SUITES[@]}"; do
     RESULTS[$suite]=pass
     pass "${suite}: passed (${elapsed}s)"
 
-    # Regression check
     if ! check_regression "$suite" "$elapsed"; then
       REGRESSION_FAIL=1
     fi
 
-    # Append to history
     if [ $UPDATE_BASELINE -eq 1 ]; then
       baseline_append "$suite" "$elapsed" "true"
     else
       baseline_append "$suite" "$elapsed" "false"
     fi
   fi
+}
+
+# Run unit in isolation before starting any infrastructure.
+INFRA_SUITES=()
+UNIT_REQUESTED=0
+for suite in "${SUITES[@]}"; do
+  if [ "$suite" = "unit" ]; then
+    UNIT_REQUESTED=1
+  else
+    INFRA_SUITES+=("$suite")
+  fi
 done
+
+if [ $UNIT_REQUESTED -eq 1 ]; then
+  header "Suites (unit — pre-infra)"
+  run_suite unit
+fi
+
+# Start infrastructure only if non-unit suites are requested.
+if [ ${#INFRA_SUITES[@]} -gt 0 ] && [ $SKIP_INFRA -eq 0 ]; then
+  # Temporarily set SUITES to only infra suites for ensure_infra's needs check.
+  SUITES=("${INFRA_SUITES[@]}")
+  ensure_infra
+  SUITES=("${REQUESTED_SUITES[@]:-${ALL_SUITES[@]}}")
+fi
+
+if [ ${#INFRA_SUITES[@]} -gt 0 ]; then
+  header "Suites (infra-dependent)"
+  for suite in "${INFRA_SUITES[@]}"; do
+    run_suite "$suite"
+  done
+fi
 
 # ── Summary table ─────────────────────────────────────────────────────────────
 header "Summary"
-printf "  %-18s %-10s %-10s %-12s\n" "Suite" "Result" "Time" "Baseline"
-printf "  %-18s %-10s %-10s %-12s\n" "─────────────────" "──────────" "─────────" "────────────"
+printf "  %-18s %-10s %-10s %-12s %-8s\n" "Suite" "Result" "Time" "Baseline" "Threshold"
+printf "  %-18s %-10s %-10s %-12s %-8s\n" "─────────────────" "──────────" "─────────" "────────────" "─────────"
 
 ALL_PASSED=1
 for suite in "${ALL_SUITES[@]}"; do
@@ -224,6 +261,7 @@ for suite in "${ALL_SUITES[@]}"; do
   result=${RESULTS[$suite]}
   elapsed=${TIMINGS[$suite]}
   base=$(baseline_get "$suite")
+  threshold=${FAIL_RATIOS[$suite]}
 
   case "$result" in
     pass)    result_str="${GREEN}pass${NC}" ;;
@@ -237,7 +275,8 @@ for suite in "${ALL_SUITES[@]}"; do
   echo -ne "$result_str"
   printf "%-$((10 - ${#result} + 6))s" ""
   printf "%-10s" "${elapsed}s"
-  echo -e "$base_str"
+  printf "%-14s" "$base_str"
+  echo "${threshold}×"
 done
 
 if [ $UPDATE_BASELINE -eq 1 ]; then
@@ -251,7 +290,7 @@ if [ $ALL_PASSED -eq 0 ]; then
   fail "One or more suites failed."
   exit 1
 elif [ $REGRESSION_FAIL -eq 1 ]; then
-  fail "Performance regression detected (>${FAIL_RATIO}× slower than baseline)."
+  fail "Performance regression detected (exceeded per-suite threshold)."
   exit 2
 else
   pass "All suites passed."
