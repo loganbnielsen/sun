@@ -3,6 +3,8 @@ id: REFAC-047
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-16
+branch: REFAC-047/remove-duplicate-yaml-dispatch
+worktree: ../sun-REFAC-047-remove-duplicate-yaml-dispatch
 ---
 
 Remove duplicate YAML resource-dispatch path in `sun_cli_manifest_yaml`
