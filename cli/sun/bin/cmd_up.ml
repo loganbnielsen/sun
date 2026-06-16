@@ -4,19 +4,6 @@ open Sun_cli_manifest
 
 (* ── Port-forward helpers (mirrors cmd_dev.ml) ───────────────────────────── *)
 
-let state_dir =
-  (* Use an absolute path so sun up/down work regardless of cwd — mirrors cmd_dev.ml. *)
-  match Sys.getenv_opt "XDG_DATA_HOME" with
-  | Some d -> Filename.concat d "sun"
-  | None ->
-    match Sys.getenv_opt "HOME" with
-    | Some h -> Filename.concat h ".local/share/sun"
-    | None   -> Filename.concat (Sys.getcwd ()) ".sun"
-
-let ensure_state_dir () =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote state_dir)))
-
-let pid_file name = Printf.sprintf "%s/pf-%s.pid" state_dir name
 
 let contains haystack needle =
   let hl = String.length haystack and nl = String.length needle in
@@ -38,13 +25,11 @@ let read_cmdline pid =
   (try Sys.remove tmp with _ -> ());
   s
 
-let log_file name = Printf.sprintf "/tmp/sun-pf-%s.log" name
-let script_file name = Printf.sprintf "/tmp/sun-pf-%s.sh" name
 
 (* The PID file now holds the wrapper shell's PID, not kubectl's.
    Identify our wrapper by the script file name in the process's cmdline. *)
 let port_forward_running ~service:_ name =
-  let pf = pid_file name in
+  let pf = Sun_cli_state.pid_file name in
   if Sys.file_exists pf then begin
     let ic = open_in pf in
     let pid_s = String.trim (In_channel.input_all ic) in
@@ -65,10 +50,10 @@ let port_forward_running ~service:_ name =
     On pod rollout, kubectl exits; the loop restarts it within ~1 s so the
     port-forward stays live across deploys without manual intervention. *)
 let start_port_forward ~name ~namespace ~service ~local_port ~remote_port =
-  ensure_state_dir ();
-  let sf = script_file name in
-  let lf = log_file name in
-  let pf = pid_file name in
+  Sun_cli_state.ensure ();
+  let sf = Sun_cli_state.script_file name in
+  let lf = Sun_cli_state.log_file name in
+  let pf = Sun_cli_state.pid_file name in
   let content = Printf.sprintf
     "#!/bin/sh\necho $$ > %s\nwhile true; do\n  kubectl port-forward -n %s svc/%s %d:%d </dev/null >> %s 2>&1\n  sleep 1\ndone\n"
     (Filename.quote pf)
@@ -106,7 +91,7 @@ let read_last_lines path n =
     a warning with the log path and a suggested remediation command. *)
 let check_port_forward_liveness ~name ~local_port =
   Unix.sleepf 0.2;
-  let pf = pid_file name in
+  let pf = Sun_cli_state.pid_file name in
   let alive =
     if Sys.file_exists pf then begin
       try
@@ -121,7 +106,7 @@ let check_port_forward_liveness ~name ~local_port =
     end else false
   in
   if not alive then begin
-    let lf = log_file name in
+    let lf = Sun_cli_state.log_file name in
     let tail = read_last_lines lf 5 in
     Printf.printf
       "  warning: port-forward for %s failed (port %d may be in use by another workspace).\n"
