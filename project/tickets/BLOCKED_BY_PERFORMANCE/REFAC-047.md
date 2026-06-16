@@ -31,3 +31,6 @@ Any change to resource shape (new workload annotation, new primitive type, renam
 
 - `grep -rn "Sun_cli_manifest_yaml\.render\b" cli/` returns zero hits.
 - `dune build` and `dune test cli/sun/` pass.
+
+## Review — automated checks passed
+render function and val render signature deleted, parity test removed, no references remain, build clean
