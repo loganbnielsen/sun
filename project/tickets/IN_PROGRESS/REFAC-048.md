@@ -3,6 +3,8 @@ id: REFAC-048
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-16
+branch: REFAC-048/extract-kafka-base-conf
+worktree: ../sun-REFAC-048-extract-kafka-base-conf
 ---
 
 Extract shared `conf_new`/`set` boilerplate into `Kafka_raw.make_base_conf`
