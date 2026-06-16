@@ -101,55 +101,25 @@ let read_last_lines path n =
     String.concat "\n" tail
   with _ -> ""
 
-(* Probe whether local_port is accepting TCP connections.
-   Retries every 50 ms until timeout_s elapses. Returns true if port opens. *)
-let probe_port ~local_port ~timeout_s =
-  let deadline = Unix.gettimeofday () +. timeout_s in
-  let rec loop () =
-    if Unix.gettimeofday () > deadline then false
-    else begin
-      let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-      let connected =
-        (try
-          Unix.connect sock (Unix.ADDR_INET (Unix.inet_addr_loopback, local_port));
-          Unix.close sock;
-          true
-        with
-        | Unix.Unix_error (Unix.ECONNREFUSED, _, _) -> Unix.close sock; false
-        | Unix.Unix_error _ -> Unix.close sock; false
-        | exn -> Unix.close sock; raise exn)
-      in
-      if connected then true
-      else (Unix.sleepf 0.05; loop ())
-    end
-  in
-  loop ()
-
-(* Probe whether local_port has been released (not connectable).
-   Retries every 50 ms until timeout_s elapses. Returns true if port is free. *)
-let probe_port_released ~local_port ~timeout_s =
-  let deadline = Unix.gettimeofday () +. timeout_s in
-  let rec loop () =
-    if Unix.gettimeofday () > deadline then false
-    else begin
-      let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-      let still_open =
-        (try
-          Unix.connect sock (Unix.ADDR_INET (Unix.inet_addr_loopback, local_port));
-          Unix.close sock; true
-        with Unix.Unix_error _ -> Unix.close sock; false)
-      in
-      if not still_open then true   (* port is free *)
-      else (Unix.sleepf 0.05; loop ())
-    end
-  in
-  loop ()
-
-(** Check whether the port-forward for [name] is accepting connections on
-    [local_port].  When the port does not open within the probe window, prints
+(** Sleep 200 ms, then check whether the port-forward process for [name] is
+    still alive.  Returns [true] if alive, [false] if dead.  When dead, prints
     a warning with the log path and a suggested remediation command. *)
 let check_port_forward_liveness ~name ~local_port =
-  let alive = probe_port ~local_port ~timeout_s:3.0 in
+  Unix.sleepf 0.2;
+  let pf = pid_file name in
+  let alive =
+    if Sys.file_exists pf then begin
+      try
+        let ic = open_in pf in
+        let pid_s = String.trim (In_channel.input_all ic) in
+        close_in ic;
+        let pid = int_of_string pid_s in
+        (try Unix.kill pid 0; true
+         with Unix.Unix_error (Unix.ESRCH, _, _) -> false
+            | Unix.Unix_error _ -> true)  (* EPERM means process exists *)
+      with _ -> false
+    end else false
+  in
   if not alive then begin
     let lf = log_file name in
     let tail = read_last_lines lf 5 in
@@ -511,9 +481,9 @@ let run filter_path dry_run tag confirm_group_change =
                   old_ns old_svc local_port;
                 (try Unix.kill stale_pid Sys.sigterm
                  with Unix.Unix_error _ -> ());
-                (* Wait for the port to be released, up to 1 s *)
-                if not (probe_port_released ~local_port ~timeout_s:1.0) then
-                  Printf.eprintf "  warning: port %d may still be held after killing stale forward\n%!" local_port
+                (* Give the old process ~400 ms to release the port before we
+                   start the new wrapper script. *)
+                Unix.sleepf 0.4
               | None -> ());
              start_port_forward ~name:spec.k8s_name ~namespace:spec.namespace
                ~service:spec.k8s_name ~local_port ~remote_port:80

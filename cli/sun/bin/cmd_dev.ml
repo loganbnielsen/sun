@@ -210,21 +210,7 @@ let dev_up () =
 
   (* 4. Port-forwards *)
   Printf.printf "\n[4/4] Starting port-forwards...\n%!";
-  (* Wait for each infra deployment/statefulset to be Available before starting
-     port-forwards, so endpoints are registered and the first connection succeeds. *)
-  let wait_for_ready ns name =
-    let cmd = Printf.sprintf
-      "kubectl wait --for=condition=Available=True deployment/%s -n %s --timeout=60s -q 2>/dev/null || \
-       kubectl wait --for=condition=Available=True statefulset/%s -n %s --timeout=60s -q 2>/dev/null; true"
-      (Filename.quote name) (Filename.quote ns)
-      (Filename.quote name) (Filename.quote ns)
-    in
-    ignore (Sys.command cmd)
-  in
-  if req.kafka     then wait_for_ready "redpanda"    "redpanda";
-  if req.postgres  then wait_for_ready "postgresql"  "postgresql";
-  if req.loki      then wait_for_ready "monitoring"  "loki";
-  if req.prometheus then wait_for_ready "monitoring" "prometheus";
+  ignore (Sys.command "sleep 2");  (* brief pause for service endpoints to settle *)
 
   if req.kafka then begin
     (* Port-forward to the pod (not svc) so we reach the external listener on
