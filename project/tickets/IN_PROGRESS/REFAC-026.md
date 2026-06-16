@@ -3,6 +3,8 @@ id: REFAC-026
 type: refactor
 severity: medium
 source: codebase simplification review 2026-06-15
+branch: REFAC-026/shared-wait-port-helper
+worktree: /home/lbendtly/Code/sun-REFAC-026-shared-wait-port-helper
 ---
 
 Extract port-wait loop repeated across 6 ensure-*.sh scripts into a shared helper
