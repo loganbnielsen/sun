@@ -6,7 +6,8 @@ let dir =
     | Some h -> Filename.concat h ".local/share/sun"
     | None   -> Filename.concat (Sys.getcwd ()) ".sun"
 
-let ensure () = Sun_cli_scaffold.mkdir_p dir
+let ensure () =
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
 
 let pid_file name    = Printf.sprintf "%s/pf-%s.pid" dir name
 let log_file name    = Printf.sprintf "/tmp/sun-pf-%s.log" name

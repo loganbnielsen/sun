@@ -1,6 +1,3 @@
-val mkdir_p : string -> unit
-(** [mkdir_p dir] creates [dir] and all intermediate directories. *)
-
 val subst : (string * string) list -> string -> string
 (** [subst vars s] replaces every [{{key}}] in [s] with the corresponding
     value from [vars]. Applied left-to-right; earlier bindings win on overlap. *)
