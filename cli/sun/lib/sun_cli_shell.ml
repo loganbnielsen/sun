@@ -15,12 +15,6 @@ let run_cmd_lines ?(echo = false) cmd =
 let run_cmd_to_string cmd =
   Sun_process.output ~echo:false cmd
 
-let workspace_name () = Filename.basename (Sys.getcwd ())
-
-let git_sha () =
-  let s = run_cmd_to_string "git rev-parse --short HEAD" in
-  if s = "" then "dev" else s
-
 let string_contains ~needle haystack =
   let nl = String.length needle and hl = String.length haystack in
   if nl = 0 then true

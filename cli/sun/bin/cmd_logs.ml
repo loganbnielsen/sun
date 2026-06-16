@@ -1,5 +1,7 @@
 open Cmdliner
 
+let workspace_name () = Filename.basename (Sys.getcwd ())
+
 (* Scan app/ to find which domain owns a bare service name.
    Returns a list of matching (domain, name) pairs. *)
 let find_service_by_name name =
@@ -60,7 +62,7 @@ let deployment_exists ns k8s_name =
 
 let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) (grafana_base_url : string) : unit =
   let follow = not no_follow in
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
     | None -> exit 1

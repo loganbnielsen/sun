@@ -5,6 +5,17 @@
 open Cmdliner
 open Sun_cli_manifest
 
+let workspace_name () = Filename.basename (Sys.getcwd ())
+
+let git_sha () =
+  let tmp = Filename.temp_file "sun-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  if s = "" then "dev" else s
+
 let parse_secret_backend backend_str store_ref store_kind key_prefix refresh_interval emit_to =
   match backend_str with
   | "kubernetes-placeholder" | "" -> Sun_cli_manifest.Kubernetes_placeholder
@@ -43,8 +54,8 @@ let run filter_path dry_run emit_to emit_plan_to image_tag registry
   let secret_backend =
     parse_secret_backend secret_backend_str store_ref store_kind key_prefix refresh_interval emit_to
   in
-  let workspace = Sun_cli_shell.workspace_name () in
-  let sha       = match image_tag with Some t -> t | None -> Sun_cli_shell.git_sha () in
+  let workspace = workspace_name () in
+  let sha       = match image_tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
 
   if services = [] then begin

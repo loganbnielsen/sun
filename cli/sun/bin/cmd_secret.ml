@@ -1,7 +1,9 @@
 open Cmdliner
 
+let workspace_name () = Filename.basename (Sys.getcwd ())
+
 let discover_namespaces () =
-  let workspace = Sun_cli_shell.workspace_name () in
+  let workspace = workspace_name () in
   let app_dir = "app" in
   if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
   else
@@ -36,7 +38,7 @@ let run_set env value key =
   print_result
     (Sun_cli_secret.set
        ~env
-       ~workspace:(Sun_cli_shell.workspace_name ())
+       ~workspace:(workspace_name ())
        ~namespaces:(discover_namespaces ())
        ~key
        ~value)
@@ -45,14 +47,14 @@ let run_list env =
   print_result
     (Sun_cli_secret.list
        ~env
-       ~workspace:(Sun_cli_shell.workspace_name ())
+       ~workspace:(workspace_name ())
        ~namespaces:(discover_namespaces ()))
 
 let run_delete env key =
   print_result
     (Sun_cli_secret.delete
        ~env
-       ~workspace:(Sun_cli_shell.workspace_name ())
+       ~workspace:(workspace_name ())
        ~namespaces:(discover_namespaces ())
        ~key)
 
