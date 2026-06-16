@@ -54,3 +54,6 @@ Both also define a local `cmd_ok` alias for `Sun_cli_shell.run_cmd_ok ~echo:fals
 - `grep -rn "let check_tool" cli/sun/bin/` returns zero hits.
 - `dune build` passes.
 - `sun dev up` and `sun cloud` still bail with the correct error message when required tools are missing.
+
+## Review — automated checks passed
+check_tool() centralised in Sun_cli_shell; two local definitions removed; build clean; zero let check_tool hits in bin/
