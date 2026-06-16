@@ -11,25 +11,8 @@ end
    checkpoints, so allocation inside the handler is safe — but we avoid it
    anyway to stay close to the OS boundary. *)
 let install_signal_handler ~sw resolver =
-  let r, w = Unix.pipe ~cloexec:true () in
-  Unix.set_nonblock w;
-  let handle _ =
-    (try ignore (Unix.single_write w (Bytes.make 1 '\x00') 0 1) with _ -> ())
-  in
-  Sys.set_signal Sys.sigterm (Sys.Signal_handle handle);
-  Sys.set_signal Sys.sigint  (Sys.Signal_handle handle);
-  (* Daemon: switch cancels this fiber when the body returns normally (no signal
-     received). If a signal fires first, the fiber completes before the switch
-     exits, so the daemon distinction doesn't matter in that case. *)
-  Eio.Fiber.fork_daemon ~sw (fun () ->
-    Fun.protect
-      ~finally:(fun () -> Unix.close r; (try Unix.close w with _ -> ()))
-      (fun () ->
-        Eio_unix.await_readable r;
-        let buf = Bytes.create 1 in
-        (try ignore (Unix.read r buf 0 1) with _ -> ());
-        (try Eio.Promise.resolve resolver () with _ -> ());
-        `Stop_daemon))
+  Sun_signal.install ~sw ~on_signal:(fun () ->
+    (try Eio.Promise.resolve resolver () with _ -> ()))
 
 (* ── Make functor ───────────────────────────────────────────────────────── *)
 
