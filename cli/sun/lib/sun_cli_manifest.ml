@@ -229,6 +229,48 @@ let render_extra_labels labels =
   (* Renders extra_labels as additional pod-template label lines (4-space indent). *)
   String.concat "\n" (List.map (fun (k, v) -> f "        %s: \"%s\"" k v) labels)
 
+(* ── Shared pod template ─────────────────────────────────────────────────── *)
+
+(** [render_pod_template] produces the shared [template:] YAML block used by
+    both [deployment_doc] (Deployment) and [rollout_doc] (Argo Rollout).
+    Security-context fields appear here and nowhere else. *)
+let render_pod_template ~name ~image ~ports_section ~probe_section
+    ~extra_labels_section ~secret_env_section ~cpu ~memory ~config_hash =
+  f {|  template:
+    metadata:
+      labels:
+        app: %s%s
+      annotations:
+        sun.dev/config-hash: "%s"
+    spec:
+      serviceAccountName: %s
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: %s
+        image: %s
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+%s%s        envFrom:
+        - configMapRef:
+            name: %s-env
+        - secretRef:
+            name: %s-secrets
+        resources:
+          requests:
+            cpu: %s
+            memory: %s
+          limits:
+            cpu: %s
+            memory: %s
+%s|} name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
+
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
                    ?(secret_keys = [])
@@ -263,6 +305,9 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
     else "\n" ^ render_extra_labels extra_labels
   in
   let secret_env_section = render_secret_key_refs ~name secret_keys in
+  let pod_template = render_pod_template ~name ~image ~ports_section
+      ~probe_section ~extra_labels_section ~secret_env_section
+      ~cpu ~memory ~config_hash in
   f {|---
 apiVersion: apps/v1
 kind: Deployment
@@ -276,40 +321,7 @@ spec:
   selector:
     matchLabels:
       app: %s
-  template:
-    metadata:
-      labels:
-        app: %s%s
-      annotations:
-        sun.dev/config-hash: "%s"
-    spec:
-      serviceAccountName: %s
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-      - name: %s
-        image: %s
-        imagePullPolicy: Always
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-%s%s        envFrom:
-        - configMapRef:
-            name: %s-env
-        - secretRef:
-            name: %s-secrets
-        resources:
-          requests:
-            cpu: %s
-            memory: %s
-          limits:
-            cpu: %s
-            memory: %s
-%s|} name ns replicas strategy_type name name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
+%s|} name ns replicas strategy_type name pod_template
 
 (* ── Argo Rollouts helpers ────────────────────────────────────────────────── *)
 
@@ -370,6 +382,9 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~po
     | Sun_cli_toml.Canary { steps } -> render_canary_strategy steps
     | Sun_cli_toml.Blue_green       -> render_blue_green_strategy name
   in
+  let pod_template = render_pod_template ~name ~image ~ports_section
+      ~probe_section ~extra_labels_section ~secret_env_section
+      ~cpu ~memory ~config_hash in
   f {|---
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
@@ -381,42 +396,9 @@ spec:
   selector:
     matchLabels:
       app: %s
-  template:
-    metadata:
-      labels:
-        app: %s%s
-      annotations:
-        sun.dev/config-hash: "%s"
-    spec:
-      serviceAccountName: %s
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-      - name: %s
-        image: %s
-        imagePullPolicy: Always
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-%s%s        envFrom:
-        - configMapRef:
-            name: %s-env
-        - secretRef:
-            name: %s-secrets
-        resources:
-          requests:
-            cpu: %s
-            memory: %s
-          limits:
-            cpu: %s
-            memory: %s
 %s
   strategy:
-%s|} name ns replicas name name extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section strategy_block
+%s|} name ns replicas name pod_template strategy_block
 
 (** Two ClusterIP Services required by the blue-green strategy:
     [<name>-active] receives live traffic; [<name>-preview] receives canary traffic.
