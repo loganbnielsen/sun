@@ -60,11 +60,7 @@ let parse_rollout_strategy s =
 (* Guard: keys starting with "sun.dev/" are reserved for Sun internals. *)
 let validate_extra_label_key k =
   let prefix = "sun.dev/" in
-  let n = String.length prefix in
-  let starts_with s =
-    String.length s >= n && String.sub s 0 n = prefix
-  in
-  if starts_with k then
+  if String.starts_with ~prefix k then
     failwith (Printf.sprintf
       "sun.toml: extra_labels key %S is reserved — \
        keys may not start with \"sun.dev/\"" k)

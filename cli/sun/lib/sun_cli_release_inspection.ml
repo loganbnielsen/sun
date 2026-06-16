@@ -127,10 +127,6 @@ let release_summary ~release_id ~environment_id ~environment_name ~status ~plan
     services;
   }
 
-let starts_with ~prefix s =
-  let lp = String.length prefix in
-  String.length s >= lp && String.sub s 0 lp = prefix
-
 let split_manifest_docs yaml =
   yaml
   |> String.split_on_char '\n'
@@ -154,7 +150,7 @@ let field_after_prefix ~prefix doc =
   |> String.split_on_char '\n'
   |> List.find_map (fun line ->
        let line = String.trim line in
-       if starts_with ~prefix line then
+       if String.starts_with ~prefix line then
          Some (String.trim (String.sub line (String.length prefix)
                               (String.length line - String.length prefix)))
        else None)
