@@ -1,10 +1,4 @@
-module type MESSAGE = sig
-  type t
-  val topic_name : string
-  val schema : string
-  val encode : t -> Yojson.Safe.t
-  val decode : Yojson.Safe.t -> (t, string) result
-end
+module type MESSAGE = Kafka_service_intf.MESSAGE
 
 type 'a topic = {
   name      : string;
@@ -31,203 +25,16 @@ type t = {
   security            : Kafka_security.t;
 }
 
-(* ------------------------------------------------------------------ *)
-(* HTTP client via cohttp-eio                                          *)
-(* ------------------------------------------------------------------ *)
+module Schema = Kafka_service_schema.Schema
+module Confluent_wire = Kafka_service_schema.Confluent_wire
 
-(* Cached TLS authenticator — reads system CA bundle once.
-   Used to build the https wrapper passed to Cohttp_eio.Client.make. *)
-let tls_authenticator = lazy (
-  let time () = Ptime.of_float_s (Unix.gettimeofday ()) in
-  let ca_paths =
-    [ "/etc/ssl/certs/ca-certificates.crt"   (* Debian/Ubuntu/WSL *)
-    ; "/etc/pki/tls/certs/ca-bundle.crt"     (* RHEL/CentOS/Fedora *)
-    ; "/etc/ssl/ca-bundle.pem"               (* OpenSUSE *)
-    ; "/etc/ssl/cert.pem"                    (* macOS/Alpine *)
-    ]
-  in
-  let cas = List.find_map (fun path ->
-    let ic = ref None in
-    try
-      let ch = open_in path in
-      ic := Some ch;
-      let n  = in_channel_length ch in
-      let s  = Bytes.create n in
-      really_input ch s 0 n;
-      close_in ch;
-      ic := None;
-      match X509.Certificate.decode_pem_multiple (Bytes.to_string s) with
-      | Ok certs when certs <> [] -> Some (path, certs)
-      | _ -> None
-    with _ ->
-      Option.iter close_in_noerr !ic;
-      None
-  ) ca_paths in
-  match cas with
-  | Some (_path, certs) -> Ok (X509.Authenticator.chain_of_trust ~time certs)
-  | None ->
-    Error
-      "kafka_service: no system CA bundle found for HTTPS schema registry; \
-       refusing to connect without certificate verification"
-)
-
-(* Build the https wrapper for Cohttp_eio.Client.make.
-   Reads the system CA bundle and wires Tls_eio for certificate-verified TLS.
-   Fails closed: if no CA bundle is found, HTTPS connections are rejected. *)
-let make_https_wrapper () =
-  let authenticator =
-    match Lazy.force tls_authenticator with
-    | Ok a -> a
-    | Error msg -> failwith msg
-  in
-  let tls_config =
-    match Tls.Config.client ~authenticator () with
-    | Ok c -> c
-    | Error (`Msg m) -> failwith ("kafka_service: TLS config error: " ^ m)
-  in
-  fun uri raw ->
-    let host =
-      Uri.host uri
-      |> Option.map (fun h -> Domain_name.(host_exn (of_string_exn h)))
-    in
-    Tls_eio.client_of_flow ?host tls_config raw
-
-(* Build a Cohttp_eio client.  The https wrapper is initialised lazily on
-   first use so that plain-HTTP-only callers pay no startup cost. *)
-let https_wrapper = lazy (make_https_wrapper ())
-
-let http_do_once net ~sw ~meth ~base_url ~path ~content_type_opt ~body_opt =
-  let uri = Uri.of_string (base_url ^ path) in
-  let https = Some (Lazy.force https_wrapper) in
-  let client = Cohttp_eio.Client.make ~https net in
-  let headers =
-    let base = Http.Header.of_list
-      [ ("Accept",     "application/json")
-      ; ("Connection", "close")
-      ] in
-    match content_type_opt with
-    | None    -> base
-    | Some ct -> Http.Header.add base "Content-Type" ct
-  in
-  let body = match body_opt with
-    | None   -> None
-    | Some s -> Some (Cohttp_eio.Body.of_string s)
-  in
-  let resp, resp_body =
-    Cohttp_eio.Client.call client ~sw ~headers ?body meth uri
-  in
-  let status = Http.Status.to_int (Http.Response.status resp) in
-  let body_str =
-    Eio.Buf_read.(parse_exn take_all) resp_body ~max_size:(4 * 1024 * 1024)
-  in
-  (status, body_str)
-
-let http_do net ~clock ~meth ~base_url ~path ~content_type_opt ~body_opt =
-  try
-    Eio.Time.with_timeout_exn clock 10.0 (fun () ->
-      Eio.Switch.run (fun sw ->
-        Ok (http_do_once net ~sw ~meth ~base_url ~path ~content_type_opt ~body_opt)))
-  with
-  | Eio.Time.Timeout -> Error "HTTP request timed out after 10s"
-  | exn -> Error (Printexc.to_string exn)
-
-let http_post net ~clock ~base_url ~path ~content_type ~body =
-  http_do net ~clock ~meth:`POST ~base_url ~path
-    ~content_type_opt:(Some content_type) ~body_opt:(Some body)
-
-let http_put net ~clock ~base_url ~path ~content_type ~body =
-  http_do net ~clock ~meth:`PUT ~base_url ~path
-    ~content_type_opt:(Some content_type) ~body_opt:(Some body)
-
-let http_get net ~clock ~base_url ~path =
-  http_do net ~clock ~meth:`GET ~base_url ~path
-    ~content_type_opt:None ~body_opt:None
-
-(* ------------------------------------------------------------------ *)
-(* Schema registry                                                     *)
-(* ------------------------------------------------------------------ *)
-
-module Schema = struct
-  let check ~net ~clock ~registry_url (module M : MESSAGE) =
-    let subject = M.topic_name ^ "-value" in
-    let body = Yojson.Safe.to_string (`Assoc [
-      ("schemaType", `String "JSON");
-      ("schema",     `String M.schema);
-    ]) in
-    match http_post net ~clock ~base_url:registry_url
-            ~path:(Printf.sprintf "/compatibility/subjects/%s/versions/latest" subject)
-            ~content_type:"application/vnd.schemaregistry.v1+json"
-            ~body with
-    | Error e -> Error ("connection failed: " ^ e)
-    | Ok (200, resp_body) ->
-      (try
-        match Yojson.Safe.from_string resp_body with
-        | `Assoc fields ->
-          (match List.assoc_opt "is_compatible" fields with
-           | Some (`Bool true)  -> Ok ()
-           | Some (`Bool false) ->
-             Error (Printf.sprintf
-               "schema for topic '%s' is not compatible with the registered version"
-               M.topic_name)
-           | _ -> Error ("unexpected registry response: " ^ resp_body))
-        | _ -> Error ("unexpected registry response: " ^ resp_body)
-       with Yojson.Json_error _ -> Error ("json parse error in registry response: " ^ resp_body))
-    | Ok (404, _) ->
-      Ok ()  (* no registered version yet — compatible by definition *)
-    | Ok (status, body) ->
-      Error (Printf.sprintf "schema registry HTTP %d: %s" status body)
-
-  let check_all ~net ~clock ~registry_url modules =
-    List.fold_left (fun acc m ->
-      match acc with
-      | Error _ as e -> e
-      | Ok ()        -> check ~net ~clock ~registry_url m
-    ) (Ok ()) modules
-end
-
-let set_subject_compatibility net ~clock ~registry_url ~topic_name =
-  let subject = topic_name ^ "-value" in
-  let body = {|{"compatibility":"FULL"}|} in
-  match http_put net ~clock ~base_url:registry_url
-          ~path:(Printf.sprintf "/config/%s" subject)
-          ~content_type:"application/vnd.schemaregistry.v1+json"
-          ~body with
-  | Error e -> Error ("set compatibility: " ^ e)
-  | Ok (200, _) | Ok (204, _) -> Ok ()
-  | Ok (status, resp_body) ->
-    Error (Printf.sprintf "set compatibility: HTTP %d: %s" status resp_body)
-
-let register_schema net ~clock ~registry_url ~topic_name ~schema =
-  let subject = topic_name ^ "-value" in
-  let body =
-    Yojson.Safe.to_string (`Assoc [
-      ("schemaType", `String "JSON");
-      ("schema",     `String schema);
-    ])
-  in
-  match http_post net ~clock ~base_url:registry_url
-          ~path:(Printf.sprintf "/subjects/%s/versions" subject)
-          ~content_type:"application/vnd.schemaregistry.v1+json"
-          ~body with
-  | Error e -> Error ("schema registry connect: " ^ e)
-  | Ok (status, resp_body) when status = 200 || status = 201 ->
-    (match Yojson.Safe.from_string resp_body with
-     | `Assoc fields ->
-       (match List.assoc_opt "id" fields with
-        | Some (`Int id) -> Ok id
-        | _ -> Error ("schema registry: missing 'id' in: " ^ resp_body))
-     | _ -> Error ("schema registry: unexpected response: " ^ resp_body)
-     | exception Yojson.Json_error _ -> Error ("schema registry: json parse error in: " ^ resp_body))
-  | Ok (status, resp_body) ->
-    Error (Printf.sprintf "schema registry: HTTP %d: %s" status resp_body)
+let encode_wire = Kafka_service_schema.encode_wire
+let decode_wire = Kafka_service_schema.decode_wire
 
 (* ------------------------------------------------------------------ *)
 (* Topic provisioning                                                  *)
 (* ------------------------------------------------------------------ *)
 
-(* Topic provisioning via librdkafka admin API — best-effort at startup.
-   Reuses the existing producer connection; no subprocess or extra TCP setup.
-   In production, topics are pre-created by infrastructure. *)
 let ensure_topic rk ~topic_name ~partitions =
   let err = Kafka_raw.create_topic rk topic_name partitions 1 in
   if err <> 0 then
@@ -235,11 +42,8 @@ let ensure_topic rk ~topic_name ~partitions =
   else
     Ok ()
 
-(* Query the current partition count for an existing topic via the Redpanda
-   admin API.  Returns None if the topic does not exist or the admin API is
-   unreachable — callers must not block on this being populated. *)
 let query_topic_partitions net ~clock ~admin_url ~topic_name =
-  match http_get net ~clock ~base_url:admin_url
+  match Kafka_service_http.http_get net ~clock ~base_url:admin_url
           ~path:(Printf.sprintf "/v1/topics/%s" topic_name) with
   | Error _ | Ok (404, _) -> None
   | Ok (200, body) ->
@@ -252,43 +56,6 @@ let query_topic_partitions net ~clock ~admin_url ~topic_name =
       | _ -> None
     with _ -> None)
   | Ok _ -> None
-
-(* ------------------------------------------------------------------ *)
-(* Confluent wire format: 0x00 + 4-byte big-endian schema_id + JSON   *)
-(* ------------------------------------------------------------------ *)
-
-module Confluent_wire = struct
-  (* Header layout: 1 magic byte (0x00) + 4 bytes big-endian schema ID = 5 bytes *)
-  let header_len = 5
-  let magic_byte = '\x00'
-
-  (** Encode a JSON value into Confluent wire format: magic + big-endian schema_id + JSON. *)
-  let encode ~schema_id json =
-    let json_str = Yojson.Safe.to_string json in
-    let json_len = String.length json_str in
-    let cs = Cstruct.create (header_len + json_len) in
-    Cstruct.set_char cs 0 magic_byte;
-    Cstruct.BE.set_uint32 cs 1 (Int32.of_int schema_id);
-    Cstruct.blit_from_string json_str 0 cs header_len json_len;
-    Cstruct.to_bytes cs
-
-  (** Decode a Confluent wire-format message.
-      Returns [Error] on too-short messages or invalid magic byte. *)
-  let decode bytes =
-    if Bytes.length bytes < header_len then
-      Error "wire format: message too short"
-    else
-      let cs = Cstruct.of_bytes bytes in
-      if Cstruct.get_char cs 0 <> magic_byte then
-        Error "wire format: invalid magic byte"
-      else
-        let schema_id = Int32.to_int (Cstruct.BE.get_uint32 cs 1) in
-        let json_str = Cstruct.(to_string (sub cs header_len (length cs - header_len))) in
-        Ok (schema_id, json_str)
-end
-
-let encode_wire ~schema_id json = Confluent_wire.encode ~schema_id json
-let decode_wire bytes = Confluent_wire.decode bytes
 
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)
@@ -349,14 +116,13 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
   match ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions with
   | Error e -> Error e
   | Ok () ->
-    match register_schema net ~clock ~registry_url:svc.schema_registry_url
+    match Kafka_service_schema.register_schema net ~clock
+            ~registry_url:svc.schema_registry_url
             ~topic_name:M.topic_name ~schema:M.schema with
     | Error e -> Error e
     | Ok schema_id ->
-      (* Set FULL compatibility: new and old schemas must be mutually readable.
-         This is what makes rolling deploys safe — old pods can read new messages
-         and new pods can read old messages during the rollout window. *)
-      (match set_subject_compatibility net ~clock ~registry_url:svc.schema_registry_url
+      (match Kafka_service_schema.set_subject_compatibility net ~clock
+               ~registry_url:svc.schema_registry_url
                ~topic_name:M.topic_name with
        | Error e ->
          Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" M.topic_name e
@@ -552,7 +318,6 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     (match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
      | Error e -> Error e
      | Ok consumer ->
-       (* Create retry topic consumer — runs as a background fiber in sw. *)
        let retry_consumer_cfg : Kafka_consumer.config = {
          brokers      = svc.brokers;
          group_id     = group_id ^ "-sun-retry";
@@ -633,7 +398,6 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
             Kafka_consumer.close retry_consumer
           )
        );
-       (* Main handler: intercept Error _ and route to retry topic. *)
        let decode_and_handle raw_msg ~ack =
          let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
          let raw_bytes = raw_msg.Kafka_consumer.value in
@@ -665,7 +429,6 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
                   | Error _ -> ());
                  Kafka_consumer.Continue
        in
-       (* No in-memory retry: Error never fires (we return Continue after publishing). *)
        let no_retry : Kafka_consumer.retry_policy =
          { base_delay_s = 0.0; max_delay_s = 0.0; max_attempts = 0 }
        in
