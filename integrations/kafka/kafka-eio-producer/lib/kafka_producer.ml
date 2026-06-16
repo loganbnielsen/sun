@@ -33,32 +33,23 @@ type t = {
 let err i = Error (Kafka_error.of_int i)
 
 let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let conf = Kafka_raw.conf_new () in
-  let first_err = ref None in
-  let set k v =
-    if !first_err = None then
-      match Kafka_raw.conf_set conf k v with
-      | Ok ()   -> ()
-      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
+  let pairs =
+    ("bootstrap.servers", String.concat "," cfg.brokers)
+    :: (match cfg.linger_ms with Some ms -> ["linger.ms", string_of_int ms] | None -> [])
+    @ (match cfg.delivery_mode with
+       | At_most_once ->
+         [("acks", "0")]
+       | At_least_once ->
+         [("acks", "all"); ("enable.idempotence", "true")]
+       | Exactly_once { transaction_id } ->
+         [("acks", "all"); ("enable.idempotence", "true"); ("transactional.id", transaction_id)])
   in
-  set "bootstrap.servers" (String.concat "," cfg.brokers);
-  (match cfg.linger_ms with Some ms -> set "linger.ms" (string_of_int ms) | None -> ());
-  (match Kafka_security.apply conf cfg.security with
-   | Error s -> if !first_err = None then first_err := Some s
-   | Ok () -> ());
-  (match cfg.delivery_mode with
-   | At_most_once ->
-     set "acks" "0"
-   | At_least_once ->
-     set "acks" "all";
-     set "enable.idempotence" "true"
-   | Exactly_once { transaction_id } ->
-     set "acks" "all";
-     set "enable.idempotence" "true";
-     set "transactional.id" transaction_id);
-  match !first_err with
-  | Some msg -> Error msg
-  | None     -> Ok conf
+  match Kafka_conf.build pairs with
+  | Error _ as e -> e
+  | Ok conf ->
+    match Kafka_security.apply conf cfg.security with
+    | Error s -> Error s
+    | Ok ()   -> Ok conf
 
 let get_or_create_topic t name =
   match Hashtbl.find_opt t.topic_cache name with
