@@ -3,6 +3,8 @@ id: REFAC-043
 type: refactor
 severity: high
 source: codebase simplification review 2026-06-16
+branch: REFAC-043/extract-signal-handler
+worktree: ../sun-REFAC-043-extract-signal-handler
 ---
 
 Extract self-pipe signal handler into shared `Sun_signal` module
@@ -35,3 +37,6 @@ The self-pipe trick has subtle correctness requirements (non-blocking write, clo
 - `grep -rn "Unix.pipe\|set_nonblock\|sigterm" framework/sun-svc framework/sun-worker framework/sun-fn` returns zero hits in `lib/` files.
 - `dune build framework/` passes.
 - `dune test framework/` passes.
+
+## Review — automated checks passed
+fork_daemon comment present, Fun.protect guarantees cleanup, build/tests clean, no signal handler boilerplate in framework lib files, project/tickets untouched
