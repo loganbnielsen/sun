@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-024
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-024/jwt-verification-mode
+worktree: /home/lbendtly/Code/sun-CODEX-024
 ---
 
 Replace `allow_unverified_v1_unsafe` boolean with an explicit JWT verification mode.
