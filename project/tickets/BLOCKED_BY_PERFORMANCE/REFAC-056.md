@@ -34,3 +34,6 @@ Replace magic `"live"` string literals with `Live`/`Service_live` variant constr
 3. Add a comment to the schema DDL noting which OCaml constructor maps to `'live'`.
 
 This ticket can be done independently of REFAC-055 by inlining the string mapping, but landing REFAC-055 first is preferred to avoid duplicating the conversion logic.
+
+## Review — automated checks passed
+All magic "live" string literals replaced with release_status_to_string/service_status_to_string calls; DDL comments added; build clean; no ticket files touched.
