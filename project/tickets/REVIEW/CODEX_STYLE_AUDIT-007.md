@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-007
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-007/typed-hosted-primitives
+worktree: ../sun-CODEX-007
 ---
 
 Stop converting hosted executor primitives to strings inside core records.
