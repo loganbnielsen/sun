@@ -3,6 +3,8 @@ id: REFAC-055
 type: audit-finding
 severity: high
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-055/typed-release-status
+worktree: ../sun-REFAC-055-typed-release-status
 ---
 
 Thread `release_status` variant through `update_release_status` instead of raw string
