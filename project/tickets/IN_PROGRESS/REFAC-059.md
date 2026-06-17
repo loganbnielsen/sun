@@ -3,6 +3,8 @@ id: REFAC-059
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-059/contains-helper
+worktree: ../sun-REFAC-059-contains-helper
 ---
 
 Extract `contains_pattern` helper to eliminate 15 repeated exception-to-boolean idioms in `test_deployment_plan.ml`
