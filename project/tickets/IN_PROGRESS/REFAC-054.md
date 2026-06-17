@@ -3,6 +3,8 @@ id: REFAC-054
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-054/label-rollout-args
+worktree: ../sun-REFAC-054-label-rollout-args
 ---
 
 Label positional tail arguments in `rollout_doc`
