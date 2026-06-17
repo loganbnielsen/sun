@@ -54,19 +54,18 @@ let split_path path =
   String.split_on_char '/' path
   |> List.filter (fun s -> s <> "")
 
-let ( let* ) = Result.bind
-
 (* POST /projects *)
 let handle_post_projects ops body =
-  let result =
-    let* json      = Option.to_result ~none:"body required" body in
-    let* workspace = json_string "workspace" json in
-    ops.create_project ~workspace
-    |> Result.map Sun_cli_registry.project_to_json
-  in
-  match result with
-  | Error msg -> bad_request msg
-  | Ok body   -> created body
+  match body with
+  | None -> bad_request "body required"
+  | Some json ->
+    match json_string "workspace" json with
+    | Error msg -> bad_request msg
+    | Ok workspace ->
+      match ops.create_project ~workspace with
+      | Error msg -> bad_request msg
+      | Ok project ->
+        created (Sun_cli_registry.project_to_json project)
 
 (* GET /projects/{id} *)
 let handle_get_project ops project_id =
@@ -88,18 +87,22 @@ let handle_get_project ops project_id =
     ])
 
 (* POST /projects/{id}/releases *)
+let ( let* ) = Result.bind
+
 let handle_post_release ops project_id body =
-  let result =
-    let* json          = Option.to_result ~none:"body required" body in
-    let* environment   = json_string "environment" json in
-    let* image_tag     = json_string "image_tag" json in
-    let* service_names = json_strings "service_names" json in
-    ops.create_release ~project_id ~environment ~image_tag ~service_names
-    |> Result.map Sun_cli_registry.release_to_json
-  in
-  match result with
-  | Error msg    -> bad_request msg
-  | Ok release_j -> created release_j
+  match body with
+  | None -> bad_request "body required"
+  | Some json ->
+    let result =
+      let* environment = json_string "environment" json in
+      let* image_tag = json_string "image_tag" json in
+      let* service_names = json_strings "service_names" json in
+      ops.create_release ~project_id ~environment ~image_tag ~service_names
+    in
+    match result with
+    | Error msg -> bad_request msg
+    | Ok release ->
+      created (Sun_cli_registry.release_to_json release)
 
 let param_int key params default =
   match List.assoc_opt key params with
