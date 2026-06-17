@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-013
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-013/result-config-builders
+worktree: ../sun-CODEX-013
 ---
 
 Replace mutable first-error configuration builders with Result folds.

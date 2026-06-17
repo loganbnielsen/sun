@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-014
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-014/labeled-ffi-calls
+worktree: ../sun-CODEX-014
 ---
 
 Label unsafe positional Kafka raw FFI calls.
