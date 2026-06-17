@@ -183,21 +183,24 @@ let apply ?(table = default_table) pool ~dir =
   let* applied = applied_versions table pool |> wrap "query applied migrations: " in
   let pending = List.filter (fun (v, _, _) -> not (List.mem v applied)) migrations in
   List.fold_left (fun acc (version, name, path) ->
-    let* () = acc in
-    let* sql =
-      match In_channel.with_open_text path In_channel.input_all with
-      | s -> Ok s
-      | exception Sys_error msg ->
-        Error (Storage_error.Migration_error ("cannot read " ^ path ^ ": " ^ msg))
-    in
-    Db.transaction pool (fun pool ->
-      let* () = exec_statements pool (split_sql_statements sql) in
-      record_migration table pool version name
-    )
-    |> Result.map_error (fun e ->
-      Storage_error.Migration_error (
-        Printf.sprintf "migration %04d (%s) failed: %s"
-          version name (Storage_error.to_string e)))
+    match acc with
+    | Error _ as e -> e
+    | Ok () ->
+      let content =
+        match In_channel.with_open_text path In_channel.input_all with
+        | s -> Ok s
+        | exception Sys_error msg ->
+          Error (Storage_error.Migration_error ("cannot read " ^ path ^ ": " ^ msg))
+      in
+      let* sql = content in
+      Db.transaction pool (fun pool ->
+        let* () = exec_statements pool (split_sql_statements sql) in
+        record_migration table pool version name
+      )
+      |> Result.map_error (fun e ->
+        Storage_error.Migration_error (
+          Printf.sprintf "migration %04d (%s) failed: %s"
+            version name (Storage_error.to_string e)))
   ) (Ok ()) pending
 
 let status ?(table = default_table) pool ~dir =
@@ -208,9 +211,12 @@ let status ?(table = default_table) pool ~dir =
   let* migrations = read_migrations dir in
   let row_q = applied_at_q table in
   List.fold_right (fun (version, name, _) acc ->
-    let* rows = acc in
-    let* applied_at = Db.find pool row_q version in
-    Ok ({ version; name; applied_at } :: rows)
+    match acc with
+    | Error _ as e -> e
+    | Ok rows ->
+      (match Db.find pool row_q version with
+       | Error e -> Error e
+       | Ok applied_at -> Ok ({ version; name; applied_at } :: rows))
   ) migrations (Ok [])
 
 (** Roll back the last applied migration using a companion .down.sql file.
@@ -220,12 +226,12 @@ let rollback ?(table = default_table) pool ~dir =
     Storage_error.Migration_error (msg ^ Storage_error.to_string e))
   in
   let* () = ensure_table table pool |> wrap "create migrations table: " in
-  let* last = Db.find pool (last_applied_q table) () in
-  match last with
-  | None ->
+  match Db.find pool (last_applied_q table) () with
+  | Error e -> Error e
+  | Ok None ->
     Error (Storage_error.Migration_error
       "no migrations have been applied; nothing to roll back")
-  | Some (version, name) ->
+  | Ok (Some (version, name)) ->
     let down_file = Printf.sprintf "%04d_%s.down.sql" version name in
     let down_path = Filename.concat dir down_file in
     if not (Sys.file_exists down_path) then
@@ -234,12 +240,13 @@ let rollback ?(table = default_table) pool ~dir =
          Create %s with the reverse SQL and retry."
         version name down_path))
     else
-      let* sql =
+      let content =
         match In_channel.with_open_text down_path In_channel.input_all with
         | s -> Ok s
         | exception Sys_error msg ->
           Error (Storage_error.Migration_error ("cannot read " ^ down_path ^ ": " ^ msg))
       in
+      let* sql = content in
       Db.transaction pool (fun pool ->
         let* () = exec_statements pool (split_sql_statements sql) in
         Db.exec pool (delete_version_q table) version
