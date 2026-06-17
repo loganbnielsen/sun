@@ -3,6 +3,8 @@ id: REFAC-060
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-060/flatten-validate-jwt
+worktree: ../sun-REFAC-060-flatten-validate-jwt
 ---
 
 Flatten `validate_jwt` pyramid in `auth.ml` with `let*`

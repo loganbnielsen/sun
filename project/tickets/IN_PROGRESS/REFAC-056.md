@@ -3,6 +3,8 @@ id: REFAC-056
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-056/live-variant-constructors
+worktree: ../sun-REFAC-056-live-variant-constructors
 ---
 
 Replace magic `"live"` string literals with `Live`/`Service_live` variant constructors
