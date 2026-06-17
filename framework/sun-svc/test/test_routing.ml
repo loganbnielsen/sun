@@ -1,7 +1,7 @@
 let dummy_handler _req = Response.not_found
 
 let check_match pattern path expected_params =
-  match Route.match_path (Route.pattern pattern) path with
+  match Route.match_path pattern path with
   | None        -> None
   | Some params ->
     let sorted = List.sort compare params in
@@ -16,7 +16,7 @@ let test_exact_match () =
 
 let test_trailing_slash_differs () =
   Alcotest.(check bool) "trailing slash differs" true
-    (Route.match_path (Route.pattern "/users") "/users/" = None)
+    (Route.match_path "/users" "/users/" = None)
 
 let test_single_param () =
   Alcotest.(check (option (list (pair string string)))) "single param"
@@ -32,44 +32,11 @@ let test_multi_param () =
 
 let test_literal_mismatch () =
   Alcotest.(check bool) "literal mismatch" true
-    (Route.match_path (Route.pattern "/users") "/orders" = None)
+    (Route.match_path "/users" "/orders" = None)
 
 let test_segment_count_mismatch () =
   Alcotest.(check bool) "segment count" true
-    (Route.match_path (Route.pattern "/users/:id") "/users/1/extra" = None)
-
-let test_pattern_segments () =
-  match Route.parse_pattern "/users/:id/posts/:post_id" with
-  | Error msg -> Alcotest.fail msg
-  | Ok p ->
-    Alcotest.(check string) "source" "/users/:id/posts/:post_id"
-      (Route.pattern_to_string p);
-    Alcotest.(check bool) "no trailing slash" false p.Route.trailing_slash;
-    Alcotest.(check int) "segment count" 4 (List.length p.Route.segments);
-    Alcotest.(check bool) "segments" true
-      (p.Route.segments = [
-        Route.Literal "users";
-        Route.Param "id";
-        Route.Literal "posts";
-        Route.Param "post_id";
-      ])
-
-let test_pattern_rejects_missing_leading_slash () =
-  Alcotest.(check bool) "missing leading slash" true
-    (Result.is_error (Route.parse_pattern "users/:id"))
-
-let test_pattern_rejects_double_slash () =
-  Alcotest.(check bool) "double slash" true
-    (Result.is_error (Route.parse_pattern "/users//:id"))
-
-let test_pattern_rejects_empty_param () =
-  Alcotest.(check bool) "empty param" true
-    (Result.is_error (Route.parse_pattern "/users/:"))
-
-let test_constructor_rejects_malformed_pattern () =
-  Alcotest.check_raises "constructor validates pattern"
-    (Invalid_argument "invalid route pattern \"users\": pattern must start with /")
-    (fun () -> ignore (Route.get "users" ~auth:`Public dummy_handler))
+    (Route.match_path "/users/:id" "/users/1/extra" = None)
 
 (* ── method_of_http ──────────────────────────────────────────────────── *)
 
@@ -95,8 +62,7 @@ let test_unknown_method () =
 
 (* ── find_route (via Service internals via direct test of logic) ──────── *)
 
-let make_route m p =
-  Route.{ method_ = m; pattern = Route.pattern p; auth = `Public; handler = dummy_handler }
+let make_route m p = Route.{ method_ = m; pattern = p; auth = `Public; handler = dummy_handler }
 
 (* We test find_route behaviour by constructing Routes and exercising the
    exported Route functions used by Service. *)
@@ -111,7 +77,7 @@ let test_first_match_wins () =
 
 let test_case_sensitive () =
   Alcotest.(check bool) "case sensitive" true
-    (Route.match_path (Route.pattern "/Users") "/users" = None)
+    (Route.match_path "/Users" "/users" = None)
 
 (* ── parse_request_path ─────────────────────────────────────────────────── *)
 
@@ -156,18 +122,18 @@ let test_percent_decode_plus_not_space () =
 (* ── match_path with encoded segments ───────────────────────────────────── *)
 
 let test_encoded_param_decoded () =
-  match Route.match_path (Route.pattern "/users/:id") "/users/hello%20world" with
+  match Route.match_path "/users/:id" "/users/hello%20world" with
   | None -> Alcotest.fail "should match"
   | Some params ->
     Alcotest.(check string) "param decoded" "hello world" (List.assoc "id" params)
 
 let test_double_slash_no_match () =
   Alcotest.(check bool) "double slash path → no match" true
-    (Route.match_path (Route.pattern "/users") "//users" = None)
+    (Route.match_path "/users" "//users" = None)
 
 let test_interior_double_slash_no_match () =
   Alcotest.(check bool) "interior double slash → no match" true
-    (Route.match_path (Route.pattern "/users/:id") "/users//42" = None)
+    (Route.match_path "/users/:id" "/users//42" = None)
 
 let () =
   Alcotest.run "routing" [
@@ -178,11 +144,6 @@ let () =
       Alcotest.test_case "multi param"             `Quick test_multi_param;
       Alcotest.test_case "literal mismatch"        `Quick test_literal_mismatch;
       Alcotest.test_case "segment count"           `Quick test_segment_count_mismatch;
-      Alcotest.test_case "typed pattern segments"  `Quick test_pattern_segments;
-      Alcotest.test_case "missing leading slash"   `Quick test_pattern_rejects_missing_leading_slash;
-      Alcotest.test_case "double slash pattern"    `Quick test_pattern_rejects_double_slash;
-      Alcotest.test_case "empty param"             `Quick test_pattern_rejects_empty_param;
-      Alcotest.test_case "constructor validates"   `Quick test_constructor_rejects_malformed_pattern;
       Alcotest.test_case "case sensitive"          `Quick test_case_sensitive;
       Alcotest.test_case "first match wins"        `Quick test_first_match_wins;
       Alcotest.test_case "encoded param decoded"   `Quick test_encoded_param_decoded;
