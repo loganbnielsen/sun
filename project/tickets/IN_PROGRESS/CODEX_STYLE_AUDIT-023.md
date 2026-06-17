@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-023
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-023/typed-route-patterns
+worktree: /home/lbendtly/Code/sun-CODEX-023
 ---
 
 Replace route pattern strings with a typed route pattern representation.
