@@ -43,32 +43,29 @@ let print_outputs chdir_arg =
       Sys.remove tmp;
       (* Very lightweight JSON parse: find "key": { "sensitive": false,
          "value": "..." } entries and print them. We use Yojson. *)
+      let print_output_field key obj =
+        match obj with
+        | `Assoc fields ->
+          let sensitive = match List.assoc_opt "sensitive" fields with
+            | Some (`Bool b) -> b
+            | _ -> true
+          in
+          if not sensitive then
+            (match List.assoc_opt "value" fields with
+             | Some (`String v) ->
+               Printf.printf "  %-28s  %s\n%!" key v
+             | Some (`List vs) ->
+               let strs = List.filter_map (function `String s -> Some s | _ -> None) vs in
+               if strs <> [] then
+                 Printf.printf "  %-28s  [%s]\n%!" key (String.concat ", " strs)
+             | Some `Null ->
+               Printf.printf "  %-28s  (none)\n%!" key
+             | _ -> ())
+        | _ -> ()
+      in
       let json = Yojson.Safe.from_string raw in
       (match json with
-       | `Assoc pairs ->
-         List.iter (fun (key, obj) ->
-           match obj with
-           | `Assoc fields ->
-             let sensitive =
-               match List.assoc_opt "sensitive" fields with
-               | Some (`Bool b) -> b
-               | _ -> true  (* default to sensitive if unknown *)
-             in
-             if not sensitive then begin
-               match List.assoc_opt "value" fields with
-               | Some (`String v) ->
-                 Printf.printf "  %-28s  %s\n%!" key v
-               | Some (`List vs) ->
-                 let strs = List.filter_map (function
-                   | `String s -> Some s | _ -> None) vs in
-                 if strs <> [] then
-                   Printf.printf "  %-28s  [%s]\n%!" key (String.concat ", " strs)
-               | Some (`Null) ->
-                 Printf.printf "  %-28s  (none)\n%!" key
-               | _ -> ()
-             end
-           | _ -> ()
-         ) pairs
+       | `Assoc pairs -> List.iter (fun (key, obj) -> print_output_field key obj) pairs
        | _ -> ())
     with _ ->
       Printf.printf "  (error parsing terraform outputs)\n%!")
