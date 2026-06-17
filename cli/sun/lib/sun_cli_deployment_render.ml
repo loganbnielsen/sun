@@ -56,7 +56,7 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
         | (Render_svc | Render_worker), Some pd ->
           let ports  = primitive = Render_svc in
           let probes = primitive = Render_svc in
-          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~ports ~probes ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd () in
+          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~ports ~probes ~replicas ~cpu ~memory ns name img pd in
           (match pd with
            | Sun_cli_toml.Blue_green ->
              (* Blue-green needs active + preview services instead of one service *)
@@ -75,13 +75,13 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
         | Render_svc, None ->
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
               ~secret_keys:(List.map fst secrets)
-              ~ports:true ~probes:true ~replicas ~cpu ~memory ~ns ~name ~image:img ()
+              ~ports:true ~probes:true ~replicas ~cpu ~memory ns name img
           ; service_doc ns name
           ; ingress_doc ~ingress_host ~ingress_path ns name ]
         | Render_worker, None ->
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
               ~secret_keys:(List.map fst secrets)
-              ~ports:false ~probes:false ~replicas ~cpu ~memory ~ns ~name ~image:img () ]
+              ~ports:false ~probes:false ~replicas ~cpu ~memory ns name img ]
         | Render_fn, _ ->
           let schedule = Option.value schedule ~default:"0 * * * *" in
           [ cronjob_doc ~secret_keys:(List.map fst secrets) ns name img schedule ]
