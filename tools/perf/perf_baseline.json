@@ -1723,6 +1723,17 @@
           "date": "2026-06-16",
           "commit": "8bc2c0d",
           "duration_s": 1.414
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.431
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.415,
+          "baseline": true
         }
       ]
     },
@@ -2895,6 +2906,17 @@
           "date": "2026-06-16",
           "commit": "8bc2c0d",
           "duration_s": 1.399
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.415
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.388,
+          "baseline": true
         }
       ]
     },
@@ -4102,6 +4124,17 @@
           "date": "2026-06-16",
           "commit": "8bc2c0d",
           "duration_s": 1.150
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.153
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.153,
+          "baseline": true
         }
       ]
     },
@@ -5294,6 +5327,17 @@
           "date": "2026-06-16",
           "commit": "8bc2c0d",
           "duration_s": 0.497
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 0.501
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 0.356,
+          "baseline": true
         }
       ]
     },
@@ -6443,6 +6487,17 @@
           "date": "2026-06-16",
           "commit": "8bc2c0d",
           "duration_s": 1.174
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.173
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "db2594a",
+          "duration_s": 1.162,
+          "baseline": true
         }
       ]
     }
