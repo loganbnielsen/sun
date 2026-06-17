@@ -37,11 +37,11 @@ val runtime_secret_name : string
 val config_hash : (string * string) list -> string
 
 (** Low-level YAML document builders used by [render] and [render_spec]. *)
-val namespace_doc      : string -> string
-val service_account_doc : string -> string -> string
-val configmap_doc      : ?extra_env:(string * string) list -> string -> string -> string
-val secret_doc         : ?base_secrets:(string * string) list -> ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
-val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> string -> string -> string
+val namespace_doc       : ns:string -> string
+val service_account_doc : ns:string -> name:string -> string
+val configmap_doc       : ?extra_env:(string * string) list -> ns:string -> name:string -> unit -> string
+val secret_doc          : ?base_secrets:(string * string) list -> ?extra_secrets:(string * string) list -> ?redact:bool -> ns:string -> name:string -> unit -> string
+val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> ns:string -> name:string -> string
 type workload_shape = Http_service | Background_worker
 (** Workload shape determines whether a deployment exposes HTTP and uses health
     probes. [Http_service] enables both; [Background_worker] disables both. *)
@@ -53,14 +53,14 @@ val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?ext
     [pd] must be [Canary _] or [Blue_green]. *)
 val rollout_doc : ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> pd:Sun_cli_toml.progressive_delivery -> unit -> string
 
-(** [blue_green_service_docs ns name] renders two ClusterIP Services
+(** [blue_green_service_docs ~ns ~name] renders two ClusterIP Services
     ([<name>-active] and [<name>-preview]) required by the blue-green strategy. *)
-val blue_green_service_docs : string -> string -> string
+val blue_green_service_docs : ns:string -> name:string -> string
 
-val service_doc        : string -> string -> string
-val ingress_doc        : ?ingress_host:string -> ?ingress_path:string -> string -> string -> string
-val network_policy_doc : string -> string -> string
-val cronjob_doc        : ?secret_keys:string list -> string -> string -> string -> string -> string
+val service_doc        : ns:string -> name:string -> string
+val ingress_doc        : ?ingress_host:string -> ?ingress_path:string -> ns:string -> name:string -> unit -> string
+val network_policy_doc : ns:string -> name:string -> string
+val cronjob_doc        : ?secret_keys:string list -> ns:string -> name:string -> image:string -> schedule:string -> unit -> string
 
 (** Render a (namespace_yaml, workload_yaml) pair for one service.
     [extra_env] is appended to the ConfigMap data block. *)

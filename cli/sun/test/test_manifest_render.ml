@@ -742,7 +742,7 @@ let test_external_secret_doc_no_stringdata () =
     ~key_prefix:"myapp/"
     ~refresh_interval:"1h"
     ~secret_keys:["POSTGRES_URL"; "STRIPE_KEY"]
-    "myapp-payments" "charge-svc"
+    ~ns:"myapp-payments" ~name:"charge-svc"
   in
   assert_contains "kind ExternalSecret"    doc "kind: ExternalSecret";
   assert_contains "remoteRef present"      doc "remoteRef:";
@@ -757,7 +757,7 @@ let test_external_secret_doc_keys_present () =
     ~key_prefix:""
     ~refresh_interval:"1h"
     ~secret_keys:["POSTGRES_URL"; "STRIPE_KEY"; "SENDGRID_API_KEY"]
-    "myapp-payments" "charge-svc"
+    ~ns:"myapp-payments" ~name:"charge-svc"
   in
   assert_contains "POSTGRES_URL secretKey"    doc "secretKey: POSTGRES_URL";
   assert_contains "STRIPE_KEY secretKey"      doc "secretKey: STRIPE_KEY";
@@ -771,7 +771,7 @@ let test_external_secret_doc_target_name () =
     ~key_prefix:""
     ~refresh_interval:"1h"
     ~secret_keys:["POSTGRES_URL"]
-    "myapp-payments" "charge-svc"
+    ~ns:"myapp-payments" ~name:"charge-svc"
   in
   assert_contains "target name is charge-svc-secrets" doc "name: charge-svc-secrets"
 

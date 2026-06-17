@@ -84,14 +84,14 @@ let config_hash extra_env =
   |> Digest.string
   |> Digest.to_hex
 
-let namespace_doc ns =
+let namespace_doc ~ns =
   f {|---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: %s|} ns
 
-let service_account_doc ns name =
+let service_account_doc ~ns ~name =
   f {|---
 apiVersion: v1
 kind: ServiceAccount
@@ -99,7 +99,7 @@ metadata:
   name: %s
   namespace: %s|} name ns
 
-let configmap_doc ?(extra_env = []) ns name =
+let configmap_doc ?(extra_env = []) ~ns ~name () =
   let env = default_cluster_env @ extra_env in
   f {|---
 apiVersion: v1
@@ -115,7 +115,7 @@ data:
    The Secret is named "<name>-secrets" (per-service) so each service owns its secret.
    In GitOps mode (~redact:true) all values are stripped to "" so nothing sensitive
    appears in committed manifests; operators must populate values before applying. *)
-let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact = false) ns name =
+let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact = false) ~ns ~name () =
   let secrets = base_secrets @ extra_secrets in
   let secrets = if redact then List.map (fun (k, _) -> (k, "")) secrets else secrets in
   let comment = if redact then
@@ -136,7 +136,7 @@ type: Opaque
    The ESO controller will materialise a Kubernetes Secret named "<name>-secrets"
    in the same namespace, which workload pods reference via envFrom secretRef.
    secret_keys must be the full list of all keys (default_secrets keys + spec.secrets keys). *)
-let external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval ~secret_keys ns name =
+let external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval ~secret_keys ~ns ~name =
   let remote_refs =
     String.concat "\n" (List.map (fun key ->
       f {|  - secretKey: %s
@@ -370,7 +370,7 @@ spec:
 (** Two ClusterIP Services required by the blue-green strategy:
     [<name>-active] receives live traffic; [<name>-preview] receives canary traffic.
     Both select pods with the [app: <name>] label — Argo manages the selector patch. *)
-let blue_green_service_docs ns name =
+let blue_green_service_docs ~ns ~name =
   let make_svc svc_name =
     f {|---
 apiVersion: v1
@@ -390,7 +390,7 @@ spec:
 
 (* ── Standard Service ────────────────────────────────────────────────────── *)
 
-let service_doc ns name =
+let service_doc ~ns ~name =
   f {|---
 apiVersion: v1
 kind: Service
@@ -405,7 +405,7 @@ spec:
   - port: 80
     targetPort: 8080|} name ns name
 
-let ingress_doc ?(ingress_host = "") ?(ingress_path = "/") ns name =
+let ingress_doc ?(ingress_host = "") ?(ingress_path = "/") ~ns ~name () =
   (* host line is optional — omit to match all hostnames. *)
   let host_line =
     if ingress_host = "" then ""
@@ -431,7 +431,7 @@ spec:
             port:
               number: 80|} name ns host_line ingress_path name
 
-let network_policy_doc ns name =
+let network_policy_doc ~ns ~name =
   f {|---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -468,7 +468,7 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: monitoring|} name ns name
 
-let cronjob_doc ?(secret_keys = []) ns name image schedule =
+let cronjob_doc ?(secret_keys = []) ~ns ~name ~image ~schedule () =
   let secret_env_section = render_secret_key_refs ~name secret_keys in
   f {|---
 apiVersion: batch/v1
@@ -526,14 +526,14 @@ let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
   let ingress_host     = Option.value toml.ingress_host ~default:"" in
   let ingress_path     = Option.value toml.ingress_path ~default:"/" in
   let config_hash      = config_hash toml.env_config in
-  let ns_yaml = namespace_doc ns in
+  let ns_yaml = namespace_doc ~ns in
   let workload_yaml =
     let extra_secrets = List.map (fun k -> (k, "")) toml.Sun_cli_toml.secret_keys in
     let common = [
-      service_account_doc ns name;
-      configmap_doc ~extra_env:toml.env_config ns name;
-      secret_doc ~extra_secrets ns name;
-      network_policy_doc ns name;
+      service_account_doc ~ns ~name;
+      configmap_doc ~extra_env:toml.env_config ~ns ~name ();
+      secret_doc ~extra_secrets ~ns ~name ();
+      network_policy_doc ~ns ~name;
     ] in
     let resources = match svc.prim, progressive_delivery with
       | (Svc | Worker), Some pd ->
@@ -542,25 +542,25 @@ let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
         (match pd with
          | Sun_cli_toml.Blue_green ->
            [ rollout
-           ; blue_green_service_docs ns name
-           ; (if shape = Http_service then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active") else "")
+           ; blue_green_service_docs ~ns ~name
+           ; (if shape = Http_service then ingress_doc ~ingress_host ~ingress_path ~ns ~name:(name ^ "-active") () else "")
            ]
            |> List.filter (fun s -> s <> "")
          | Sun_cli_toml.Canary _ ->
-           let svc_doc = if shape = Http_service then [service_doc ns name] else [] in
-           let ingr    = if shape = Http_service then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
+           let svc_doc = if shape = Http_service then [service_doc ~ns ~name] else [] in
+           let ingr    = if shape = Http_service then [ingress_doc ~ingress_host ~ingress_path ~ns ~name ()] else [] in
            [ rollout ] @ svc_doc @ ingr)
       | Svc, None ->
         [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
             ~shape:Http_service ~replicas ~cpu ~memory ~ns ~name ~image ()
-        ; service_doc ns name
-        ; ingress_doc ~ingress_host ~ingress_path ns name ]
+        ; service_doc ~ns ~name
+        ; ingress_doc ~ingress_host ~ingress_path ~ns ~name () ]
       | Worker, None ->
         [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
             ~shape:Background_worker ~replicas ~cpu ~memory ~ns ~name ~image () ]
       | Fn, _ ->
         let schedule = extract_schedule ~dir:svc.dir ~name:svc.name in
-        [ cronjob_doc ns name image schedule ]
+        [ cronjob_doc ~ns ~name ~image ~schedule () ]
     in
     String.concat "\n" (common @ resources)
   in
