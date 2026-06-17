@@ -123,6 +123,15 @@ val current_trace_ctx : span -> Obs_trace.t
 (* Metrics                                                             *)
 (* ------------------------------------------------------------------ *)
 
+val metric_name : string -> string
+(** [metric_name name] validates [name] against Prometheus metric naming
+    rules and returns it unchanged. Raises [Invalid_argument] on invalid
+    names. *)
+
+val label_name : string -> string
+(** [label_name name] validates [name] against Prometheus label naming rules
+    and returns it unchanged. Raises [Invalid_argument] on invalid names. *)
+
 val register_counter
   :  t
   -> name:string
