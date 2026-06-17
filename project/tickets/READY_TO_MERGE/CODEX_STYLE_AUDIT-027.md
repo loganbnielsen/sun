@@ -25,3 +25,6 @@ combinations.
 - Ensure SASL constructors require mechanism, username, and password.
 - Keep optional CA location on TLS-capable variants.
 - Update tests and config application.
+
+## Review — automated checks passed
+CODEX_STYLE_AUDIT-027 passes review. Kafka_security.t is now a closed variant: Plaintext, Ssl with optional ssl_ca_location, Sasl_plaintext carrying required sasl credentials, and Sasl_ssl carrying optional ssl_ca_location plus required sasl credentials. Missing SASL env fields now fail during of_env parsing; apply no longer contains runtime checks for impossible missing credential combinations. Focused Kafka security tests and full branch pre-commit passed. Diff is scoped to kafka_security code/tests.
