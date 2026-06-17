@@ -45,7 +45,7 @@ let hosted_plan ?progressive_delivery () =
     image_tag = "abc123";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
-    secret_backend = "kubernetes-placeholder";
+    secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
   } in
   { Sun_cli_deployment_plan.workspace = "pluto";
     environment = env;

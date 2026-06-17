@@ -156,5 +156,5 @@ let to_env_config ~name t : Sun_cli_deployment_plan.env_config = {
   image_tag      = t.image_tag;
   region         = t.region;
   base_domain    = t.base_domain;
-  secret_backend = "kubernetes-placeholder";
+  secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
 }

@@ -7,7 +7,7 @@ type env_config = {
   image_tag      : string;
   region         : string option;
   base_domain    : string option;
-  secret_backend : string;
+  secret_backend : Sun_cli_manifest.secret_backend;
 }
 
 type primitive = Svc | Worker | Fn
