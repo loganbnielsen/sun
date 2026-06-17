@@ -152,12 +152,13 @@ let submit_mock request =
         | Error msg -> Error msg
         | Ok inspection_services ->
           let release_id = release_id ~target ~plan in
+          let status = release_status_to_string Mock_submitted in
           let inspection =
             Sun_cli_release_inspection.release_summary
               ~release_id
               ~environment_id:target.environment_id
               ~environment_name:target.environment_name
-              ~status:Sun_cli_release_inspection.Mock_submitted
+              ~status
               ~plan
               ~image_refs:(inspection_image_refs request.image_refs)
               ~services:inspection_services

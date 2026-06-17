@@ -11,17 +11,10 @@ type health_status =
   | Health_degraded
   | Health_unhealthy
 
-type release_state =
-  | Queued
-  | Building
-  | Live
-  | Failed
-  | Mock_submitted
-
 type deployment_plan_summary = {
   workspace       : string;
   environment     : string;
-  mode            : Sun_cli_deployment_plan.deployment_mode;
+  mode            : string;
   image_tag       : string;
   service_count   : int;
   topic_count     : int;
@@ -36,7 +29,7 @@ type image_ref = {
 type affected_service = {
   service_name   : string;
   namespace      : string;
-  primitive      : Sun_cli_deployment_plan.primitive;
+  primitive      : string;
   image          : string;
   rollout_status : rollout_status;
   health_status  : health_status;
@@ -48,7 +41,7 @@ type release_summary = {
   release_id       : string;
   environment_id   : string;
   environment_name : string;
-  status           : release_state;
+  status           : string;
   plan             : deployment_plan_summary;
   image_refs       : image_ref list;
   services         : affected_service list;
@@ -90,13 +83,6 @@ let health_status_to_string = function
   | Health_degraded -> "degraded"
   | Health_unhealthy -> "unhealthy"
 
-let release_state_to_string = function
-  | Queued -> "queued"
-  | Building -> "building"
-  | Live -> "live"
-  | Failed -> "failed"
-  | Mock_submitted -> "mock_submitted"
-
 let mode_to_string = function
   | Sun_cli_deployment_plan.Local -> "local"
   | Sun_cli_deployment_plan.Customer_cloud -> "customer_cloud"
@@ -110,7 +96,7 @@ let primitive_to_string = function
 let deployment_plan_summary (plan : Sun_cli_deployment_plan.t) =
   { workspace = plan.workspace;
     environment = plan.environment.name;
-    mode = plan.environment.mode;
+    mode = mode_to_string plan.environment.mode;
     image_tag = plan.environment.image_tag;
     service_count = List.length plan.services;
     topic_count = List.length plan.topics;
@@ -122,7 +108,7 @@ let affected_service ?(rollout_status = Rollout_unknown)
     (service : Sun_cli_deployment_plan.service_spec) =
   { service_name = service.k8s_name;
     namespace = service.namespace;
-    primitive = service.primitive;
+    primitive = primitive_to_string service.primitive;
     image;
     rollout_status;
     health_status;
@@ -207,7 +193,7 @@ let deployment_plan_summary_to_json p =
   `Assoc [
     "workspace", `String p.workspace;
     "environment", `String p.environment;
-    "mode", `String (mode_to_string p.mode);
+    "mode", `String p.mode;
     "image_tag", `String p.image_tag;
     "service_count", `Int p.service_count;
     "topic_count", `Int p.topic_count;
@@ -224,7 +210,7 @@ let affected_service_to_json service =
   let fields = [
     "service_name", `String service.service_name;
     "namespace", `String service.namespace;
-    "primitive", `String (primitive_to_string service.primitive);
+    "primitive", `String service.primitive;
     "image", `String service.image;
     "rollout_status", `String (rollout_status_to_string service.rollout_status);
     "health_status", `String (health_status_to_string service.health_status);
@@ -246,7 +232,7 @@ let release_summary_to_json (release : release_summary) =
     "release_id", `String release.release_id;
     "environment_id", `String release.environment_id;
     "environment_name", `String release.environment_name;
-    "status", `String (release_state_to_string release.status);
+    "status", `String release.status;
     "deployment_plan", deployment_plan_summary_to_json release.plan;
     "image_refs", `List (List.map image_ref_to_json release.image_refs);
     "services", `List (List.map affected_service_to_json release.services);

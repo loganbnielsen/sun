@@ -17,17 +17,10 @@ type health_status =
   | Health_degraded
   | Health_unhealthy
 
-type release_state =
-  | Queued
-  | Building
-  | Live
-  | Failed
-  | Mock_submitted
-
 type deployment_plan_summary = {
   workspace       : string;
   environment     : string;
-  mode            : Sun_cli_deployment_plan.deployment_mode;
+  mode            : string;
   image_tag       : string;
   service_count   : int;
   topic_count     : int;
@@ -42,7 +35,7 @@ type image_ref = {
 type affected_service = {
   service_name   : string;
   namespace      : string;
-  primitive      : Sun_cli_deployment_plan.primitive;
+  primitive      : string;
   image          : string;
   rollout_status : rollout_status;
   health_status  : health_status;
@@ -56,7 +49,7 @@ type release_summary = {
   release_id       : string;
   environment_id   : string;
   environment_name : string;
-  status           : release_state;
+  status           : string;
   plan             : deployment_plan_summary;
   image_refs       : image_ref list;
   services         : affected_service list;
@@ -87,7 +80,6 @@ type diagnostics = {
 
 val rollout_status_to_string : rollout_status -> string
 val health_status_to_string : health_status -> string
-val release_state_to_string : release_state -> string
 
 val deployment_plan_summary :
   Sun_cli_deployment_plan.t -> deployment_plan_summary
@@ -105,7 +97,7 @@ val release_summary :
   release_id:string ->
   environment_id:string ->
   environment_name:string ->
-  status:release_state ->
+  status:string ->
   plan:Sun_cli_deployment_plan.t ->
   image_refs:image_ref list ->
   services:affected_service list ->
