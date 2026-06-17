@@ -20,14 +20,16 @@ let registry_port = 5000
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
-type set_val = (* LOGAN: should these be more strictly typed? For example instead of Val we have Bool of bool and Float of float?*)
-  | Val of string  (** --set key=val  (YAML-parsed; use for booleans and floats) *)
-  | Str of string  (** --set-string key=val  (always treated as string, avoids int/float coercion) *)
+type set_val =
+  | Bool  of bool   (** --set key=true/false *)
+  | Float of float  (** --set key=<number>   *)
+  | Str   of string (** --set-string key=val — always treated as string, avoids YAML coercion *)
 
 let helm_install release chart ~namespace ?(values = []) () =
   let flag (k, v) = match v with
-    | Val s -> Printf.sprintf "--set %s=%s" k s
-    | Str s -> Printf.sprintf "--set-string %s=%s" k s
+    | Bool  b -> Printf.sprintf "--set %s=%s" k (string_of_bool b)
+    | Float f -> Printf.sprintf "--set %s=%g" k f
+    | Str   s -> Printf.sprintf "--set-string %s=%s" k s
   in
   let cmd = String.concat " " (
     [ "helm upgrade --install"; release; chart ]
@@ -83,19 +85,19 @@ let dev_up () =
     Printf.printf "\n  Installing Redpanda...\n%!";
     let rc = helm_install "redpanda" "redpanda/redpanda" ~namespace:"redpanda"
       ~values:[
-        ("statefulset.replicas",          Val "1");
+        ("statefulset.replicas",          Float 1.);
         ("resources.cpu.cores",           Str "1.5");  (* chart rejects int64 *)
-        ("storage.persistentVolume.size", Val "1Gi");
-        ("tls.enabled",                   Val "false");
+        ("storage.persistentVolume.size", Str "1Gi");
+        ("tls.enabled",                   Bool false);
         (* Configure an external Kafka listener that advertises localhost:9092.
            librdkafka bootstraps via the port-forward (localhost:9092→9094), gets
            metadata back saying "reach me at localhost:9092", and reconnects
            successfully — avoiding the internal cluster DNS that is unresolvable
            from outside k3d. *)
-        ("external.enabled",                                    Val "true");
-        ("external.service.enabled",                            Val "false");
+        ("external.enabled",                                    Bool true);
+        ("external.service.enabled",                            Bool false);
         ("external.addresses[0]",                               Str "localhost");
-        ("listeners.kafka.external.default.advertisedPorts[0]", Val "9092");
+        ("listeners.kafka.external.default.advertisedPorts[0]", Float 9092.);
       ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Redpanda install failed\n"; exit 1)
@@ -115,10 +117,8 @@ let dev_up () =
   let need_grafana = req.loki || req.prometheus in
   if req.loki then begin
     Printf.printf "\n  Installing Loki...\n%!";
-    (* LOGAN: should we use string_of_bool here? *)
-    let grafana_val = if need_grafana then "true" else "false" in
     let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
-      ~values:[("grafana.enabled", Val grafana_val)] ()
+      ~values:[("grafana.enabled", Bool need_grafana)] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1)
   end;
@@ -130,8 +130,8 @@ let dev_up () =
     let rc = helm_install "prometheus" "prometheus-community/prometheus"
       ~namespace:"monitoring"
       ~values:[
-        ("server.persistentVolume.enabled", Val "false");
-        ("prometheus-node-exporter.enabled", Val "false");
+        ("server.persistentVolume.enabled",  Bool false);
+        ("prometheus-node-exporter.enabled", Bool false);
       ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Prometheus install failed\n"; exit 1)
