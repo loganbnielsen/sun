@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-021
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-021/flatten-generated-startup
+worktree: /home/lbendtly/Code/sun-CODEX-021
 ---
 
 Flatten generated app main startup configuration.
