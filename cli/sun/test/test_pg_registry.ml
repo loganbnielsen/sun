@@ -170,7 +170,7 @@ let test_update_release_status_failed () =
   in
   let rid = rel.Sun_cli_registry.release_id in
   (* Mark as failed (simulates the build-failure branch in cloud_deploy) *)
-  let result = ops.Sun_cli_control_plane.update_release_status rid Sun_cli_registry.Failed in
+  let result = ops.Sun_cli_control_plane.update_release_status rid "failed" in
   check_bool "status update ok" true (Result.is_ok result);
   (* Append the log line that cloud_deploy now emits *)
   ops.Sun_cli_control_plane.append_log_line rid "[deploy] release failed";
@@ -182,7 +182,7 @@ let test_update_release_status_failed () =
 
 let test_update_release_status_unknown () =
   let ops = memory_ops () in
-  let result = ops.Sun_cli_control_plane.update_release_status "no-such-rel" Sun_cli_registry.Failed in
+  let result = ops.Sun_cli_control_plane.update_release_status "no-such-rel" "failed" in
   check_bool "error on missing release" true (Result.is_error result)
 
 (* ── fake_builder injection test ─────────────────────────────────────────── *)
@@ -249,7 +249,7 @@ let run_deploy_pipeline ~ops ~builder ~workspace ~environment ~services =
     } in
     Ok updated
   end else begin
-    ignore (ops.Sun_cli_control_plane.update_release_status rid Sun_cli_registry.Failed);
+    ignore (ops.Sun_cli_control_plane.update_release_status rid "failed");
     ops.Sun_cli_control_plane.append_log_line rid "[deploy] release failed";
     Error "build failed"
   end

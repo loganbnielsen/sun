@@ -193,7 +193,7 @@ let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_r
           Printf.printf "Status:   live\n"
         end
       end else begin
-        ignore (ops.Sun_cli_control_plane.update_release_status release_id Sun_cli_registry.Failed);
+        ignore (ops.Sun_cli_control_plane.update_release_status release_id "failed");
         ops.Sun_cli_control_plane.append_log_line release_id "[deploy] release failed";
         Printf.eprintf
           "error: build failed; check release logs with: sun cloud logs --release %s\n"
