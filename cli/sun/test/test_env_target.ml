@@ -136,7 +136,7 @@ let test_validate_customer_whitespace_registry_fails () =
     ()
   in
   Alcotest.(check bool) "whitespace registry fails validation" true
-    (match Sun_cli_env_target.validate t with Error _ -> true | Ok () -> false)
+    (Result.is_error (Sun_cli_env_target.validate t))
 
 let () =
   Alcotest.run "env_target"

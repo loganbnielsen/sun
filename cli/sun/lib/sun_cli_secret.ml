@@ -221,7 +221,7 @@ let set ~env ~workspace:_ ~namespaces ~key ~value =
                    let patch_results = List.map (fun sname ->
                      apply_to_named_secret ~secret_name:sname ~namespace:ns ~key ~value
                    ) workload_secrets in
-                   let first_error = List.find_opt (function Error _ -> true | _ -> false) patch_results in
+                   let first_error = List.find_opt Result.is_error patch_results in
                    (match first_error with
                     | Some (Error _ as e) -> e
                     | _ ->
