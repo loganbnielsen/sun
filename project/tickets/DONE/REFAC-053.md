@@ -54,3 +54,6 @@ Four of these are `string option` values; misplacing any two compiles fine.
 4. The Cmdliner term builds a `run_config` value before invoking `run`.
 
 Note: REFAC-058 separately proposes replacing `secret_backend_str : string` with the typed `Sun_cli_manifest.secret_backend` variant — this ticket's record should use `string` for now and update the field type once that ticket lands.
+
+## Review — automated checks passed
+Build clean, run_config type defined with 12 fields, run accepts single cfg arg, all field accesses use cfg. prefix
