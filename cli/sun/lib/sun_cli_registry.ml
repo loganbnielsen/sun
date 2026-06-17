@@ -102,16 +102,16 @@ let update_service_digest t release_id ~service_name ~image_ref ~digest_str =
     Hashtbl.replace t.releases release_id { r with services };
     Ok ()
 
-let update_release_status t release_id status_str =
+let string_of_release_status = function
+  | Queued   -> "queued"
+  | Building -> "building"
+  | Live     -> "live"
+  | Failed   -> "failed"
+
+let update_release_status t release_id status =
   match Hashtbl.find_opt t.releases release_id with
   | None -> Error (Printf.sprintf "release %S not found" release_id)
   | Some r ->
-    let status = match status_str with
-      | "failed"   -> Failed
-      | "building" -> Building
-      | "live"     -> Live
-      | _          -> Queued
-    in
     Hashtbl.replace t.releases release_id { r with status };
     Ok ()
 
