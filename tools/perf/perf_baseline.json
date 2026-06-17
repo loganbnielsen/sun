@@ -5338,6 +5338,18 @@
           "commit": "db2594a",
           "duration_s": 0.356,
           "baseline": true
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "c9c7f15",
+          "duration_s": 0.891,
+          "baseline": true
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "c9c7f15",
+          "duration_s": 0.368,
+          "baseline": true
         }
       ]
     },
