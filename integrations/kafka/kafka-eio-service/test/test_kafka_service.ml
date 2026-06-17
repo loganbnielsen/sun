@@ -116,6 +116,49 @@ let test_config_of_env_rejects_unknown_security_protocol () =
         (contains msg "KAFKA_SECURITY_PROTOCOL"))
 
 (* ------------------------------------------------------------------ *)
+(* Schema Registry response decoding                                  *)
+(* ------------------------------------------------------------------ *)
+
+let result_error () = Alcotest.testable
+  (fun fmt -> function
+    | Ok _ -> Format.fprintf fmt "Ok _"
+    | Error e -> Format.fprintf fmt "Error %S" e)
+  (=)
+
+let test_decode_compatibility_response () =
+  match Kafka_service_schema.decode_compatibility_response {|{"is_compatible":true}|} with
+  | Ok response ->
+    Alcotest.(check bool) "is compatible" true
+      response.Kafka_service_schema.is_compatible
+  | Error e -> Alcotest.failf "decode failed: %s" e
+
+let test_decode_compatibility_response_errors () =
+  Alcotest.(check (result_error ())) "missing field"
+    (Error {|unexpected registry response: {"ok":true}|})
+    (Kafka_service_schema.decode_compatibility_response {|{"ok":true}|});
+  Alcotest.(check (result_error ())) "malformed json"
+    (Error {|json parse error in registry response: {"is_compatible":|})
+    (Kafka_service_schema.decode_compatibility_response {|{"is_compatible":|})
+
+let test_decode_registration_response () =
+  match Kafka_service_schema.decode_registration_response {|{"id":42}|} with
+  | Ok response ->
+    Alcotest.(check int) "schema id" 42
+      response.Kafka_service_schema.id
+  | Error e -> Alcotest.failf "decode failed: %s" e
+
+let test_decode_registration_response_errors () =
+  Alcotest.(check (result_error ())) "missing id"
+    (Error {|schema registry: missing 'id' in: {"schema":{}}|})
+    (Kafka_service_schema.decode_registration_response {|{"schema":{}}|});
+  Alcotest.(check (result_error ())) "unexpected shape"
+    (Error {|schema registry: unexpected response: []|})
+    (Kafka_service_schema.decode_registration_response {|[]|});
+  Alcotest.(check (result_error ())) "malformed json"
+    (Error {|schema registry: json parse error in: {"id":|})
+    (Kafka_service_schema.decode_registration_response {|{"id":|})
+
+(* ------------------------------------------------------------------ *)
 (* Runner                                                              *)
 (* ------------------------------------------------------------------ *)
 
@@ -136,5 +179,11 @@ let () =
     ];
     "config", [
       test_case "unknown security protocol fails clearly" `Quick test_config_of_env_rejects_unknown_security_protocol;
+    ];
+    "schema_registry_decoding", [
+      test_case "compatibility response" `Quick test_decode_compatibility_response;
+      test_case "compatibility response errors" `Quick test_decode_compatibility_response_errors;
+      test_case "registration response" `Quick test_decode_registration_response;
+      test_case "registration response errors" `Quick test_decode_registration_response_errors;
     ];
   ]
