@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-029
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-029/schema-registry-response-decoders
+worktree: /home/lbendtly/Code/sun
 ---
 
 Centralize Schema Registry response decoding with typed response records.
