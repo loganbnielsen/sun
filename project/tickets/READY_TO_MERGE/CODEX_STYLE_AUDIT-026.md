@@ -23,3 +23,6 @@ parses `KAFKA_SECURITY_PROTOCOL`, but any unknown value silently falls back to
 - Change env parsing to surface unknown protocol values instead of silently using
   plaintext.
 - Update producer/consumer config creation to handle the parse error clearly.
+
+## Review — automated checks passed
+CODEX_STYLE_AUDIT-026 passes review. The branch adds protocol_of_string with explicit finite Kafka security protocol parsing, changes Kafka_security.of_env to return a Result for unknown KAFKA_SECURITY_PROTOCOL values, and keeps Kafka_service.config_of_env as a convenience boundary that raises a clear Invalid_argument at startup. Producer/consumer config creation still surfaces Kafka_security.apply errors through Result. Focused Kafka security/service tests and dune build pass; branch pre-commit passed build, unit, observability, storage, kafka, and e2e suites. Diff is scoped to Kafka security/config code and tests.
