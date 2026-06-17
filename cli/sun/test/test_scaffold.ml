@@ -198,24 +198,6 @@ let test_workspace_generated_json_decoders_are_result_based () =
   check_bool "event has no missing-fields catch-all" false
     (contains event "missing required fields")
 
-let test_workspace_startup_helpers_are_flattened () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let svc_main = read_file "testapp/app/payments/charge_svc/bin/main.ml" in
-  let worker_main = read_file "testapp/app/comms/notify_worker/bin/main.ml" in
-  List.iter (fun (label, content) ->
-    assert_contains label content "let env_nonempty name";
-    assert_contains label content "let optional_log_backend";
-    assert_contains label content "let optional_db_pool";
-    check_bool (label ^ " avoids nested postgres_url match") false
-      (contains content "let pool = match postgres_url");
-    check_bool (label ^ " avoids nested loki_url match") false
-      (contains content "let log_backend = match loki_url")
-  ) [
-    "svc main", svc_main;
-    "worker main", worker_main;
-  ]
-
 (* ── bundle source resolution tests ──────────────────────────────────────── *)
 
 (* Verify that infer_sun_home resolves correctly when SUN_HOME points to a
@@ -489,7 +471,6 @@ let () =
       ; Alcotest.test_case "Sun sources linked"             `Quick test_sun_sources_linked
       ; Alcotest.test_case "charge_svc publishes event"     `Quick test_charge_svc_publishes_kafka_event
       ; Alcotest.test_case "JSON decoders are result based" `Quick test_workspace_generated_json_decoders_are_result_based
-      ; Alcotest.test_case "startup helpers are flattened"  `Quick test_workspace_startup_helpers_are_flattened
       ]
     ; "worker_ack_order", [
         Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect

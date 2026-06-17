@@ -1,44 +1,17 @@
-let env_nonempty name =
-  match Sys.getenv_opt name with
-  | Some value when value <> "" -> Some value
-  | _ -> None
-
-let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
-  | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
-
-let require_storage label = function
-  | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
-
-let create_db_pool ~sw ~stdenv url =
-  Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
-
-let apply_optional_migrations pool = function
-  | None     -> ()
-  | Some dir ->
-    Migration.apply pool ~dir ~table:"venus_schema_migrations"
-    |> require_storage "migrations"
-
-let optional_db_pool ~sw ~stdenv postgres_url migrations_dir =
-  Option.map
-    (fun url ->
-       let pool = create_db_pool ~sw ~stdenv url in
-       apply_optional_migrations pool migrations_dir;
-       pool)
-    postgres_url
-
 let () =
-  let loki_url        = env_nonempty "LOKI_URL" in
-  let postgres_url    = env_nonempty "POSTGRES_URL" in
-  let migrations_dir  = env_nonempty "MIGRATIONS_DIR" in
+  let loki_url        = Sys.getenv_opt "LOKI_URL" in
+  let postgres_url    = Sys.getenv_opt "POSTGRES_URL" in
   let kafka_config    = Kafka_service.config_of_env () in
 
   Eio_main.run @@ fun env ->
 
   let prom_backend, _render = Obs_prometheus.create () in
-  let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
   let backend = Obs.compose log_backend prom_backend in
   let ot =
     Obs.with_context
@@ -48,9 +21,19 @@ let () =
 
   Eio.Switch.run @@ fun sw ->
 
-  let db_pool =
-    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv)
-      postgres_url migrations_dir
+  let migrations_dir = Sys.getenv_opt "MIGRATIONS_DIR" in
+  let db_pool = match postgres_url with
+    | None     -> None
+    | Some url ->
+      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+       | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+       | Ok pool ->
+         (match migrations_dir with
+          | None     -> Some pool
+          | Some dir ->
+            (match Migration.apply pool ~dir ~table:"venus_schema_migrations" with
+             | Error e -> failwith ("migrations: " ^ Storage_error.to_string e)
+             | Ok ()   -> Some pool)))
   in
 
   let module W = Notify_worker.Make(struct

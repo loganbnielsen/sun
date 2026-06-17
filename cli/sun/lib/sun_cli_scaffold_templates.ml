@@ -584,30 +584,17 @@ let ws_svc_lib_dune = {tpl|(library
 |tpl}
 
 (* app/payments/charge_svc/bin/main.ml *)
-let ws_svc_bin_ml = {tpl|let env_nonempty name =
-  match Sys.getenv_opt name with
-  | Some value when value <> "" -> Some value
-  | _ -> None
-
-let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
-  | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
-
-let optional_db_pool ~sw ~stdenv postgres_url =
-  Option.bind postgres_url (fun url ->
-    Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
-
-let require_ok label = function
-  | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
-
-let () =
-  let postgres_url = env_nonempty "POSTGRES_URL" in
-  let loki_url     = env_nonempty "LOKI_URL" in
+let ws_svc_bin_ml = {tpl|let () =
+  let postgres_url = Sys.getenv_opt "POSTGRES_URL" |> Option.filter (fun s -> s <> "") in
+  let loki_url     = Sys.getenv_opt "LOKI_URL" in
   let kafka_config = Kafka_service.config_of_env () in
   Eio_main.run @@ fun env ->
-  let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
   let prom, render = Obs_prometheus.create () in
   let ot =
     Obs.with_context
@@ -616,11 +603,23 @@ let () =
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
-  let pool = optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
-  let kafka = Kafka_service.create kafka_config ~sw |> require_ok "kafka create" in
+  let pool = match postgres_url with
+    | None     -> None
+    | Some url ->
+      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+       | Error _ -> None
+       | Ok p    -> Some p)
+  in
+  let kafka =
+    match Kafka_service.create kafka_config ~sw with
+    | Error e -> failwith ("kafka create: " ^ e)
+    | Ok svc  -> svc
+  in
   let charged_topic =
-    Kafka_service.register kafka ~net:env#net ~clock:env#clock (module Charged)
-    |> require_ok "kafka register"
+    match Kafka_service.register kafka ~net:env#net ~clock:env#clock
+            (module Charged) with
+    | Error e -> failwith ("kafka register: " ^ e)
+    | Ok t    -> t
   in
   let publish_charged event =
     match Eio.Promise.await (Kafka_service.publish kafka charged_topic event) with
@@ -684,26 +683,17 @@ let ws_worker_lib_dune = {tpl|(library
 |tpl}
 
 (* app/comms/notify_worker/bin/main.ml *)
-let ws_worker_bin_ml = {tpl|let env_nonempty name =
-  match Sys.getenv_opt name with
-  | Some value when value <> "" -> Some value
-  | _ -> None
-
-let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
-  | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
-
-let optional_db_pool ~sw ~stdenv postgres_url =
-  Option.bind postgres_url (fun url ->
-    Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
-
-let () =
-  let postgres_url = env_nonempty "POSTGRES_URL" in
-  let loki_url     = env_nonempty "LOKI_URL" in
+let ws_worker_bin_ml = {tpl|let () =
+  let postgres_url = Sys.getenv_opt "POSTGRES_URL" |> Option.filter (fun s -> s <> "") in
+  let loki_url     = Sys.getenv_opt "LOKI_URL" in
   let kafka_config = Kafka_service.config_of_env () in
   Eio_main.run @@ fun env ->
-  let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
+  let log_backend = match loki_url with
+    | None     -> Obs.stdout
+    | Some url ->
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url
+        ~label_names:["service"; "team"] ()
+  in
   let prom, _render = Obs_prometheus.create () in
   let ot =
     Obs.with_context
@@ -712,7 +702,13 @@ let () =
       [("team", "comms")]
   in
   Eio.Switch.run @@ fun sw ->
-  let pool = optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
+  let pool = match postgres_url with
+    | None     -> None
+    | Some url ->
+      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+       | Error _ -> None
+       | Ok p    -> Some p)
+  in
   let module W = Notify_worker.Make(struct
     let pool = pool
     let ot   = ot
