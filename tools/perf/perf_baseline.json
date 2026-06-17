@@ -6106,6 +6106,23 @@
           "date": "2026-06-16",
           "commit": "bc9399d",
           "duration_s": 1.163
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "b4f3ee7",
+          "duration_s": 1.821,
+          "baseline": true
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "b4f3ee7",
+          "duration_s": 1.173
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "b4f3ee7",
+          "duration_s": 1.166,
+          "baseline": true
         }
       ]
     }
