@@ -60,7 +60,7 @@ let deployment_exists ns k8s_name =
   Sys.command
     (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
 
-let run (service_arg : string) (follow : bool) (tail : int) (grafana_base_url : string) : unit =
+let run ~service_arg ~follow ~tail ~grafana_base_url : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -133,4 +133,6 @@ let cmd =
        ~doc:"Stream logs from a deployed service. \
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
-    Term.(const run $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg)
+    Term.(const (fun svc flw tl gbu ->
+        run ~service_arg:svc ~follow:flw ~tail:tl ~grafana_base_url:gbu)
+      $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg)

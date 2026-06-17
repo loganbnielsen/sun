@@ -77,7 +77,7 @@ type provider = Aws | Gcp
 
 let provider_name = function Aws -> "aws" | Gcp -> "gcp"
 
-let cloud_init provider var_file dry_run =
+let cloud_init ~provider ~var_file ~dry_run () =
   let pname = provider_name provider in
 
   (* Check prerequisites *)
@@ -173,4 +173,6 @@ let init_cmd =
        ~doc:"Provision cloud infrastructure via Terraform. \
              Requires the terraform binary in PATH and cloud credentials \
              in the environment (AWS_* or GOOGLE_* variables).")
-    Term.(const cloud_init $ provider_term $ var_file_arg $ dry_run_flag)
+    Term.(const (fun provider var_file dry_run ->
+        cloud_init ~provider ~var_file ~dry_run ())
+      $ provider_term $ var_file_arg $ dry_run_flag)

@@ -35,7 +35,7 @@ let find_repo_root () =
 
 (* ── Pipeline ────────────────────────────────────────────────────────────── *)
 
-let run filter_path dry_run tag confirm_group_change =
+let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
   let workspace = workspace_name () in
   let sha       = match tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path in
@@ -250,4 +250,6 @@ let cmd =
   Cmd.v
     (Cmd.info "up"
        ~doc:"Build images, synthesize k8s manifests, and deploy to the cluster")
-    Term.(const run $ path_arg $ dry_run_flag $ tag_arg $ confirm_group_change_flag)
+    Term.(const (fun filter_path dry_run tag confirm_group_change ->
+        run ~filter_path ~dry_run ~tag ~confirm_group_change ())
+      $ path_arg $ dry_run_flag $ tag_arg $ confirm_group_change_flag)
