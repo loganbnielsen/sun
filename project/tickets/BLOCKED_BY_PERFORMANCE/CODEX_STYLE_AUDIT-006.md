@@ -27,3 +27,6 @@ boundary.
 - Update `Sun_cli_hosted_executor` and tests that construct inspection records.
 - Ensure JSON output remains backward compatible unless a deliberate migration is
   documented.
+
+## Review — automated checks passed
+All three string fields replaced with typed variants, conversions correctly deferred to the JSON boundary, hosted executor and tests updated, build clean, tests pass, no project/tickets changes.
