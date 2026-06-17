@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-026
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-026/explicit-kafka-security-protocol
+worktree: /home/lbendtly/Code/sun
 ---
 
 Make Kafka security protocol parsing explicit instead of defaulting unknown values.
