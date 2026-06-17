@@ -26,3 +26,6 @@ readable decoders.
 - Avoid defaulting missing fields to `""` or `0` when the field is required.
 - Update scaffold golden tests to expect the safer generated code.
 - Keep existing example applications compiling.
+
+## Review — automated checks passed
+Build passed. Diff scope is confined to scaffold templates/tests and relevant example generated code. The generated/event decoders now use Result-returning typed field helpers, required fields no longer default to empty string or zero, scaffold expectations were updated, examples compile, and no new Sys.command, shell injection, wrapped true, project/ticket, or irrelevant command/doc changes were introduced.
