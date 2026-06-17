@@ -9,7 +9,7 @@ type release_status =
 type service_summary = {
   service_name : string;
   namespace    : string;
-  primitive    : string;
+  primitive    : Sun_cli_deployment_plan.primitive;
   image        : string;
   default_url  : string option;
 }
@@ -96,7 +96,7 @@ let service_summaries plan (image_refs : image_ref list) =
         let summary = {
           service_name = s.k8s_name;
           namespace = s.namespace;
-          primitive = primitive_to_string s.primitive;
+          primitive = s.primitive;
           image = ref.image;
           default_url = default_url_for s plan;
         } in
@@ -176,7 +176,7 @@ let release_to_json release =
     let fields = [
       "service_name", `String s.service_name;
       "namespace", `String s.namespace;
-      "primitive", `String s.primitive;
+      "primitive", `String (primitive_to_string s.primitive);
       "image", `String s.image;
     ] in
     let fields =
