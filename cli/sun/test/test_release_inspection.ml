@@ -82,7 +82,7 @@ let release_for plan =
     ~release_id:"rel_env-prod_abc123"
     ~environment_id:"env_prod"
     ~environment_name:"production"
-    ~status:"mock_submitted"
+    ~status:Sun_cli_release_inspection.Mock_submitted
     ~plan
     ~image_refs
     ~services
