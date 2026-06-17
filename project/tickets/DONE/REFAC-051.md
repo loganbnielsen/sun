@@ -48,3 +48,6 @@ let grafana_val = if need_grafana then "true" else "false" in
    ```
 3. Update all call sites (the `~values` lists in `dev_up`) to use `Bool true`, `Bool false`, `Float 1.5`, etc.
 4. Delete the `grafana_val` string construction on line 119; replace with `Bool need_grafana`.
+
+## Review — automated checks passed
+set_val type replaced with Bool/Float/Str; all call sites updated; grafana flag uses Bool need_grafana; build clean

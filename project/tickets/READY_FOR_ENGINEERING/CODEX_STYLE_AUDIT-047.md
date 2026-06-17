@@ -1,0 +1,23 @@
+---
+id: CODEX_STYLE_AUDIT-047
+type: refactor
+severity: high
+source: style audit
+---
+
+Refactor environment targets into mode-specific records.
+
+**Depends on:** CODEX_STYLE_AUDIT-044.
+
+**Problem:** `cli/sun/lib/sun_cli_env_target.ml:22-53` uses one record with many
+optional fields and a `target` tag. Runtime validation then decides which fields
+matter for local, customer direct, GitOps, and hosted modes.
+
+**Goal:** Encode mode-specific requirements in constructors and variant payloads.
+
+**Acceptance criteria:**
+
+- Replace the flat record with variants carrying the fields required by each
+  target mode.
+- Remove validation checks that become impossible states.
+- Update accessors and `to_env_config`.
