@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-009
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-009/flatten-control-plane
+worktree: ../sun-CODEX-009
 ---
 
 Flatten control-plane request parsing with Result and Option helpers.

@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-010
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-010/flatten-kafka-register
+worktree: ../sun-CODEX-010
 ---
 
 Flatten Kafka service registration into a Result pipeline.
