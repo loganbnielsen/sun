@@ -32,30 +32,27 @@ type error =
 let key_cache : (float * string) option Atomic.t = Atomic.make None
 let key_cache_mutex = Mutex.create ()
 
+let load_from_path path mtime =
+  try
+    In_channel.with_open_text path (fun ic ->
+      let key = String.trim (input_line ic) in
+      Atomic.set key_cache (Some (mtime, key));
+      Some key)
+  with _ -> None
+
 let read_api_key () =
   match Sys.getenv_opt "SUN_API_KEY_FILE" with
-  | Some path ->
-    let mtime =
-      try Some (Unix.stat path).Unix.st_mtime
-      with _ -> None
-    in
-    (match mtime with
-     | None -> None
-     | Some mtime ->
-       match Atomic.get key_cache with
-       | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
-       | _ ->
-         Mutex.protect key_cache_mutex (fun () ->
-           match Atomic.get key_cache with
-           | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
-           | _ ->
-             (try
-                In_channel.with_open_text path (fun ic ->
-                  let key = String.trim (input_line ic) in
-                  Atomic.set key_cache (Some (mtime, key));
-                  Some key)
-              with _ -> None)))
   | None -> Sys.getenv_opt "SUN_API_KEY"
+  | Some path ->
+    let mtime = try Some (Unix.stat path).Unix.st_mtime with _ -> None in
+    Option.bind mtime (fun mtime ->
+      match Atomic.get key_cache with
+      | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
+      | _ ->
+        Mutex.protect key_cache_mutex (fun () ->
+          match Atomic.get key_cache with
+          | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
+          | _ -> load_from_path path mtime))
 
 let constant_time_equal s1 s2 =
   let len1 = String.length s1 and len2 = String.length s2 in
