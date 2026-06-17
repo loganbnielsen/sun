@@ -27,3 +27,6 @@ two independent booleans.
 - Update `deployment_doc` and `rollout_doc` signatures and all call sites.
 - Keep optional arguments followed by a trailing `()` where appropriate.
 - Add tests that cover service, worker, and rollout rendering.
+
+## Review — automated checks passed
+workload_shape variant type correctly replaces ports:bool/probes:bool on deployment_doc and rollout_doc; build clean, all call sites updated, four tests cover both shapes for both functions
