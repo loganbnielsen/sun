@@ -31,3 +31,6 @@ short names such as `ns name image schedule`, making accidental swaps easy.
 - Add trailing `()` to functions that keep optional arguments.
 - Update renderers and tests to use labels.
 - Leave internal string formatting behavior unchanged.
+
+## Review — automated checks passed
+All 10 builder functions converted to labeled args with correct trailing () on optional-arg functions; build clean; diff confined to cli/sun/; callers, .mli, and tests all updated consistently.
