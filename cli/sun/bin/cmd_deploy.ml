@@ -16,6 +16,34 @@ let git_sha () =
   (try Sys.remove tmp with _ -> ());
   if s = "" then "dev" else s
 
+let parse_secret_backend backend_str store_ref store_kind key_prefix refresh_interval emit_to =
+  match backend_str with
+  | "kubernetes-placeholder" | "" -> Sun_cli_manifest.Kubernetes_placeholder
+  | "external-secrets" ->
+    (match emit_to with
+     | None ->
+       Printf.eprintf "warning: --secret-backend external-secrets is only meaningful \
+                       with --emit-to; ignoring.\n";
+       Sun_cli_manifest.Kubernetes_placeholder
+     | Some _ ->
+       let sref = match store_ref with
+         | Some r -> r
+         | None ->
+           Printf.eprintf "error: --secret-store-ref is required when \
+                           --secret-backend=external-secrets\n";
+           exit 1
+       in
+       Sun_cli_manifest.External_secrets {
+         store_ref        = sref;
+         store_kind       = Option.value store_kind ~default:"ClusterSecretStore";
+         key_prefix       = Option.value key_prefix ~default:"";
+         refresh_interval = Option.value refresh_interval ~default:"1h";
+       })
+  | other ->
+    Printf.eprintf "error: unknown --secret-backend value %S \
+                    (expected: kubernetes-placeholder | external-secrets)\n" other;
+    exit 1
+
 type run_config = {
   filter_path          : string option;
   dry_run              : bool;
@@ -23,11 +51,19 @@ type run_config = {
   emit_plan_to         : string option;
   image_tag            : string option;
   registry             : string option;
-  secret_backend       : Sun_cli_manifest.secret_backend;
+  secret_backend_str   : string;
+  store_ref            : string option;
+  store_kind           : string option;
+  key_prefix           : string option;
+  refresh_interval     : string option;
   confirm_group_change : bool;
 }
 
 let run cfg =
+  let secret_backend =
+    parse_secret_backend cfg.secret_backend_str cfg.store_ref cfg.store_kind
+      cfg.key_prefix cfg.refresh_interval cfg.emit_to
+  in
   let workspace = workspace_name () in
   let sha       = match cfg.image_tag with Some t -> t | None -> git_sha () in
   let services  = discover_services ~filter_path:cfg.filter_path in
@@ -77,7 +113,7 @@ let run cfg =
      Printf.eprintf "error: %s\n" msg;
      exit 1);
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
-               Sun_cli_deployment_plan.secret_backend = cfg.secret_backend } in
+               Sun_cli_deployment_plan.secret_backend } in
   let plan = Sun_cli_deployment_plan.of_services ~workspace ~env services in
 
   (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
@@ -126,7 +162,7 @@ let run cfg =
 
       (match cfg.emit_to with
        | Some dir ->
-         let r = Sun_cli_executor.gitops ~dir ~secret_backend:cfg.secret_backend spec in
+         let r = Sun_cli_executor.gitops ~dir ~secret_backend spec in
          let path = Filename.concat dir
            (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
          Printf.printf "  ✓  %s\n%!" path
@@ -219,42 +255,16 @@ let refresh_interval_arg =
          ~doc:"How often ESO should sync the secret from the external store (default: 1h). \
                Examples: '1h', '30m', '5m'.")
 
-let secret_backend_term =
-  let build str store_ref store_kind key_prefix refresh_interval emit_to =
-    match str with
-    | "kubernetes-placeholder" | "" -> `Ok Sun_cli_manifest.Kubernetes_placeholder
-    | "external-secrets" when emit_to = None ->
-      Printf.eprintf "warning: --secret-backend external-secrets is only meaningful \
-                      with --emit-to; using kubernetes-placeholder.\n";
-      `Ok Sun_cli_manifest.Kubernetes_placeholder
-    | "external-secrets" ->
-      (match store_ref with
-       | None ->
-         `Error (true, "--secret-store-ref is required when --secret-backend=external-secrets")
-       | Some sref ->
-         `Ok (Sun_cli_manifest.External_secrets {
-           store_ref        = sref;
-           store_kind       = Option.value store_kind ~default:"ClusterSecretStore";
-           key_prefix       = Option.value key_prefix ~default:"";
-           refresh_interval = Option.value refresh_interval ~default:"1h";
-         }))
-    | other ->
-      `Error (true, Printf.sprintf "unknown --secret-backend value %S \
-                    (expected: kubernetes-placeholder | external-secrets)" other)
-  in
-  Term.(ret (const build
-             $ secret_backend_arg $ secret_store_ref_arg $ secret_store_kind_arg
-             $ key_prefix_arg $ refresh_interval_arg $ emit_to_arg))
-
 let confirm_group_change_flag =
   Arg.(value & flag &
        info ["confirm-group-change"]
          ~doc:"Acknowledge that consumer group IDs have changed and proceed with deploy")
 
 let make_config filter_path dry_run emit_to emit_plan_to image_tag registry
-    secret_backend confirm_group_change =
+    secret_backend_str store_ref store_kind key_prefix refresh_interval confirm_group_change =
   { filter_path; dry_run; emit_to; emit_plan_to; image_tag; registry;
-    secret_backend; confirm_group_change }
+    secret_backend_str; store_ref; store_kind; key_prefix; refresh_interval;
+    confirm_group_change }
 
 let cmd =
   Cmd.v
@@ -266,4 +276,5 @@ let cmd =
           $ (const make_config
              $ path_arg $ dry_run_flag $ emit_to_arg
              $ emit_plan_to_arg $ image_tag_arg $ registry_arg
-             $ secret_backend_term $ confirm_group_change_flag))
+             $ secret_backend_arg $ secret_store_ref_arg $ secret_store_kind_arg
+             $ key_prefix_arg $ refresh_interval_arg $ confirm_group_change_flag))
