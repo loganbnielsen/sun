@@ -28,14 +28,26 @@ let encode t = `Assoc [
   ("correlation_id", `String t.correlation_id);
 ]
 
+let required_string fields name =
+  match List.assoc_opt name fields with
+  | Some (`String value) -> Ok value
+  | Some _              -> Error (name ^ " must be a string")
+  | None                -> Error (name ^ " is required")
+
+let required_int fields name =
+  match List.assoc_opt name fields with
+  | Some (`Int value) -> Ok value
+  | Some _            -> Error (name ^ " must be an integer")
+  | None              -> Error (name ^ " is required")
+
 let decode = function
   | `Assoc fields ->
-    let get_s k = match List.assoc_opt k fields with Some (`String s) -> Some s | _ -> None in
-    let get_i k = match List.assoc_opt k fields with Some (`Int i)    -> Some i | _ -> None in
-    (match get_s "id", get_i "amount_cents", get_s "customer_id",
-           get_s "currency", get_s "correlation_id" with
-     | Some id, Some amount_cents, Some customer_id,
-       Some currency, Some correlation_id ->
-       Ok { id; amount_cents; customer_id; currency; correlation_id }
-     | _ -> Error "missing required fields")
+    Result.bind (required_string fields "id") @@ fun id ->
+    Result.bind (required_int fields "amount_cents") @@ fun amount_cents ->
+    Result.bind (required_string fields "customer_id") @@ fun customer_id ->
+    Result.bind (required_string fields "currency") @@ fun currency ->
+    Result.map
+      (fun correlation_id ->
+         { id; amount_cents; customer_id; currency; correlation_id })
+      (required_string fields "correlation_id")
   | _ -> Error "expected object"
