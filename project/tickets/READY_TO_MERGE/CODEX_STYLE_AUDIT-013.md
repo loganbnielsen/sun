@@ -25,3 +25,6 @@ that requires readers to reason about mutation and short-circuiting.
 - Keep all config keys and values unchanged.
 - Share helper code between producer and consumer if that reduces duplication
   without coupling unrelated behavior.
+
+## Review — automated checks passed
+review passed

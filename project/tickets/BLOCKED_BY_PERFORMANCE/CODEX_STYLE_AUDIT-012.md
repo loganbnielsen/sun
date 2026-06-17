@@ -27,3 +27,6 @@ in one place.
 - Remove duplicated target/delay selection logic for first and subsequent
   attempts.
 - Preserve partition pause/resume behavior.
+
+## Review — automated checks passed
+review passed

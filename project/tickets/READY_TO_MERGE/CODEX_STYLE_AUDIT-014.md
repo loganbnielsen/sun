@@ -26,3 +26,6 @@ int` and `commit_message : kafka_handle -> string -> int32 -> int64 -> bool ->
   `kafka_consumer.ml`.
 - Keep the C stubs unchanged unless necessary; the OCaml binding can provide the
   safer surface.
+
+## Review — automated checks passed
+review passed
