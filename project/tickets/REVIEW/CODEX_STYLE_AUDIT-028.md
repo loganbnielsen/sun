@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-028
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-028/kafka-service-http-request-record
+worktree: /home/lbendtly/Code/sun
 ---
 
 Replace Kafka service HTTP option pairs with a request record.
