@@ -24,3 +24,6 @@ raw string lookups.
 - Replace nested `Yojson.Safe.from_string` matches with these helpers.
 - Preserve current error messages or update tests to assert the new structured
   messages.
+
+## Review — automated checks passed
+CODEX_STYLE_AUDIT-029 passes review. Schema Registry compatibility and registration responses now decode through Result-returning typed helpers, with call sites using compatibility_response and registration_response records instead of nested Yojson matches. Existing parse/missing-field/unexpected-shape messages are preserved and covered by focused kafka_service tests. Focused Kafka service tests and a full suite rerun passed; one e2e timing spike did not reproduce.
