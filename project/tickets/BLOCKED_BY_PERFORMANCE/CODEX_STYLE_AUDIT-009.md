@@ -24,3 +24,6 @@ handled differently across endpoints.
 - Refactor project creation, release creation, pagination, and log retrieval
   handlers to use the helpers.
 - Keep HTTP status mapping explicit and covered by existing control-plane tests.
+
+## Review — automated checks passed
+Flattened control-plane handlers using let* / Option.to_result; build clean, all 10 control-plane tests pass, changes confined to cli/sun/lib/sun_cli_control_plane.ml, no ticket files in worktree.

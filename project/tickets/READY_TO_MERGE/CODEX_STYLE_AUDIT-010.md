@@ -26,3 +26,6 @@ consistent.
 - Keep the compatibility-setting warning non-fatal.
 - Add or update a unit test around a failing intermediate step if test harnesses
   already support it.
+
+## Review — automated checks passed
+register refactored into a flat Result pipeline with local let* binding; compatibility warning preserved as non-fatal; build clean, all 14 tests pass, only target file changed
