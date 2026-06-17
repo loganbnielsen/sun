@@ -1,37 +1,36 @@
 type protocol =
+  [ `Plaintext
+  | `Ssl
+  | `Sasl_plaintext
+  | `Sasl_ssl
+  ]
+
+type sasl = {
+  mechanism : string;
+  username  : string;
+  password  : string;
+}
+
+type t =
   | Plaintext
-  | Ssl
-  | Sasl_plaintext
-  | Sasl_ssl
+  | Ssl of { ssl_ca_location : string option }
+  | Sasl_plaintext of sasl
+  | Sasl_ssl of { ssl_ca_location : string option; sasl : sasl }
 
-type t = {
-  protocol        : protocol;
-  ssl_ca_location : string option;
-  sasl_mechanism  : string option;
-  sasl_username   : string option;
-  sasl_password   : string option;
-}
-
-let default = {
-  protocol        = Plaintext;
-  ssl_ca_location = None;
-  sasl_mechanism  = None;
-  sasl_username   = None;
-  sasl_password   = None;
-}
+let default = Plaintext
 
 let protocol_to_string = function
-  | Plaintext      -> "plaintext"
-  | Ssl            -> "ssl"
-  | Sasl_plaintext -> "sasl_plaintext"
-  | Sasl_ssl       -> "sasl_ssl"
+  | `Plaintext      -> "plaintext"
+  | `Ssl            -> "ssl"
+  | `Sasl_plaintext -> "sasl_plaintext"
+  | `Sasl_ssl       -> "sasl_ssl"
 
 let protocol_of_string value =
   match String.lowercase_ascii value with
-  | "plaintext"      -> Ok Plaintext
-  | "ssl"            -> Ok Ssl
-  | "sasl_plaintext" -> Ok Sasl_plaintext
-  | "sasl_ssl"       -> Ok Sasl_ssl
+  | "plaintext"      -> Ok `Plaintext
+  | "ssl"            -> Ok `Ssl
+  | "sasl_plaintext" -> Ok `Sasl_plaintext
+  | "sasl_ssl"       -> Ok `Sasl_ssl
   | other ->
     Error
       (Printf.sprintf
@@ -42,20 +41,35 @@ let protocol_of_string value =
 let env_opt name =
   match Sys.getenv_opt name with Some v when v <> "" -> Some v | _ -> None
 
+let required_env name =
+  match env_opt name with
+  | Some value -> Ok value
+  | None       -> Error ("kafka security: " ^ name ^ " required for SASL protocols")
+
+let sasl_of_env () =
+  let ( let* ) = Result.bind in
+  let* mechanism = required_env "KAFKA_SASL_MECHANISM" in
+  let* username  = required_env "KAFKA_SASL_USERNAME" in
+  let* password  = required_env "KAFKA_SASL_PASSWORD" in
+  Ok { mechanism; username; password }
+
 let of_env () =
   let ( let* ) = Result.bind in
   let* protocol =
     match env_opt "KAFKA_SECURITY_PROTOCOL" with
-    | None       -> Ok Plaintext
+    | None       -> Ok `Plaintext
     | Some value -> protocol_of_string value
   in
-  Ok {
-    protocol;
-    ssl_ca_location = env_opt "KAFKA_SSL_CA_LOCATION";
-    sasl_mechanism  = env_opt "KAFKA_SASL_MECHANISM";
-    sasl_username   = env_opt "KAFKA_SASL_USERNAME";
-    sasl_password   = env_opt "KAFKA_SASL_PASSWORD";
-  }
+  let ssl_ca_location = env_opt "KAFKA_SSL_CA_LOCATION" in
+  match protocol with
+  | `Plaintext      -> Ok Plaintext
+  | `Ssl            -> Ok (Ssl { ssl_ca_location })
+  | `Sasl_plaintext ->
+    let* sasl = sasl_of_env () in
+    Ok (Sasl_plaintext sasl)
+  | `Sasl_ssl ->
+    let* sasl = sasl_of_env () in
+    Ok (Sasl_ssl { ssl_ca_location; sasl })
 
 let apply conf t =
   let errs = ref [] in
@@ -63,20 +77,24 @@ let apply conf t =
     | Ok ()   -> ()
     | Error s -> errs := ("kafka security conf " ^ k ^ ": " ^ s) :: !errs
   in
-  set "security.protocol" (protocol_to_string t.protocol);
-  Option.iter (set "ssl.ca.location") t.ssl_ca_location;
-  Option.iter (set "sasl.mechanism") t.sasl_mechanism;
-  Option.iter (set "sasl.username") t.sasl_username;
-  Option.iter (set "sasl.password") t.sasl_password;
-  (match t.protocol with
-   | Sasl_plaintext | Sasl_ssl ->
-     if t.sasl_mechanism = None then
-       errs := "kafka security: sasl_mechanism required for SASL protocols" :: !errs;
-     if t.sasl_username = None then
-       errs := "kafka security: sasl_username required for SASL protocols" :: !errs;
-     if t.sasl_password = None then
-       errs := "kafka security: sasl_password required for SASL protocols" :: !errs
-   | Plaintext | Ssl -> ());
+  let set_sasl sasl =
+    set "sasl.mechanism" sasl.mechanism;
+    set "sasl.username" sasl.username;
+    set "sasl.password" sasl.password
+  in
+  (match t with
+   | Plaintext ->
+     set "security.protocol" (protocol_to_string `Plaintext)
+   | Ssl { ssl_ca_location } ->
+     set "security.protocol" (protocol_to_string `Ssl);
+     Option.iter (set "ssl.ca.location") ssl_ca_location
+   | Sasl_plaintext sasl ->
+     set "security.protocol" (protocol_to_string `Sasl_plaintext);
+     set_sasl sasl
+   | Sasl_ssl { ssl_ca_location; sasl } ->
+     set "security.protocol" (protocol_to_string `Sasl_ssl);
+     Option.iter (set "ssl.ca.location") ssl_ca_location;
+     set_sasl sasl);
   match !errs with
   | []   -> Ok ()
   | errs -> Error (String.concat "; " (List.rev errs))

@@ -1,24 +1,27 @@
 (** Security transport configuration shared by producer and consumer. *)
 
 type protocol =
-  | Plaintext       (** No encryption or authentication. Local dev default. *)
-  | Ssl             (** TLS encryption, no SASL authentication. *)
-  | Sasl_plaintext  (** SASL authentication, no TLS encryption. *)
-  | Sasl_ssl        (** SASL authentication over TLS. Production default. *)
+  [ `Plaintext       (** No encryption or authentication. Local dev default. *)
+  | `Ssl             (** TLS encryption, no SASL authentication. *)
+  | `Sasl_plaintext  (** SASL authentication, no TLS encryption. *)
+  | `Sasl_ssl        (** SASL authentication over TLS. Production default. *)
+  ]
 
-type t = {
-  protocol        : protocol;
-  ssl_ca_location : string option;
-  (** Path to CA certificate bundle, e.g. ["/etc/ssl/certs/ca-certificates.crt"].
-      [None] uses librdkafka's default (system CAs on most Linux distributions). *)
-  sasl_mechanism  : string option;
+type sasl = {
+  mechanism : string;
   (** SASL mechanism: ["PLAIN"], ["SCRAM-SHA-256"], or ["SCRAM-SHA-512"]. *)
-  sasl_username   : string option;
-  sasl_password   : string option;
+  username  : string;
+  password  : string;
 }
 
+type t =
+  | Plaintext
+  | Ssl of { ssl_ca_location : string option }
+  | Sasl_plaintext of sasl
+  | Sasl_ssl of { ssl_ca_location : string option; sasl : sasl }
+
 val default : t
-(** [Plaintext] with all optional fields [None]. Use for local dev and unit tests.
+(** [Plaintext]. Use for local dev and unit tests.
     Do not use in production — requires explicit [Ssl] or [Sasl_ssl]. *)
 
 val protocol_of_string : string -> (protocol, string) result
@@ -37,6 +40,6 @@ val of_env : unit -> (t, string) result
 
 val apply : Kafka_raw.kafka_conf -> t -> (unit, string) result
 (** Set librdkafka [security.protocol], [ssl.ca.location], and [sasl.*] keys on [conf].
-    Returns [Error msg] if any key is rejected by librdkafka or if a SASL protocol
-    is configured without the required [sasl_mechanism], [sasl_username], and [sasl_password].
+    Returns [Error msg] if any key is rejected by librdkafka. SASL credentials
+    are required by the [Sasl_plaintext] and [Sasl_ssl] constructors.
     Called internally by producer and consumer [conf_of_config]; not part of the public API. *)
