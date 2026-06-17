@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-027
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-027/typed-kafka-sasl-security
+worktree: /home/lbendtly/Code/sun
 ---
 
 Represent Kafka SASL requirements in the type instead of optional fields.
