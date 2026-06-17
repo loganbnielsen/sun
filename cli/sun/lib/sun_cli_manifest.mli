@@ -42,12 +42,16 @@ val service_account_doc : string -> string -> string
 val configmap_doc      : ?extra_env:(string * string) list -> string -> string -> string
 val secret_doc         : ?base_secrets:(string * string) list -> ?extra_secrets:(string * string) list -> ?redact:bool -> string -> string -> string
 val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> string -> string -> string
-val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> ports:bool -> probes:bool -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> unit -> string
+type workload_shape = Http_service | Background_worker
+(** Workload shape determines whether a deployment exposes HTTP and uses health
+    probes. [Http_service] enables both; [Background_worker] disables both. *)
+
+val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> unit -> string
 
 (** [rollout_doc] renders an Argo Rollout resource instead of a Deployment.
     Requires Argo Rollouts installed in the cluster.
     [pd] must be [Canary _] or [Blue_green]. *)
-val rollout_doc : ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> ports:bool -> probes:bool -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> pd:Sun_cli_toml.progressive_delivery -> unit -> string
+val rollout_doc : ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> pd:Sun_cli_toml.progressive_delivery -> unit -> string
 
 (** [blue_green_service_docs ns name] renders two ClusterIP Services
     ([<name>-active] and [<name>-preview]) required by the blue-green strategy. *)

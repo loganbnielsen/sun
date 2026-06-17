@@ -13,6 +13,8 @@ type service = {
 
 let prim_label = function Svc -> "svc" | Worker -> "worker" | Fn -> "fn"
 
+type workload_shape = Http_service | Background_worker
+
 (* ── Schedule extraction for -fn ─────────────────────────────────────────── *)
 
 let extract_schedule ~dir ~name =
@@ -180,14 +182,14 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
                    ?(secret_keys = [])
                    ?(config_hash = "")
-                   ~ports ~probes ~replicas ~cpu ~memory ~ns ~name ~image () =
+                   ~shape ~replicas ~cpu ~memory ~ns ~name ~image () =
   let ports_section =
-    if ports then {|        ports:
+    if shape = Http_service then {|        ports:
         - containerPort: 8080
 |} else ""
   in
   let probe_section =
-    if probes then {|        livenessProbe:
+    if shape = Http_service then {|        livenessProbe:
           httpGet:
             path: /healthz
             port: 8080
@@ -287,14 +289,14 @@ let render_blue_green_strategy name =
     The pod template is the same as a Deployment; only the top-level kind,
     apiVersion, and strategy section differ.  [progressive_delivery] must be
     [Some _] — callers in [render_spec] only invoke this when it is set. *)
-let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~ports ~probes ~replicas ~cpu ~memory ~ns ~name ~image ~pd () =
+let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd () =
   let ports_section =
-    if ports then {|        ports:
+    if shape = Http_service then {|        ports:
         - containerPort: 8080
 |} else ""
   in
   let probe_section =
-    if probes then {|        livenessProbe:
+    if shape = Http_service then {|        livenessProbe:
           httpGet:
             path: /healthz
             port: 8080
@@ -535,28 +537,27 @@ let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
     ] in
     let resources = match svc.prim, progressive_delivery with
       | (Svc | Worker), Some pd ->
-        let ports  = svc.prim = Svc in
-        let probes = svc.prim = Svc in
-        let rollout = rollout_doc ~extra_labels ~secret_keys:toml.Sun_cli_toml.secret_keys ~config_hash ~ports ~probes ~replicas ~cpu ~memory ~ns ~name ~image ~pd () in
+        let shape = if svc.prim = Svc then Http_service else Background_worker in
+        let rollout = rollout_doc ~extra_labels ~secret_keys:toml.Sun_cli_toml.secret_keys ~config_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd () in
         (match pd with
          | Sun_cli_toml.Blue_green ->
            [ rollout
            ; blue_green_service_docs ns name
-           ; (if ports then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active") else "")
+           ; (if shape = Http_service then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active") else "")
            ]
            |> List.filter (fun s -> s <> "")
          | Sun_cli_toml.Canary _ ->
-           let svc_doc = if ports then [service_doc ns name] else [] in
-           let ingr    = if ports then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
+           let svc_doc = if shape = Http_service then [service_doc ns name] else [] in
+           let ingr    = if shape = Http_service then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
            [ rollout ] @ svc_doc @ ingr)
       | Svc, None ->
         [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
-            ~ports:true ~probes:true ~replicas ~cpu ~memory ~ns ~name ~image ()
+            ~shape:Http_service ~replicas ~cpu ~memory ~ns ~name ~image ()
         ; service_doc ns name
         ; ingress_doc ~ingress_host ~ingress_path ns name ]
       | Worker, None ->
         [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash
-            ~ports:false ~probes:false ~replicas ~cpu ~memory ~ns ~name ~image () ]
+            ~shape:Background_worker ~replicas ~cpu ~memory ~ns ~name ~image () ]
       | Fn, _ ->
         let schedule = extract_schedule ~dir:svc.dir ~name:svc.name in
         [ cronjob_doc ns name image schedule ]
