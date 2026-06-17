@@ -3,6 +3,8 @@ id: REFAC-058
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-058/parse-secret-backend-cli
+worktree: ../sun-REFAC-058-parse-secret-backend-cli
 ---
 
 Parse `--secret-backend` flag into `Sun_cli_manifest.secret_backend` at CLI boundary
