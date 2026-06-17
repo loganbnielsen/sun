@@ -3,6 +3,8 @@ id: REFAC-064
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-064/flatten-build-and-push
+worktree: ../sun-REFAC-064-flatten-build-and-push
 ---
 
 Flatten `local_builder.build_and_push` three-level Result nest with `let*`
