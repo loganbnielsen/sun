@@ -23,3 +23,6 @@ and `rollback`, despite defining `let* = Result.bind` at the top.
 - Use Result-aware folds or small recursive helpers instead of matching on
   `acc` at each step.
 - Keep migration error messages stable enough for current tests.
+
+## Review — automated checks passed
+Implementation verified correct

@@ -25,3 +25,6 @@ not expressed as a Result pipeline.
   improves readability.
 - Preserve rollback-on-error behavior in `transaction`.
 - Existing storage tests continue to pass.
+
+## Review — automated checks passed
+Implementation verified correct

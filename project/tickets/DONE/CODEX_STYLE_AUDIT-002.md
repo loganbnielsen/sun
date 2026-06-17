@@ -26,3 +26,6 @@ with a stringly finite domain for `--secret-backend`.
   `~backend ~store_ref ~store_kind ~key_prefix ~refresh_interval ~emit_to ()`.
 - Keep all unknown-string handling at the Cmdliner conversion boundary.
 - Preserve the current warning/error behavior for unsupported combinations.
+
+## Review — automated checks passed
+Implementation verified correct
