@@ -53,6 +53,7 @@ let create (cfg : config) ~sw =
 
 let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module MESSAGE with type t = a) -> (a topic, string) result =
   fun svc ~net ~clock (module M) ->
+  let ( let* ) = Result.bind in
   let rk = Kafka_producer.raw_handle svc.producer in
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
@@ -65,24 +66,20 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
          delete the topic first if this change is intentional"
         M.topic_name current svc.partitions)
   in
-  match partition_guard () with
-  | Error e -> Error e
-  | Ok () ->
-  match Kafka_service_intf.ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions with
-  | Error e -> Error e
-  | Ok () ->
-    match Kafka_service_schema.register_schema net ~clock
-            ~registry_url:svc.schema_registry_url
-            ~topic_name:M.topic_name ~schema:M.schema with
-    | Error e -> Error e
-    | Ok schema_id ->
-      (match Kafka_service_schema.set_subject_compatibility net ~clock
-               ~registry_url:svc.schema_registry_url
-               ~topic_name:M.topic_name with
-       | Error e ->
-         Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" M.topic_name e
-       | Ok () -> ());
-      Ok { Kafka_service_intf.name = M.topic_name; schema_id; encode = M.encode; decode = M.decode }
+  let* () = partition_guard () in
+  let* () = Kafka_service_intf.ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions in
+  let* schema_id =
+    Kafka_service_schema.register_schema net ~clock
+      ~registry_url:svc.schema_registry_url
+      ~topic_name:M.topic_name ~schema:M.schema
+  in
+  (match Kafka_service_schema.set_subject_compatibility net ~clock
+           ~registry_url:svc.schema_registry_url
+           ~topic_name:M.topic_name with
+   | Error e ->
+     Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" M.topic_name e
+   | Ok () -> ());
+  Ok { Kafka_service_intf.name = M.topic_name; schema_id; encode = M.encode; decode = M.decode }
 
 let publish svc topic ?trace_ctx msg =
   let headers = match trace_ctx with
