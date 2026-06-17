@@ -17,13 +17,13 @@ module Pg_registry = struct
       project_id  TEXT NOT NULL REFERENCES hosted_projects(project_id),
       environment TEXT NOT NULL,
       image_tag   TEXT NOT NULL,
-      status      TEXT NOT NULL DEFAULT 'live',
+      status      TEXT NOT NULL DEFAULT 'live', -- Sun_cli_registry.Live
       created_at  TEXT NOT NULL
     )|};
     {|CREATE TABLE IF NOT EXISTS hosted_release_services (
       release_id     TEXT NOT NULL REFERENCES hosted_releases(release_id),
       service_name   TEXT NOT NULL,
-      service_status TEXT NOT NULL DEFAULT 'live',
+      service_status TEXT NOT NULL DEFAULT 'live', -- Sun_cli_registry.Service_live
       image_ref      TEXT,
       digest         TEXT,
       PRIMARY KEY (release_id, service_name)
@@ -167,7 +167,8 @@ module Pg_registry = struct
           (string_of_int (int_of_float (Unix.gettimeofday () *. 1000.0)))
       in
       let created_at = string_of_float (Unix.gettimeofday ()) in
-      let status = "live" in
+      let status = Sun_cli_registry.release_status_to_string Sun_cli_registry.Live in
+      let svc_status = Sun_cli_registry.service_status_to_string Sun_cli_registry.Service_live in
       let result = Db.transaction pool (fun tx ->
         match Db.exec tx insert_release_q
                 (release_id, project_id, environment, image_tag, status, created_at) with
@@ -178,7 +179,7 @@ module Pg_registry = struct
               match acc with
               | Error _ as e -> e
               | Ok () ->
-                Db.exec tx insert_service_q (release_id, name, "live")
+                Db.exec tx insert_service_q (release_id, name, svc_status)
             ) (Ok ()) service_names
           in
           (match service_err with
@@ -190,7 +191,7 @@ module Pg_registry = struct
              ] @ List.map (fun svc ->
                Printf.sprintf "[deploy] service %s deployed" svc
              ) service_names
-             @ [ Printf.sprintf "[deploy] release %s complete: status=live" release_id ]
+             @ [ Printf.sprintf "[deploy] release %s complete: status=%s" release_id status ]
              in
              List.fold_left (fun acc line ->
                match acc with
