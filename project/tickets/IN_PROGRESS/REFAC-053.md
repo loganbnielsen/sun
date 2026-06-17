@@ -3,6 +3,8 @@ id: REFAC-053
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-053/run-config-record
+worktree: ../sun-REFAC-053-run-config-record
 ---
 
 Collapse `cmd_deploy.run` 12-arg positional function into a config record
