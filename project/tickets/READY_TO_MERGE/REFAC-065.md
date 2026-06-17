@@ -32,3 +32,6 @@ The current form requires the reader to trace through `Option.bind`, a lambda, a
 Replace both occurrences with the `Option.filter` form. Search the codebase for any other sites using the same `Option.bind (f ()) (fun s -> if s = "" then None else Some s)` pattern and apply the same fix.
 
 `Option.filter` is available since OCaml 4.08.
+
+## Review — automated checks passed
+Build clean. Both Option.bind empty-string guards replaced with Option.filter. No ticket files modified.

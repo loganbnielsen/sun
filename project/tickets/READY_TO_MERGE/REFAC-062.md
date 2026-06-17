@@ -45,3 +45,6 @@ let pg_create_project pool ~workspace =
 For `pg_create_release`, extract the service-insert and log-append loops into named helpers so the top-level function reads as a sequential pipeline.
 
 For `pg_list_releases`, use `List.fold_left (fun acc row -> let* acc = acc in ...) (Ok []) rows` to fail-fast on the first service-fetch error.
+
+## Review — automated checks passed
+Build clean. Introduces let* = Result.bind and db error-mapping helper, flattens pg_create_project/pg_create_release/pg_list_releases, extracts insert_services and append_log_lines helpers. No ticket files modified.

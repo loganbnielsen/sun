@@ -45,3 +45,6 @@ let print_outputs chdir_arg =
 ```
 
 Inside `print_output_field`, the three-level match on `obj → sensitive → value` is still multi-level but isolated in a focused function where the nesting is the entire function body rather than a buried branch.
+
+## Review — automated checks passed
+Build clean. Extracts print_output_field helper, replaces 4-level nested match in print_outputs with single List.iter call. No ticket files modified.
