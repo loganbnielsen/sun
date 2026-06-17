@@ -12,7 +12,7 @@ let hosted_plan ?(workspace = "pluto") ?(environment_name = "production") () =
     image_tag = "abc123";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
-    secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
+    secret_backend = "kubernetes-placeholder";
   } in
   { Sun_cli_deployment_plan.workspace;
     environment = env;

@@ -8,8 +8,6 @@ type secret_backend =
       refresh_interval : string;
     }
 
-val secret_backend_to_string : secret_backend -> string
-
 type primitive = Svc | Worker | Fn
 
 type service = {

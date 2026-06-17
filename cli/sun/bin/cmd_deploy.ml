@@ -44,6 +44,11 @@ let parse_secret_backend backend_str store_ref store_kind key_prefix refresh_int
                     (expected: kubernetes-placeholder | external-secrets)\n" other;
     exit 1
 
+let secret_backend_to_string = function
+  | Sun_cli_manifest.Kubernetes_live        -> "kubernetes-live"
+  | Sun_cli_manifest.Kubernetes_placeholder -> "kubernetes-placeholder"
+  | Sun_cli_manifest.External_secrets _     -> "external-secrets"
+
 type run_config = {
   filter_path          : string option;
   dry_run              : bool;
@@ -112,8 +117,7 @@ let run cfg =
    | Error msg ->
      Printf.eprintf "error: %s\n" msg;
      exit 1);
-  let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
-               Sun_cli_deployment_plan.secret_backend } in
+  let env  = Sun_cli_env_target.to_env_config ~name:workspace env_target in
   let plan = Sun_cli_deployment_plan.of_services ~workspace ~env services in
 
   (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
@@ -139,7 +143,14 @@ let run cfg =
   (match cfg.emit_plan_to with
    | None -> ()
    | Some path ->
-     let json_str = Yojson.Safe.pretty_to_string (Sun_cli_deployment_plan.to_json plan) in
+     let base_json = Sun_cli_deployment_plan.to_json plan in
+     (* Augment with secret_backend field *)
+     let json_with_backend = match base_json with
+       | `Assoc fields ->
+         `Assoc (fields @ [ "secret_backend", `String (secret_backend_to_string secret_backend) ])
+       | other -> other
+     in
+     let json_str = Yojson.Safe.pretty_to_string json_with_backend in
      if path = "-" then begin
        print_string json_str;
        print_char '\n'

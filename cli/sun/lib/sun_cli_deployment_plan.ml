@@ -7,7 +7,7 @@ type env_config = {
   image_tag      : string;
   region         : string option;
   base_domain    : string option;
-  secret_backend : Sun_cli_manifest.secret_backend;
+  secret_backend : string;
 }
 
 type primitive = Svc | Worker | Fn
@@ -126,7 +126,7 @@ let to_json t =
       "image_tag",      `String env.image_tag;
       "region",         opt_string env.region;
       "base_domain",    opt_string env.base_domain;
-      "secret_backend", `String (Sun_cli_manifest.secret_backend_to_string env.secret_backend);
+      "secret_backend", `String env.secret_backend;
     ];
     "services",         `List (List.map service_to_json t.services);
     "topics",           `List (List.map (fun s -> `String s) t.topics);

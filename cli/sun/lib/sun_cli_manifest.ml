@@ -15,11 +15,6 @@ type secret_backend =
       refresh_interval : string;
     }
 
-let secret_backend_to_string = function
-  | Kubernetes_live        -> "kubernetes-live"
-  | Kubernetes_placeholder -> "kubernetes-placeholder"
-  | External_secrets _     -> "external-secrets"
-
 (* ── Service discovery ───────────────────────────────────────────────────── *)
 
 let prim_of_suffix name =
