@@ -20,7 +20,7 @@ let registry_port = 5000
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
-type set_val =
+type set_val = (* LOGAN: should these be more strictly typed? For example instead of Val we have Bool of bool and Float of float?*)
   | Val of string  (** --set key=val  (YAML-parsed; use for booleans and floats) *)
   | Str of string  (** --set-string key=val  (always treated as string, avoids int/float coercion) *)
 
@@ -115,6 +115,7 @@ let dev_up () =
   let need_grafana = req.loki || req.prometheus in
   if req.loki then begin
     Printf.printf "\n  Installing Loki...\n%!";
+    (* LOGAN: should we use string_of_bool here? *)
     let grafana_val = if need_grafana then "true" else "false" in
     let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
       ~values:[("grafana.enabled", Val grafana_val)] ()
