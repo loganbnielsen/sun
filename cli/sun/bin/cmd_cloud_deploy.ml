@@ -57,43 +57,51 @@ let get_digest image_ref =
   if s = "" || s = "<no value>" then image_ref
   else s
 
+let ( let* ) = Result.bind
+
+let copy_workspace src dst =
+  let rc = Sys.command (Printf.sprintf "cp -rL %s %s 2>&1"
+    (Filename.quote src) (Filename.quote dst)) in
+  if rc <> 0 then Error "failed to copy workspace for docker build context"
+  else begin
+    ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
+      (Filename.quote dst) (Filename.quote dst)));
+    Ok ()
+  end
+
+let check_dockerfile ctx_dir service_dir =
+  let path = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
+  if Sys.file_exists path then Ok ()
+  else Error (Printf.sprintf "Dockerfile not found: %s" path)
+
+let build_cmd ctx_dir service_dir image_ref =
+  Printf.sprintf "docker build -t %s -f %s %s 2>&1"
+    (Filename.quote image_ref)
+    (Filename.quote (Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir))
+    (Filename.quote ctx_dir)
+
+let push_cmd image_ref =
+  Printf.sprintf "docker push %s 2>&1" (Filename.quote image_ref)
+
 let local_builder = {
   build_and_push = fun ~workspace_path ~service_dir ~image_ref ~log ->
     let ctx_dir = workspace_path ^ ".cloud-ctx" in
-    (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
-    let rc = Sys.command (Printf.sprintf "cp -rL %s %s 2>&1"
-      (Filename.quote workspace_path) (Filename.quote ctx_dir)) in
-    if rc <> 0 then Error "failed to copy workspace for docker build context"
-    else begin
-      ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
-        (Filename.quote ctx_dir) (Filename.quote ctx_dir)));
-      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
-      if not (Sys.file_exists dockerfile) then begin
-        (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
-        Error (Printf.sprintf "Dockerfile not found: %s" dockerfile)
-      end else begin
-        log (Printf.sprintf "[build] building %s" image_ref);
-        let build_cmd = Printf.sprintf "docker build -t %s -f %s %s 2>&1"
-          (Filename.quote image_ref) (Filename.quote dockerfile) (Filename.quote ctx_dir) in
-        match run_streaming build_cmd log with
-        | Error msg ->
-          (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
-          Error msg
-        | Ok () ->
-          log (Printf.sprintf "[push] pushing %s" image_ref);
-          let push_cmd = Printf.sprintf "docker push %s 2>&1"
-            (Filename.quote image_ref) in
-          (match run_streaming push_cmd log with
-           | Error msg ->
-             (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
-             Error msg
-           | Ok () ->
-             (try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir))) with _ -> ());
-             let digest = get_digest image_ref in
-             log (Printf.sprintf "[deploy] image digest: %s" digest);
-             Ok { image_tag = image_ref; digest })
-      end
-    end
+    let cleanup () =
+      try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)))
+      with _ -> ()
+    in
+    cleanup ();
+    Fun.protect ~finally:cleanup (fun () ->
+      let* () = copy_workspace workspace_path ctx_dir in
+      let* () = check_dockerfile ctx_dir service_dir in
+      log (Printf.sprintf "[build] building %s" image_ref);
+      let* () = run_streaming (build_cmd ctx_dir service_dir image_ref) log in
+      log (Printf.sprintf "[push] pushing %s" image_ref);
+      let* () = run_streaming (push_cmd image_ref) log in
+      let digest = get_digest image_ref in
+      log (Printf.sprintf "[deploy] image digest: %s" digest);
+      Ok { image_tag = image_ref; digest }
+    )
 }
 
 let fake_builder ?(digest = "sha256:deadbeef") () = {
