@@ -158,7 +158,7 @@ let consume t ~handler =
     let ack () =
       acked := true;
       ignore (Kafka_raw.commit_message
-                t.handle msg.topic msg.partition msg.offset false)
+                t.handle ~topic:msg.topic ~partition:msg.partition ~offset:msg.offset ~async:false)
     in
     let result = handler msg ~ack in
     (match result with
@@ -181,14 +181,14 @@ let poll t =
   | Some tup -> Result.ok (Some (tuple_to_message tup))
 
 let commit t msg =
-  match Kafka_raw.commit_message t.handle msg.topic msg.partition msg.offset false with
+  match Kafka_raw.commit_message t.handle ~topic:msg.topic ~partition:msg.partition ~offset:msg.offset ~async:false with
   | Ok ()   -> Result.ok ()
   | Error i -> err i
 
 let commit_all t =
   (* Passing topic="" and partition=(-1) is our signal to the C stub to commit
      all assigned partitions; see ocaml_rd_kafka_commit_message for handling. *)
-  match Kafka_raw.commit_message t.handle "" Int32.minus_one (-1L) false with
+  match Kafka_raw.commit_message t.handle ~topic:"" ~partition:Int32.minus_one ~offset:(-1L) ~async:false with
   | Ok ()   -> Result.ok ()
   | Error i -> err i
 
@@ -313,7 +313,7 @@ let consume_partitioned t ~sw:_ ~clock ?(retry = default_retry)
         | Some msg ->
           let ack () =
             ignore (Kafka_raw.commit_message
-                      t.handle msg.topic msg.partition msg.offset false)
+                      t.handle ~topic:msg.topic ~partition:msg.partition ~offset:msg.offset ~async:false)
           in
           Eio.Stream.add (get_or_create_stream msg.partition) (Some (msg, ack));
           routing_loop ()

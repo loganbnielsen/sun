@@ -70,13 +70,13 @@ val consumer_close    : kafka_handle -> unit
     Fast local query — does not block or call the broker. *)
 val assignment_count  : kafka_handle -> int
 
-(** [create_topic handle topic_name partitions replication_factor]
+(** [create_topic handle ~topic_name ~partitions ~replication_factor]
     creates a topic via librdkafka's admin API on an existing handle.
     Releases the OCaml domain lock while awaiting the broker response.
     Returns 0 on success; treats TOPIC_ALREADY_EXISTS as success.
     Returns a non-zero librdkafka error code on failure. *)
-val create_topic : kafka_handle -> string -> int -> int -> int
-val commit_message    : kafka_handle -> string -> int32 -> int64 -> bool -> (unit, int) result
+val create_topic : kafka_handle -> topic_name:string -> partitions:int -> replication_factor:int -> int
+val commit_message : kafka_handle -> topic:string -> partition:int32 -> offset:int64 -> async:bool -> (unit, int) result
 
 (** Delivery pipe *)
 val pipe_create     : unit -> int * int
