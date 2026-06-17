@@ -1,11 +1,50 @@
-let ticket_states = [
-  "BACKLOG";
-  "READY_FOR_ENGINEERING";
-  "IN_PROGRESS";
-  "REVIEW";
-  "READY_TO_MERGE";
-  "BLOCKED_BY_PERFORMANCE";
-  "DONE";
+type ticket_state =
+  | Backlog
+  | Ready_for_engineering
+  | In_progress
+  | Review
+  | Ready_to_merge
+  | Blocked_by_performance
+  | Done
+
+type review_status = Pass | Fail
+
+let review_status_to_string = function
+  | Pass -> "pass"
+  | Fail -> "fail"
+
+let review_status_of_string = function
+  | "pass" -> Some Pass
+  | "fail" -> Some Fail
+  | _      -> None
+
+let state_to_dir = function
+  | Backlog                -> "BACKLOG"
+  | Ready_for_engineering  -> "READY_FOR_ENGINEERING"
+  | In_progress            -> "IN_PROGRESS"
+  | Review                 -> "REVIEW"
+  | Ready_to_merge         -> "READY_TO_MERGE"
+  | Blocked_by_performance -> "BLOCKED_BY_PERFORMANCE"
+  | Done                   -> "DONE"
+
+let state_of_dir = function
+  | "BACKLOG"                -> Some Backlog
+  | "READY_FOR_ENGINEERING"  -> Some Ready_for_engineering
+  | "IN_PROGRESS"            -> Some In_progress
+  | "REVIEW"                 -> Some Review
+  | "READY_TO_MERGE"         -> Some Ready_to_merge
+  | "BLOCKED_BY_PERFORMANCE" -> Some Blocked_by_performance
+  | "DONE"                   -> Some Done
+  | _                        -> None
+
+let all_states = [
+  Backlog;
+  Ready_for_engineering;
+  In_progress;
+  Review;
+  Ready_to_merge;
+  Blocked_by_performance;
+  Done;
 ]
 
 let parse_frontmatter content =
@@ -145,14 +184,15 @@ let ticket_title content =
 
 let find_ticket ticket_id =
   List.find_map (fun state ->
-    let path = Printf.sprintf "project/tickets/%s/%s.md" state ticket_id in
+    let dir  = state_to_dir state in
+    let path = Printf.sprintf "project/tickets/%s/%s.md" dir ticket_id in
     if Sys.file_exists path then Some (state, path) else None
-  ) ticket_states
+  ) all_states
 
 let dependency_status dep =
   match find_ticket dep with
   | None -> `Unknown
-  | Some ("DONE", _) -> `Done
+  | Some (Done, _) -> `Done
   | Some (state, _) -> `Blocked state
 
 let dependency_summary deps =
@@ -168,7 +208,7 @@ let readiness_label state content =
     | Some dep ->
       (match dependency_status dep with
        | `Unknown -> "blocked: unknown " ^ dep
-       | `Blocked state -> "blocked: " ^ dep ^ " in " ^ state
+       | `Blocked s -> "blocked: " ^ dep ^ " in " ^ state_to_dir s
        | `Done -> "actionable")
     | None ->
-      if state = "READY_FOR_ENGINEERING" then "actionable" else "-"
+      if state = Ready_for_engineering then "actionable" else "-"
