@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-020
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-020/typed-scaffold-decoders
+worktree: /home/lbendtly/Code/sun-CODEX-020
 ---
 
 Make scaffolded JSON decoders typed and reusable.
