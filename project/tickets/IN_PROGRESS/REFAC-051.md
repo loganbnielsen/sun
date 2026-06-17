@@ -3,6 +3,8 @@ id: REFAC-051
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-051/strict-set-val
+worktree: ../sun-REFAC-051-strict-set-val
 ---
 
 Tighten `set_val` type: split `Val of string` into `Bool of bool | Float of float`
