@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-011
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-011/kafka-decode-pipeline
+worktree: ../sun-CODEX-011
 ---
 
 Extract and flatten Kafka decode pipelines.

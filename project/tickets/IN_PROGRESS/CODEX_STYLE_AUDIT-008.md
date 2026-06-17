@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-008
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-008/typed-release-status
+worktree: ../sun-CODEX-008
 ---
 
 Replace registry status string updates with typed status transitions.

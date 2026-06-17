@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-001
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-001/typed-helm-values
+worktree: ../sun-CODEX-001
 ---
 
 Replace Helm `set_val` string payloads with typed chart values.
