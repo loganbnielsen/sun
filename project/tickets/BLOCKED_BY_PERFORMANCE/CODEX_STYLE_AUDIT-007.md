@@ -25,3 +25,6 @@ in hosted summaries and stringify only at JSON/API rendering.
 - Update `service_summaries`, `release_to_json`, and hosted executor tests.
 - Remove duplicated primitive string conversion where the inspection module can
   own it.
+
+## Review — automated checks passed
+service_summary.primitive correctly promoted to Sun_cli_deployment_plan.primitive; string conversion deferred to JSON boundary; tests updated; build clean
