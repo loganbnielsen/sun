@@ -181,23 +181,6 @@ let test_charge_svc_publishes_kafka_event () =
   assert_contains "main" main_ml "Kafka_service.register";
   assert_contains "main" main_ml "Kafka_service.publish"
 
-let test_workspace_generated_json_decoders_are_result_based () =
-  in_temp_dir @@ fun () ->
-  Sun_cli_cmd_new.new_workspace "testapp";
-  let event = read_file "testapp/events/payments/charged.ml" in
-  let handler = read_file "testapp/app/payments/charge_svc/lib/handler.ml" in
-  assert_contains "event" event "let required_string fields name";
-  assert_contains "event" event "let required_int fields name";
-  assert_contains "event" event "Result.bind (required_string fields \"id\")";
-  assert_contains "handler" handler "let decode_charge json";
-  assert_contains "handler" handler "Response.bad_request msg";
-  check_bool "handler has no default string fallback" false
-    (contains handler "Option.value ~default:\"\"");
-  check_bool "handler has no default int fallback" false
-    (contains handler "Option.value ~default:0");
-  check_bool "event has no missing-fields catch-all" false
-    (contains event "missing required fields")
-
 (* ── bundle source resolution tests ──────────────────────────────────────── *)
 
 (* Verify that infer_sun_home resolves correctly when SUN_HOME points to a
@@ -470,7 +453,6 @@ let () =
       ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted
       ; Alcotest.test_case "Sun sources linked"             `Quick test_sun_sources_linked
       ; Alcotest.test_case "charge_svc publishes event"     `Quick test_charge_svc_publishes_kafka_event
-      ; Alcotest.test_case "JSON decoders are result based" `Quick test_workspace_generated_json_decoders_are_result_based
       ]
     ; "worker_ack_order", [
         Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect

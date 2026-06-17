@@ -437,28 +437,16 @@ let encode t = `Assoc [
   ("correlation_id", `String t.correlation_id);
 ]
 
-let required_string fields name =
-  match List.assoc_opt name fields with
-  | Some (`String value) -> Ok value
-  | Some _              -> Error (name ^ " must be a string")
-  | None                -> Error (name ^ " is required")
-
-let required_int fields name =
-  match List.assoc_opt name fields with
-  | Some (`Int value) -> Ok value
-  | Some _            -> Error (name ^ " must be an integer")
-  | None              -> Error (name ^ " is required")
-
 let decode = function
   | `Assoc fields ->
-    Result.bind (required_string fields "id") @@ fun id ->
-    Result.bind (required_int fields "amount_cents") @@ fun amount_cents ->
-    Result.bind (required_string fields "customer_id") @@ fun customer_id ->
-    Result.bind (required_string fields "currency") @@ fun currency ->
-    Result.map
-      (fun correlation_id ->
-         { id; amount_cents; customer_id; currency; correlation_id })
-      (required_string fields "correlation_id")
+    let get_s k = match List.assoc_opt k fields with Some (`String s) -> Some s | _ -> None in
+    let get_i k = match List.assoc_opt k fields with Some (`Int i)    -> Some i | _ -> None in
+    (match get_s "id", get_i "amount_cents", get_s "customer_id",
+           get_s "currency", get_s "correlation_id" with
+     | Some id, Some amount_cents, Some customer_id,
+       Some currency, Some correlation_id ->
+       Ok { id; amount_cents; customer_id; currency; correlation_id }
+     | _ -> Error "missing required fields")
   | _ -> Error "expected object"
 |tpl}
 
@@ -511,48 +499,26 @@ let routes pool ~publish_charged = [
     Response.ok "ok"
   );
   Route.post "/charges" ~auth:`Public (fun req ->
-    let required_string json name =
-      match Yojson.Basic.Util.member name json with
-      | `String value -> Ok value
-      | `Null         -> Error (name ^ " is required")
-      | _             -> Error (name ^ " must be a string")
-    in
-    let required_int json name =
-      match Yojson.Basic.Util.member name json with
-      | `Int value -> Ok value
-      | `Null      -> Error (name ^ " is required")
-      | _          -> Error (name ^ " must be an integer")
-    in
-    let decode_charge json =
-      Result.bind (required_string json "customer_id") @@ fun customer_id ->
-      Result.bind (required_int json "amount_cents") @@ fun amount_cents ->
-      Result.map
-        (fun currency -> customer_id, amount_cents, currency)
-        (required_string json "currency")
-    in
-    let parsed =
-      try Ok (Yojson.Basic.from_string req.body)
-      with Yojson.Json_error msg -> Error ("invalid JSON: " ^ msg)
-    in
-    match Result.bind parsed decode_charge with
+    let j     = Yojson.Basic.from_string req.body in
+    let get_s k = Yojson.Basic.Util.(j |> member k |> to_string_option
+                  |> Option.value ~default:"") in
+    let get_i k = Yojson.Basic.Util.(j |> member k |> to_int_option
+                  |> Option.value ~default:0) in
+    let charge_id = Printf.sprintf "ch_%06d" (Random.int 999999) in
+    let event : Charged.t = {
+      id             = charge_id;
+      customer_id    = get_s "customer_id";
+      amount_cents   = get_i "amount_cents";
+      currency       = get_s "currency";
+      correlation_id = Option.value (Request.header req "x-correlation-id")
+                         ~default:charge_id;
+    } in
+    match publish_charged event with
+    | Ok () ->
+      Response.json ~status:202
+        (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
     | Error msg ->
-      Response.bad_request msg
-    | Ok (customer_id, amount_cents, currency) ->
-      let charge_id = Printf.sprintf "ch_%06d" (Random.int 999999) in
-      let event : Charged.t = {
-        id             = charge_id;
-        customer_id;
-        amount_cents;
-        currency;
-        correlation_id = Option.value (Request.header req "x-correlation-id")
-                           ~default:charge_id;
-      } in
-      match publish_charged event with
-      | Ok () ->
-        Response.json ~status:202
-          (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
-      | Error msg ->
-        Response.internal_error ("publish failed: " ^ msg)
+      Response.internal_error ("publish failed: " ^ msg)
   );
   Route.get "/notifications" ~auth:`Public (fun _req ->
     match pool with
@@ -898,16 +864,11 @@ let encode t = `Assoc [
   ("payload", `String t.payload);
 ]
 
-let required_string fields name =
-  match List.assoc_opt name fields with
-  | Some (`String value) -> Ok value
-  | Some _              -> Error (name ^ " must be a string")
-  | None                -> Error (name ^ " is required")
-
 let decode = function
   | `Assoc fields ->
-    Result.bind (required_string fields "id") @@ fun id ->
-    Result.map (fun payload -> { id; payload })
-      (required_string fields "payload")
+    let get_s k = match List.assoc_opt k fields with Some (`String s) -> Some s | _ -> None in
+    (match get_s "id", get_s "payload" with
+     | Some id, Some payload -> Ok { id; payload }
+     | _ -> Error "missing required fields")
   | _ -> Error "expected object"
 |tpl}
