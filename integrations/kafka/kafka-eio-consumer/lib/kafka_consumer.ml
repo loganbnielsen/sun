@@ -49,26 +49,31 @@ type t = {
 let err i = Result.error (Kafka_error.of_int i)
 
 let conf_of_config (cfg : config) : (Kafka_raw.kafka_conf, string) result =
-  let ( let* ) = Result.bind in
   let conf = Kafka_raw.conf_new () in
+  let first_err = ref None in
   let set k v =
-    Kafka_raw.conf_set conf k v
-    |> Result.map_error (fun s -> "kafka conf " ^ k ^ ": " ^ s)
+    if !first_err = None then
+      match Kafka_raw.conf_set conf k v with
+      | Ok ()   -> ()
+      | Error s -> first_err := Some ("kafka conf " ^ k ^ ": " ^ s)
   in
-  let* () = set "bootstrap.servers" (String.concat "," cfg.brokers) in
-  let* () = set "group.id" cfg.group_id in
-  let* () = set "auto.offset.reset"
-    (match cfg.offset_reset with Earliest -> "earliest" | Latest -> "latest")
-  in
-  let* () = set "enable.auto.commit" (if cfg.auto_commit then "true" else "false") in
+  set "bootstrap.servers" (String.concat "," cfg.brokers);
+  set "group.id" cfg.group_id;
+  set "auto.offset.reset"
+    (match cfg.offset_reset with Earliest -> "earliest" | Latest -> "latest");
+  set "enable.auto.commit" (if cfg.auto_commit then "true" else "false");
   (* librdkafka 2.x changed the default assignment strategy to cooperative-sticky,
      which requires a rebalance_cb to drive the multi-round protocol.  Without one
      the rebalance never completes and the consumer never gets assigned partitions.
      Pinning to eager rebalancing (range,roundrobin) preserves the callback-free
      subscribe() → poll() → assignment_count > 0 invariant our poll_fiber relies on. *)
-  let* () = set "partition.assignment.strategy" "range,roundrobin" in
-  let* () = Kafka_security.apply conf cfg.security in
-  Ok conf
+  set "partition.assignment.strategy" "range,roundrobin";
+  (match Kafka_security.apply conf cfg.security with
+   | Error s -> if !first_err = None then first_err := Some s
+   | Ok () -> ());
+  match !first_err with
+  | Some msg -> Error msg
+  | None     -> Ok conf
 
 let tuple_to_message (topic, partition, offset, key, value, timestamp, headers) =
   { topic; partition; offset; key; value; timestamp; headers }
