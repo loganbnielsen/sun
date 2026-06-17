@@ -21,10 +21,15 @@ val default : t
 (** [Plaintext] with all optional fields [None]. Use for local dev and unit tests.
     Do not use in production — requires explicit [Ssl] or [Sasl_ssl]. *)
 
-val of_env : unit -> t
+val protocol_of_string : string -> (protocol, string) result
+(** Parse a finite Kafka security protocol value. Accepted values are
+    ["plaintext"], ["ssl"], ["sasl_plaintext"], and ["sasl_ssl"], case
+    insensitively. *)
+
+val of_env : unit -> (t, string) result
 (** Build from environment variables:
     - [KAFKA_SECURITY_PROTOCOL] — ["plaintext" | "ssl" | "sasl_plaintext" | "sasl_ssl"]
-      (default: ["plaintext"])
+      (default: ["plaintext"], unknown values return [Error])
     - [KAFKA_SSL_CA_LOCATION]   — path to CA cert bundle
     - [KAFKA_SASL_MECHANISM]    — e.g. ["SCRAM-SHA-256"]
     - [KAFKA_SASL_USERNAME]

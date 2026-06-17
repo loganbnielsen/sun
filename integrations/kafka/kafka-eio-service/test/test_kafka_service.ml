@@ -86,6 +86,36 @@ let test_parse_url_https () =
     "https://registry.confluent.io"
 
 (* ------------------------------------------------------------------ *)
+(* Env config                                                          *)
+(* ------------------------------------------------------------------ *)
+
+let contains s sub =
+  let slen = String.length s and sublen = String.length sub in
+  if sublen = 0 then true
+  else if sublen > slen then false
+  else
+    let rec go i =
+      if i > slen - sublen then false
+      else if String.sub s i sublen = sub then true
+      else go (i + 1)
+    in
+    go 0
+
+let with_env name value f =
+  let old = Sys.getenv_opt name in
+  Unix.putenv name value;
+  Fun.protect f ~finally:(fun () ->
+    Unix.putenv name (Option.value old ~default:""))
+
+let test_config_of_env_rejects_unknown_security_protocol () =
+  with_env "KAFKA_SECURITY_PROTOCOL" "scram" (fun () ->
+    match Kafka_service.config_of_env () with
+    | _ -> Alcotest.fail "expected invalid security protocol to fail"
+    | exception Invalid_argument msg ->
+      Alcotest.(check bool) "clear env protocol error" true
+        (contains msg "KAFKA_SECURITY_PROTOCOL"))
+
+(* ------------------------------------------------------------------ *)
 (* Runner                                                              *)
 (* ------------------------------------------------------------------ *)
 
@@ -103,5 +133,8 @@ let () =
     "url_parser", [
       test_case "parse base url"       `Quick test_parse_url;
       test_case "https:// tls=true"   `Quick test_parse_url_https;
+    ];
+    "config", [
+      test_case "unknown security protocol fails clearly" `Quick test_config_of_env_rejects_unknown_security_protocol;
     ];
   ]

@@ -26,18 +26,30 @@ let protocol_to_string = function
   | Sasl_plaintext -> "sasl_plaintext"
   | Sasl_ssl       -> "sasl_ssl"
 
+let protocol_of_string value =
+  match String.lowercase_ascii value with
+  | "plaintext"      -> Ok Plaintext
+  | "ssl"            -> Ok Ssl
+  | "sasl_plaintext" -> Ok Sasl_plaintext
+  | "sasl_ssl"       -> Ok Sasl_ssl
+  | other ->
+    Error
+      (Printf.sprintf
+         "kafka security: unknown KAFKA_SECURITY_PROTOCOL %S \
+          (expected plaintext, ssl, sasl_plaintext, or sasl_ssl)"
+         other)
+
 let env_opt name =
   match Sys.getenv_opt name with Some v when v <> "" -> Some v | _ -> None
 
 let of_env () =
-  let protocol =
-    match Option.map String.lowercase_ascii (env_opt "KAFKA_SECURITY_PROTOCOL") with
-    | Some "ssl"            -> Ssl
-    | Some "sasl_plaintext" -> Sasl_plaintext
-    | Some "sasl_ssl"       -> Sasl_ssl
-    | _                     -> Plaintext
+  let ( let* ) = Result.bind in
+  let* protocol =
+    match env_opt "KAFKA_SECURITY_PROTOCOL" with
+    | None       -> Ok Plaintext
+    | Some value -> protocol_of_string value
   in
-  {
+  Ok {
     protocol;
     ssl_ca_location = env_opt "KAFKA_SSL_CA_LOCATION";
     sasl_mechanism  = env_opt "KAFKA_SASL_MECHANISM";
