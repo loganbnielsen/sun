@@ -2,6 +2,8 @@
 id: CODEX_STYLE_AUDIT-002
 type: refactor
 severity: high
+branch: CODEX_STYLE_AUDIT-002/noop-satisfied-by-refac-058
+worktree: ../sun-CODEX-002
 source: style audit
 ---
 

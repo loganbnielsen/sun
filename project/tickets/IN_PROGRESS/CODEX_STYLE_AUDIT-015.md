@@ -2,6 +2,8 @@
 id: CODEX_STYLE_AUDIT-015
 type: refactor
 severity: medium
+branch: CODEX_STYLE_AUDIT-015/flatten-db-results
+worktree: ../sun-CODEX-015
 source: style audit
 ---
 
