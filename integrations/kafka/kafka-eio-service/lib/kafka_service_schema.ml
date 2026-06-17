@@ -100,3 +100,20 @@ end
 
 let encode_wire ~schema_id json = Confluent_wire.encode ~schema_id json
 let decode_wire bytes = Confluent_wire.decode bytes
+
+let decode_message topic raw_msg =
+  let ( let* ) = Result.bind in
+  let raw_bytes = raw_msg.Kafka_consumer.value in
+  let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
+  let result =
+    let* (_schema_id, json_str) = decode_wire raw_bytes in
+    let* json =
+      (try Ok (Yojson.Safe.from_string json_str)
+       with exn -> Error ("json parse: " ^ Printexc.to_string exn))
+    in
+    topic.Kafka_service_intf.decode json
+    |> Result.map_error (fun e -> "message decode: " ^ e)
+  in
+  match result with
+  | Ok msg  -> Ok (msg, trace_ctx)
+  | Error e -> Error (e, raw_bytes)

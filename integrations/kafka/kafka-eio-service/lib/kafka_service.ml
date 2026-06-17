@@ -29,7 +29,6 @@ module Schema = Kafka_service_schema.Schema
 module Confluent_wire = Kafka_service_schema.Confluent_wire
 
 let encode_wire = Kafka_service_schema.encode_wire
-let decode_wire = Kafka_service_schema.decode_wire
 let config_of_env = Kafka_service_config.config_of_env
 
 let create (cfg : config) ~sw =
@@ -121,21 +120,9 @@ let consume svc topic ~group_id ~sw
   | Error e -> Error e
   | Ok consumer ->
     let decode_and_handle raw_msg ~ack =
-      let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
-      let raw_bytes = raw_msg.Kafka_consumer.value in
-      match decode_wire raw_bytes with
-      | Error e -> on_decode_error e ~raw_bytes ~ack
-      | Ok (_schema_id, json_str) ->
-        let json_result =
-          try Ok (Yojson.Safe.from_string json_str)
-          with exn -> Error (Printexc.to_string exn)
-        in
-        match json_result with
-        | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-        | Ok json ->
-          match topic.decode json with
-          | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-          | Ok msg  -> handler msg ~ack ~trace_ctx
+      match Kafka_service_schema.decode_message topic raw_msg with
+      | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
+      | Ok (msg, trace_ctx)  -> handler msg ~ack ~trace_ctx
     in
     let result = Kafka_consumer.consume consumer ~handler:decode_and_handle in
     Kafka_consumer.close consumer;
@@ -166,21 +153,9 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
      | Error e -> Error e
      | Ok consumer ->
        let decode_and_handle raw_msg ~ack =
-         let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
-         let raw_bytes = raw_msg.Kafka_consumer.value in
-         match decode_wire raw_bytes with
-         | Error e -> on_decode_error e ~raw_bytes ~ack
-         | Ok (_schema_id, json_str) ->
-           let json_result =
-             try Ok (Yojson.Safe.from_string json_str)
-             with exn -> Error (Printexc.to_string exn)
-           in
-           match json_result with
-           | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
-           | Ok json ->
-             match topic.decode json with
-             | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
-             | Ok msg  -> handler msg ~ack ~trace_ctx
+         match Kafka_service_schema.decode_message topic raw_msg with
+         | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
+         | Ok (msg, trace_ctx)  -> handler msg ~ack ~trace_ctx
        in
        let result =
          Kafka_consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
