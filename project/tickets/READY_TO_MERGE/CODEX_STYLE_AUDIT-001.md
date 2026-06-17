@@ -30,3 +30,6 @@ rendering shell flags.
   hand-written `"true"` / `"false"` strings.
 - Add or update a small test/helper assertion for representative rendered Helm
   flags.
+
+## Review — automated checks passed
+helm_val type and render_helm_flag correctly promoted to Sun_cli_manifest; cmd_dev.ml local type removed; all four test cases present; build clean; no ticket directory changes.

@@ -26,3 +26,6 @@ database/JSON boundary.
   inputs instead of defaulting unknown strings.
 - Use the same parser in `cmd_cloud_registry.ml` and any tests.
 - Preserve `release_status_to_string` and `service_status_to_string` for output.
+
+## Review — automated checks passed
+All callers updated to typed release_status; release_status_of_string added; build clean; no project/tickets/ changes in branch.
