@@ -24,3 +24,6 @@ the router.
 - Make `get`, `post`, `put`, `patch`, and `delete` parse and validate patterns.
 - Preserve the current public ergonomics or provide a clear migration helper.
 - Update route tests to cover malformed patterns and parameter extraction.
+
+## Review — automated checks passed
+Build passes. Diff is scoped to sun-svc route/service/tests only. The branch adds typed Route.pattern segments, parses and validates string patterns at route construction, uses pre-parsed Param/Literal segments during matching, preserves original pattern strings for metrics labels, and includes malformed-pattern plus param extraction coverage. No project/tickets or perf baseline diffs and no unsafe shell changes found.
