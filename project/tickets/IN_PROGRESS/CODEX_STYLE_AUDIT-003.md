@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-003
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-003/labeled-cmd-args
+worktree: ../sun-CODEX-003
 ---
 
 Remove boolean traps from CLI command entrypoints.

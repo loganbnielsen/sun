@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-005
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-005/labeled-yaml-builders
+worktree: ../sun-CODEX-005
 ---
 
 Label low-level YAML document builder arguments.

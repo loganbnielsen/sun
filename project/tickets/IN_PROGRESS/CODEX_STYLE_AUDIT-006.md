@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-006
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-006/typed-inspection-fields
+worktree: ../sun-CODEX-006
 ---
 
 Use typed release-inspection fields instead of status, mode, primitive, and kind strings.

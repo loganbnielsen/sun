@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-004
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-004/workload-shape-type
+worktree: ../sun-CODEX-004
 ---
 
 Replace manifest renderer boolean flags with workload capability variants.
