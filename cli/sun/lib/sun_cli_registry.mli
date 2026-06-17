@@ -95,9 +95,10 @@ val update_service_digest :
     Error if the release is not found. The service must have been included in
     [create_release]'s [service_names] list; missing service names are a no-op. *)
 
-val update_release_status : t -> release_id -> string -> (unit, string) result
-(** Update the status field on an existing release. Accepts "failed", "building",
-    "live", or "queued". Error if not found. *)
+val string_of_release_status : release_status -> string
+
+val update_release_status : t -> release_id -> release_status -> (unit, string) result
+(** Update the status field on an existing release. Error if not found. *)
 
 val get_release_logs : t -> release_id -> (string list, string) result
 (** Return all log lines for a release. Error if the release does not exist. *)
