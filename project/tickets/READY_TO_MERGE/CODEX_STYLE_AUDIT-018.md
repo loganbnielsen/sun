@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-018
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-018/flatten-worker-startup
+worktree: ../sun-CODEX-018
 ---
 
 Flatten worker startup create/register/consume flow.
@@ -22,3 +24,6 @@ at clear boundaries.
 - Use Result binding for create, register, and consume.
 - Keep `_consume_loop` test injection behavior unchanged.
 - Existing worker tests continue to pass.
+
+## Review — automated checks passed
+Verified correct

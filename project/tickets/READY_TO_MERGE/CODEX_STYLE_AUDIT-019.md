@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-019
 type: refactor
 severity: low
 source: style audit
+branch: CODEX_STYLE_AUDIT-019/flatten-fn-runner
+worktree: ../sun-CODEX-019
 ---
 
 Untangle function runner outcome and metric publishing flow.
@@ -23,3 +25,6 @@ effects.
 - Keep push failures non-fatal.
 - Keep final behavior unchanged: success returns, user error raises, signal exits
   130.
+
+## Review — automated checks passed
+Verified correct
