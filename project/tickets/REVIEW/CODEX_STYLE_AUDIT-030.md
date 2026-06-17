@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-030
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-030/typed-topic-partition-query
+worktree: /home/lbendtly/Code/sun
 ---
 
 Return typed topic metadata errors instead of `None` from Redpanda admin parsing.
