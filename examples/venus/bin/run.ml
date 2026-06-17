@@ -34,9 +34,14 @@
 
 (* ── Config ─────────────────────────────────────────────────────────────── *)
 
-let loki_url        = Sys.getenv_opt "LOKI_URL"
-let pushgateway_url = Sys.getenv_opt "PUSHGATEWAY_URL"
-let postgres_url    = Sys.getenv_opt "POSTGRES_URL"
+let env_nonempty name =
+  match Sys.getenv_opt name with
+  | Some value when value <> "" -> Some value
+  | _ -> None
+
+let loki_url        = env_nonempty "LOKI_URL"
+let pushgateway_url = env_nonempty "PUSHGATEWAY_URL"
+let postgres_url    = env_nonempty "POSTGRES_URL"
 
 let kafka_config : Kafka_service.config =
   { (Kafka_service.config_of_env ()) with linger_ms = 5 }
@@ -47,6 +52,50 @@ let sep = String.make 60 '-'
 let say fmt = Printf.ksprintf (fun s -> Printf.printf "\n[venus] %s\n%!" s) fmt
 let new_corr_id () = Printf.sprintf "c-%06x" (Random.int 0xFFFFFF)
 let new_charge_id () = Printf.sprintf "ch_%08x%08x" (Random.bits ()) (Random.bits ())
+
+let log_backend ~net ~clock = function
+  | None ->
+    Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!";
+    Obs.stdout
+  | Some url ->
+    Printf.printf "\n  Logs -> Loki at %s\n%!" url;
+    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
+
+let require_storage label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
+
+let require_kafka label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ e)
+
+let create_db_pool ~sw ~stdenv url =
+  Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
+
+let apply_venus_migrations pool =
+  Migration.apply pool ~dir:"examples/venus/db/migrations"
+    ~table:"venus_schema_migrations"
+  |> require_storage "migrations"
+
+let optional_db_pool ~sw ~stdenv = function
+  | None ->
+    Printf.printf "\n  Note: POSTGRES_URL not set — notifications will not be persisted.\n%!";
+    None
+  | Some url ->
+    let pool = create_db_pool ~sw ~stdenv url in
+    apply_venus_migrations pool;
+    Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";
+    Some pool
+
+let create_registered_topic ~sw ~net ~clock () =
+  say "registering topic %S ..." Charged.topic_name;
+  let svc = Kafka_service.create kafka_config ~sw |> require_kafka "kafka create" in
+  let topic =
+    Kafka_service.register svc ~net ~clock (module Charged)
+    |> require_kafka "kafka register"
+  in
+  say "topic ready.";
+  svc, topic
 
 let http_post env ~sw ~port ~path ?(headers=[]) ~body () =
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
@@ -85,16 +134,7 @@ let () =
 
   (* ── Observability ─────────────────────────────────────────────────────── *)
   let prom_backend, render = Obs_prometheus.create () in
-  let log_backend =
-    match loki_url with
-    | None ->
-      Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!";
-      Obs.stdout
-    | Some url ->
-      Printf.printf "\n  Logs -> Loki at %s\n%!" url;
-      Obs_loki.create ~net:env#net ~clock:env#clock ~url
-        ~label_names:["service"; "team"] ()
-  in
+  let log_backend = log_backend ~net:env#net ~clock:env#clock loki_url in
   let backend   = Obs.compose log_backend prom_backend in
   let svc_ot    =
     let base = Obs.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend in
@@ -108,36 +148,12 @@ let () =
   Eio.Switch.run @@ fun sw ->
 
   (* ── Storage (comms team) ───────────────────────────────────────────────── *)
-  let db_pool = match postgres_url with
-    | None ->
-      Printf.printf "\n  Note: POSTGRES_URL not set — notifications will not be persisted.\n%!";
-      None
-    | Some url ->
-      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
-       | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
-       | Ok pool ->
-         (match Migration.apply pool ~dir:"examples/venus/db/migrations"
-                  ~table:"venus_schema_migrations" with
-          | Error e -> failwith ("migrations: " ^ Storage_error.to_string e)
-          | Ok ()   ->
-            Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";
-            Some pool))
+  let db_pool =
+    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url
   in
 
   (* ── Kafka (shared infrastructure) ─────────────────────────────────────── *)
-  say "registering topic %S ..." Charged.topic_name;
-  let svc =
-    match Kafka_service.create kafka_config ~sw with
-    | Ok s    -> s
-    | Error e -> failwith ("kafka create: " ^ e)
-  in
-  let topic =
-    match Kafka_service.register svc ~net:env#net ~clock:env#clock
-            (module Charged) with
-    | Ok t    -> t
-    | Error e -> failwith ("kafka register: " ^ e)
-  in
-  say "topic ready.";
+  let svc, topic = create_registered_topic ~sw ~net:env#net ~clock:env#clock () in
 
   (* ── comms / notify-worker ──────────────────────────────────────────────── *)
   let charges_count = 3 in
