@@ -1,15 +1,29 @@
 type handler = Request.t -> Response.t
 
+type pattern_segment =
+  | Literal of string
+  | Param of string
+
+type pattern = private
+  { source         : string
+  ; segments       : pattern_segment list
+  ; trailing_slash : bool
+  }
+
 type t =
   { method_  : Request.method_
-  ; pattern  : string
+  ; pattern  : pattern
   ; auth     : Auth.level
   ; handler  : handler
   }
 
 (** Internal — called by [Service.Make]. Not intended for direct use. *)
-val match_path         : string -> string -> (string * string) list option
+val match_path         : pattern -> string -> (string * string) list option
 val method_of_http     : Http.Method.t -> Request.method_ option
+
+val parse_pattern      : string -> (pattern, string) result
+val pattern            : string -> pattern
+val pattern_to_string  : pattern -> string
 
 (** Validate and split a request path.
     Returns [None] for malformed paths (consecutive slashes).

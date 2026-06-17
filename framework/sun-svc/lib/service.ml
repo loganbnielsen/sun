@@ -114,7 +114,7 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
        | Not_found          -> observe "unmatched"; Response.not_found
        | Method_not_allowed -> observe "unmatched"; { Response.status = 405; headers = []; body = "" }
        | Found (route, params) ->
-         observe route.Route.pattern;
+         observe (Route.pattern_to_string route.Route.pattern);
          let result =
            let* auth_ctx = auth_result route.Route.auth headers in
            let* body_str = body_result headers body max_body_bytes in
