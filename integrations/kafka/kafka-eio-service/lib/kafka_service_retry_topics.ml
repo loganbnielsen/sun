@@ -78,10 +78,23 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
          Kafka_consumer_handle.to_raw (Kafka_consumer.handle retry_consumer)
        in
        let decode_retry raw_msg ~ack ~attempt =
-         match Kafka_service_schema.decode_message topic raw_msg with
-         | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
-         | Ok (msg, trace_ctx)  ->
-           match handler msg ~ack ~trace_ctx with
+         let trace_ctx =
+           Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers
+         in
+         let raw_bytes = raw_msg.Kafka_consumer.value in
+         match Kafka_service_schema.decode_wire raw_bytes with
+         | Error e -> on_decode_error e ~raw_bytes ~ack
+         | Ok (_schema_id, json_str) ->
+           match
+             (try Ok (Yojson.Safe.from_string json_str)
+              with exn -> Error (Printexc.to_string exn))
+           with
+           | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
+           | Ok json ->
+             match topic.decode json with
+             | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
+             | Ok msg  ->
+               match handler msg ~ack ~trace_ctx with
                | Kafka_consumer.Continue -> Kafka_consumer.Continue
                | Kafka_consumer.Stop     -> Kafka_consumer.Stop
                | Kafka_consumer.Error _  ->
@@ -129,25 +142,35 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
        )
     );
     let decode_and_handle raw_msg ~ack =
+      let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
+      let raw_bytes = raw_msg.Kafka_consumer.value in
       let headers   = raw_msg.Kafka_consumer.headers in
       let partition = raw_msg.Kafka_consumer.partition in
-      match Kafka_service_schema.decode_message topic raw_msg with
-      | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
-      | Ok (msg, trace_ctx)  ->
-        match handler msg ~ack ~trace_ctx with
-        | Kafka_consumer.Continue -> Kafka_consumer.Continue
-        | Kafka_consumer.Stop     -> Kafka_consumer.Stop
-        | Kafka_consumer.Error _  ->
-          let target, delay =
-            if max_attempts <= 1 then (dlq_topic_name, 0.0)
-            else (retry_topic_name, backoff_s 1)
-          in
-          (match publish_raw ~target_topic:target ~attempt:1
-                   ~raw_bytes:raw_msg.Kafka_consumer.value
-                   ~headers ~delay_s:delay ~partition with
-           | Ok ()  -> ack ()
-           | Error _ -> ());
-          Kafka_consumer.Continue
+      match Kafka_service_schema.decode_wire raw_bytes with
+      | Error e -> on_decode_error e ~raw_bytes ~ack
+      | Ok (_schema_id, json_str) ->
+        match
+          (try Ok (Yojson.Safe.from_string json_str)
+           with exn -> Error (Printexc.to_string exn))
+        with
+        | Error e -> on_decode_error ("json parse: " ^ e) ~raw_bytes ~ack
+        | Ok json ->
+          match topic.decode json with
+          | Error e -> on_decode_error ("message decode: " ^ e) ~raw_bytes ~ack
+          | Ok msg  ->
+            match handler msg ~ack ~trace_ctx with
+            | Kafka_consumer.Continue -> Kafka_consumer.Continue
+            | Kafka_consumer.Stop     -> Kafka_consumer.Stop
+            | Kafka_consumer.Error _  ->
+              let target, delay =
+                if max_attempts <= 1 then (dlq_topic_name, 0.0)
+                else (retry_topic_name, backoff_s 1)
+              in
+              (match publish_raw ~target_topic:target ~attempt:1
+                       ~raw_bytes ~headers ~delay_s:delay ~partition with
+               | Ok ()  -> ack ()
+               | Error _ -> ());
+              Kafka_consumer.Continue
     in
     let no_retry : Kafka_consumer.retry_policy =
       { base_delay_s = 0.0; max_delay_s = 0.0; max_attempts = 0 }
