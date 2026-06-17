@@ -3,6 +3,8 @@ id: REFAC-052
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-052/remove-dead-follow
+worktree: ../sun-REFAC-052-remove-dead-follow
 ---
 
 Remove dead `_follow` parameter and fix contradictory bool flags in `cmd_logs.run`
