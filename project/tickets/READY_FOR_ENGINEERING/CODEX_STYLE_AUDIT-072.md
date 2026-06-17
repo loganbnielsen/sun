@@ -1,0 +1,26 @@
+---
+id: CODEX_STYLE_AUDIT-072
+type: refactor
+severity: medium
+source: docs/audits/STYLE_AUDIT.md
+---
+
+Add contributor-facing invariants for generated Kubernetes artifacts.
+
+**Depends on:** CODEX_STYLE_AUDIT-061.
+
+**Problem:** Security and operational invariants such as non-root containers,
+read-only filesystems, ClusterIP-only services, NetworkPolicy presence, secret
+redaction, and workspace/domain ownership are scattered across manifest tests,
+rendering code, and docs.
+
+**Goal:** Make generated artifact invariants obvious and enforce them in one
+place.
+
+**Acceptance criteria:**
+
+- Add a documented invariant checklist near manifest rendering or in
+  `docs/architecture/devops-pipeline.md`.
+- Add a test helper that validates rendered artifacts against these invariants.
+- Use the helper across service, worker, function, GitOps, and rollout rendering
+  tests.

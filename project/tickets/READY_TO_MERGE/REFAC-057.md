@@ -43,3 +43,6 @@ Storing it as a string in `env_config` means:
 2. Update `env_config.to_json` to call `secret_backend_to_string` (already defined in `cmd_deploy.ml`; move it to `sun_cli_manifest.ml` or `sun_cli_deployment_plan.ml` to avoid a cross-module dependency on `cmd_deploy`).
 3. Update `cmd_deploy.ml` to store `secret_backend` (the typed value) directly in `env_config` instead of `secret_backend_str`.
 4. Update test fixtures in `test_deployment_plan.ml` to use the constructor: `secret_backend = Sun_cli_manifest.Kubernetes_placeholder`.
+
+## Review — automated checks passed
+All ticket requirements met: secret_backend_to_string added to sun_cli_manifest.ml/.mli, env_config.secret_backend typed, to_json uses converter, env_target uses variant, cmd_deploy.ml uses typed value, all test fixtures updated, build clean.

@@ -3,6 +3,8 @@ id: REFAC-063
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-063/flatten-print-outputs
+worktree: ../sun-REFAC-063-flatten-print-outputs
 ---
 
 Flatten `print_outputs` four-level JSON match pyramid in `cmd_cloud_tf.ml`

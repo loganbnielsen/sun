@@ -3,6 +3,8 @@ id: REFAC-065
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-065/option-filter
+worktree: ../sun-REFAC-065-option-filter
 ---
 
 Replace `Option.bind (...) (fun s -> if s = "" then None else Some s)` with `Option.filter`

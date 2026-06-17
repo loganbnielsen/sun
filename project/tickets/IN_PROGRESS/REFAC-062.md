@@ -3,6 +3,8 @@ id: REFAC-062
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-062/flatten-pg-functions
+worktree: ../sun-REFAC-062-flatten-pg-functions
 ---
 
 Flatten `pg_create_project`, `pg_create_release`, and `pg_list_releases` pyramids with `let*`
