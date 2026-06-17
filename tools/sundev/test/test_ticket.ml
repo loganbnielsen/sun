@@ -10,6 +10,23 @@ let check_option_string msg expected actual =
 let check_bool msg expected actual =
   Alcotest.(check bool) msg expected actual
 
+let ticket_state =
+  Alcotest.testable
+    (fun fmt state -> Format.pp_print_string fmt (Sundev_ticket.state_to_dir state))
+    (=)
+
+let check_state_option msg expected actual =
+  Alcotest.(check (option ticket_state)) msg expected actual
+
+let review_status =
+  Alcotest.testable
+    (fun fmt status ->
+       Format.pp_print_string fmt (Sundev_ticket.review_status_to_string status))
+    (=)
+
+let check_review_status_option msg expected actual =
+  Alcotest.(check (option review_status)) msg expected actual
+
 (* ── parse_frontmatter ───────────────────────────────────────────────────── *)
 
 let test_parse_empty () =
@@ -84,15 +101,40 @@ let test_dep_summary_list () =
   check_string "list" "A, B"
     (Sundev_ticket.dependency_summary ["A"; "B"])
 
-(* ── ticket_states ───────────────────────────────────────────────────────── *)
+(* ── ticket states ───────────────────────────────────────────────────────── *)
 
 let test_states_include_done () =
   check_bool "DONE present" true
-    (List.mem "DONE" Sundev_ticket.ticket_states)
+    (List.mem Sundev_ticket.Done Sundev_ticket.all_states)
 
 let test_states_include_rfe () =
   check_bool "READY_FOR_ENGINEERING present" true
-    (List.mem "READY_FOR_ENGINEERING" Sundev_ticket.ticket_states)
+    (List.mem Sundev_ticket.Ready_for_engineering Sundev_ticket.all_states)
+
+let test_state_roundtrip () =
+  List.iter (fun state ->
+    check_state_option
+      ("roundtrip " ^ Sundev_ticket.state_to_dir state)
+      (Some state)
+      (Sundev_ticket.state_of_dir (Sundev_ticket.state_to_dir state))
+  ) Sundev_ticket.all_states
+
+let test_state_unknown () =
+  check_state_option "unknown" None (Sundev_ticket.state_of_dir "NOPE")
+
+let test_review_status_roundtrip () =
+  check_review_status_option "pass" (Some Sundev_ticket.Pass)
+    (Sundev_ticket.review_status_of_string "pass");
+  check_review_status_option "fail" (Some Sundev_ticket.Fail)
+    (Sundev_ticket.review_status_of_string "fail");
+  check_string "pass string" "pass"
+    (Sundev_ticket.review_status_to_string Sundev_ticket.Pass);
+  check_string "fail string" "fail"
+    (Sundev_ticket.review_status_to_string Sundev_ticket.Fail)
+
+let test_review_status_unknown () =
+  check_review_status_option "unknown" None
+    (Sundev_ticket.review_status_of_string "maybe")
 
 let () =
   Alcotest.run "sundev_ticket" [
@@ -121,8 +163,14 @@ let () =
       Alcotest.test_case "empty"                 `Quick test_dep_summary_empty;
       Alcotest.test_case "list"                  `Quick test_dep_summary_list;
     ];
-    "ticket_states", [
+    "ticket states", [
       Alcotest.test_case "includes DONE"         `Quick test_states_include_done;
       Alcotest.test_case "includes RFE"          `Quick test_states_include_rfe;
+      Alcotest.test_case "state roundtrip"       `Quick test_state_roundtrip;
+      Alcotest.test_case "unknown state"         `Quick test_state_unknown;
+    ];
+    "review_status", [
+      Alcotest.test_case "roundtrip"             `Quick test_review_status_roundtrip;
+      Alcotest.test_case "unknown"               `Quick test_review_status_unknown;
     ];
   ]

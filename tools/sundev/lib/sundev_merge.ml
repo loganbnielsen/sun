@@ -1,5 +1,9 @@
 let read_file  = Sundev_shell.read_file
 
+let dir state = Sundev_ticket.state_to_dir state
+
+let ticket_dir state = Filename.concat "project/tickets" (dir state)
+
 let write_file path content =
   let oc = open_out path in
   output_string oc content;
@@ -101,7 +105,7 @@ let resolve_merge_conflicts () =
 (* ── pipeline merge ──────────────────────────────────────────────────────── *)
 
 let run_merge dry_run accept_performance_regression ticket_filter =
-  let ready_dir = "project/tickets/READY_TO_MERGE" in
+  let ready_dir = ticket_dir Sundev_ticket.Ready_to_merge in
   if not (Sys.file_exists ready_dir) then begin
     Printf.eprintf "error: %s not found; run from workspace root.\n" ready_dir; exit 1
   end;
@@ -142,7 +146,7 @@ let run_merge dry_run accept_performance_regression ticket_filter =
         Printf.printf "  (dry-run) merge %s\n" branch;
         Printf.printf "  (dry-run) remove worktree %s\n" worktree;
         Printf.printf "  (dry-run) delete branch %s\n" branch;
-        Printf.printf "  (dry-run) → project/tickets/DONE/%s\n" filename
+        Printf.printf "  (dry-run) → %s/%s\n" (ticket_dir Sundev_ticket.Done) filename
       end else begin
         commit_dirty_baseline ();
         let merge_rc = Sundev_shell.run_cmd (Printf.sprintf
@@ -177,14 +181,15 @@ let run_merge dry_run accept_performance_regression ticket_filter =
             else Printf.printf "  worktree %s already removed\n%!" worktree;
             ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
-            Sys.rename src (Filename.concat "project/tickets/DONE" filename);
+            Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
             Printf.printf "  ✓  merged → DONE\n%!";
             merged := id :: !merged
           end else if perf_rc >= 1 then begin
             let label = if perf_rc = 2 then "perf regression" else "test failure" in
             let reverted = revert_merge_commit id label in
             Printf.eprintf "  %s detected — moving to BLOCKED_BY_PERFORMANCE\n%!" label;
-            Sys.rename src (Filename.concat "project/tickets/BLOCKED_BY_PERFORMANCE" filename);
+            Sys.rename src
+              (Filename.concat (ticket_dir Sundev_ticket.Blocked_by_performance) filename);
             ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git add project/tickets/ && git commit -m %s"
                 (Filename.quote (Printf.sprintf "pipeline: %s blocked %s" label id))));
@@ -204,7 +209,7 @@ let run_merge dry_run accept_performance_regression ticket_filter =
             else Printf.printf "  worktree %s already removed\n%!" worktree;
             ignore (Sundev_shell.run_cmd ~echo:false
               (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
-            Sys.rename src (Filename.concat "project/tickets/DONE" filename);
+            Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
             Printf.printf "  ✓  merged → DONE\n%!";
             merged := id :: !merged
           end
@@ -229,10 +234,13 @@ type violation = { vfile: string; vline: int option; vmessage: string }
 let parse_result json_str =
   let open Yojson.Basic.Util in
   let j = Yojson.Basic.from_string json_str in
-  let status = match j |> member "status" |> to_string with
-    | "pass" -> `Pass
-    | "fail" -> `Fail
-    | s -> Printf.eprintf "error: unknown status %S\n" s; exit 1
+  let status_raw = j |> member "status" |> to_string in
+  let status =
+    match Sundev_ticket.review_status_of_string status_raw with
+    | Some status -> status
+    | None ->
+      Printf.eprintf "error: unknown status %S\n" status_raw;
+      exit 1
   in
   let summary = j |> member "summary" |> to_string_option |> Option.value ~default:"" in
   let violations =
@@ -254,7 +262,9 @@ let format_violations vs =
   ) vs)
 
 let run_review ticket_id result_file =
-  let src = Printf.sprintf "project/tickets/REVIEW/%s.md" ticket_id in
+  let src =
+    Printf.sprintf "%s/%s.md" (ticket_dir Sundev_ticket.Review) ticket_id
+  in
   if not (Sys.file_exists src) then begin
     Printf.eprintf "error: %s not found\n" src; exit 1
   end;
@@ -269,41 +279,48 @@ let run_review ticket_id result_file =
   let (status, summary, violations) = parse_result (String.trim json_str) in
   let content = read_file src in
   (match status with
-   | `Pass ->
+   | Sundev_ticket.Pass ->
      let note = Printf.sprintf "\n## Review — automated checks passed\n%s\n" summary in
-     let dst = Printf.sprintf "project/tickets/READY_TO_MERGE/%s.md" ticket_id in
+     let dst =
+       Printf.sprintf "%s/%s.md" (ticket_dir Sundev_ticket.Ready_to_merge) ticket_id
+     in
      write_file src (content ^ note);
      Sys.rename src dst;
-     Printf.printf "[%s] → READY_TO_MERGE\n" ticket_id
-   | `Fail ->
+     Printf.printf "[%s] → %s\n" ticket_id (dir Sundev_ticket.Ready_to_merge)
+   | Sundev_ticket.Fail ->
      let note = Printf.sprintf "\n## Review — returned for revision\n%s\n"
        (format_violations violations) in
-     let dst = Printf.sprintf "project/tickets/READY_FOR_ENGINEERING/%s.md" ticket_id in
+     let dst =
+       Printf.sprintf "%s/%s.md"
+         (ticket_dir Sundev_ticket.Ready_for_engineering) ticket_id
+     in
      write_file src (content ^ note);
      Sys.rename src dst;
-     Printf.printf "[%s] → READY_FOR_ENGINEERING  (%d violation(s))\n"
-       ticket_id (List.length violations))
+     Printf.printf "[%s] → %s  (%d violation(s))\n"
+       ticket_id (dir Sundev_ticket.Ready_for_engineering) (List.length violations))
 
 (* ── pipeline ls ─────────────────────────────────────────────────────────── *)
 
 let run_ls include_done =
-  let states = if include_done then Sundev_ticket.ticket_states
-               else List.filter (fun s -> s <> "DONE") Sundev_ticket.ticket_states in
+  let states =
+    if include_done then Sundev_ticket.all_states
+    else List.filter (fun s -> s <> Sundev_ticket.Done) Sundev_ticket.all_states
+  in
   let any = ref false in
   List.iter (fun state ->
-    let dir = "project/tickets/" ^ state in
-    if Sys.file_exists dir then begin
+    let state_dir = ticket_dir state in
+    if Sys.file_exists state_dir then begin
       let files =
-        Sys.readdir dir |> Array.to_list
+        Sys.readdir state_dir |> Array.to_list
         |> List.filter (fun f -> Filename.check_suffix f ".md")
         |> List.sort String.compare
       in
       if files <> [] then begin
         any := true;
-        Printf.printf "\n%s (%d)\n" state (List.length files);
+        Printf.printf "\n%s (%d)\n" (dir state) (List.length files);
         List.iter (fun filename ->
           let id      = Filename.chop_suffix filename ".md" in
-          let content = read_file (Filename.concat dir filename) in
+          let content = read_file (Filename.concat state_dir filename) in
           let fields  = Sundev_ticket.parse_frontmatter content in
           let typ     = Sundev_ticket.fm_get fields "type"     |> Option.value ~default:"-" in
           let sev     = Sundev_ticket.fm_get fields "severity" |> Option.value ~default:"-" in
@@ -327,7 +344,7 @@ let run_check ticket_id =
   | Some (state, path) ->
     let content = read_file path in
     let deps = Sundev_ticket.parse_depends content in
-    Printf.printf "%s  state: %s\n" ticket_id state;
+    Printf.printf "%s  state: %s\n" ticket_id (dir state);
     Printf.printf "depends on: %s\n" (Sundev_ticket.dependency_summary deps);
     if Sundev_ticket.has_human_decision_gate content then begin
       let details = Sundev_ticket.human_decision_details content in
@@ -340,7 +357,7 @@ let run_check ticket_id =
         match Sundev_ticket.dependency_status dep with
         | `Done -> None
         | `Unknown -> Some (dep, "UNKNOWN")
-        | `Blocked state -> Some (dep, state))
+        | `Blocked state -> Some (dep, dir state))
     in
     if blocked <> [] then begin
       List.iter (fun (dep, state) ->
@@ -348,7 +365,7 @@ let run_check ticket_id =
       Printf.printf "status: blocked-by-dependency\n";
       exit 1
     end;
-    if state = "READY_FOR_ENGINEERING" then
+    if state = Sundev_ticket.Ready_for_engineering then
       Printf.printf "status: actionable\n"
     else begin
       Printf.printf "status: not-ready-state\n"; exit 1
