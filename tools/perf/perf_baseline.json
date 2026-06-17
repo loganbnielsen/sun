@@ -1643,6 +1643,12 @@
           "date": "2026-06-16",
           "commit": "b08be51",
           "duration_s": 1.444
+        },
+        {
+          "date": "2026-06-16",
+          "commit": "a7ad66d",
+          "duration_s": 1.464,
+          "baseline": true
         }
       ]
     },
