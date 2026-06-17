@@ -16,7 +16,7 @@ type release_status =
 type service_summary = {
   service_name : string;
   namespace    : string;
-  primitive    : string;
+  primitive    : Sun_cli_deployment_plan.primitive;
   image        : string;
   default_url  : string option;
   (** Sun-managed default URL; [Some] for [-svc] workloads, [None] otherwise. *)

@@ -127,7 +127,7 @@ let test_svc_has_default_url () =
   let plan = hosted_plan () in
   let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
   let svc = List.find
-      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "svc")
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = Sun_cli_deployment_plan.Svc)
       release.services in
   check_string "svc default_url"
     "charge-svc.pluto.production.apps.sun.example"
@@ -137,7 +137,7 @@ let test_worker_has_no_default_url () =
   let plan = hosted_plan () in
   let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
   let worker = List.find
-      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "worker")
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = Sun_cli_deployment_plan.Worker)
       release.services in
   Alcotest.(check bool) "worker default_url absent" true
     (Option.is_none worker.default_url)
@@ -165,7 +165,7 @@ let test_no_base_domain_no_url () =
   } in
   let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
   let svc = List.find
-      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = "svc")
+      (fun (s : Sun_cli_hosted_executor.service_summary) -> s.primitive = Sun_cli_deployment_plan.Svc)
       release.services in
   Alcotest.(check bool) "no url without base_domain" true
     (Option.is_none svc.default_url)
