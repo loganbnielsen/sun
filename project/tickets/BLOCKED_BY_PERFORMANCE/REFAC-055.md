@@ -49,3 +49,6 @@ The consequence: callers must know the exact lowercase strings `"live"`, `"faile
 2. Add `string_of_release_status : release_status -> string` to `sun_cli_registry.ml` for the Postgres adapter to use when writing to the DB column (the DB column remains TEXT; the conversion happens only at the persistence boundary).
 3. Update `pg_update_status` in `cmd_cloud_registry.ml` to accept `release_status`, call `string_of_release_status` just before the SQL bind.
 4. Update the `registry_ops` vtable field type and all call sites.
+
+## Review — automated checks passed
+All checks green: build clean, string_of_release_status exported, update_release_status accepts variant, all call sites use constructors, tests pass.
