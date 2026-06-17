@@ -3,18 +3,6 @@
 (* Re-export all YAML generators and service model types. *)
 include Sun_cli_manifest_yaml
 
-(* ── Helm chart value model ──────────────────────────────────────────────── *)
-
-type helm_val =
-  | Bool  of bool
-  | Float of float
-  | Str   of string
-
-let render_helm_flag (k, v) = match v with
-  | Bool  b -> Printf.sprintf "--set %s=%s" k (string_of_bool b)
-  | Float f -> Printf.sprintf "--set %s=%g" k f
-  | Str   s -> Printf.sprintf "--set-string %s=%s" k s
-
 (* ── Secret backend type ─────────────────────────────────────────────────── *)
 
 type secret_backend =

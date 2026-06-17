@@ -1,10 +1,3 @@
-type helm_val =
-  | Bool  of bool   (** Rendered with --set key=true/false *)
-  | Float of float  (** Rendered with --set key=<number>   *)
-  | Str   of string (** Rendered with --set-string key=val *)
-
-val render_helm_flag : string * helm_val -> string
-
 type secret_backend =
   | Kubernetes_live         (** Emit a Kubernetes Secret with real values (live deploy / sun up). *)
   | Kubernetes_placeholder  (** Emit a redacted Kubernetes Secret with empty stringData (GitOps). *)
