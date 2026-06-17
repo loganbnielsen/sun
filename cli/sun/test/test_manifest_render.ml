@@ -801,6 +801,46 @@ let test_render_spec_k8s_placeholder_default () =
   assert_contains "kind Secret present" workload "kind: Secret";
   assert_absent   "no ExternalSecret"   workload "kind: ExternalSecret"
 
+(* ── workload_shape: direct deployment_doc / rollout_doc coverage ─────────── *)
+
+let test_shape_http_service_deployment_has_ports () =
+  let doc = Sun_cli_manifest.deployment_doc
+    ~shape:Sun_cli_manifest.Http_service
+    ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
+    ~ns:"myapp-payments" ~name:"charge-svc"
+    ~image:"sun-registry:5000/myapp/charge-svc:abc123" () in
+  assert_contains "Http_service containerPort"   doc "containerPort: 8080";
+  assert_contains "Http_service readinessProbe"  doc "readinessProbe:"
+
+let test_shape_background_worker_deployment_no_ports () =
+  let doc = Sun_cli_manifest.deployment_doc
+    ~shape:Sun_cli_manifest.Background_worker
+    ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
+    ~ns:"myapp-comms" ~name:"notify-worker"
+    ~image:"sun-registry:5000/myapp/notify-worker:abc123" () in
+  assert_absent "Background_worker no containerPort"  doc "containerPort:";
+  assert_absent "Background_worker no readinessProbe" doc "readinessProbe:"
+
+let test_shape_rollout_http_service_has_ports () =
+  let doc = Sun_cli_manifest.rollout_doc
+    ~shape:Sun_cli_manifest.Http_service
+    ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
+    ~ns:"myapp-payments" ~name:"charge-svc"
+    ~image:"sun-registry:5000/myapp/charge-svc:abc123"
+    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] }) () in
+  assert_contains "rollout Http_service containerPort"  doc "containerPort: 8080";
+  assert_contains "rollout Http_service readinessProbe" doc "readinessProbe:"
+
+let test_shape_rollout_background_worker_no_ports () =
+  let doc = Sun_cli_manifest.rollout_doc
+    ~shape:Sun_cli_manifest.Background_worker
+    ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
+    ~ns:"myapp-comms" ~name:"notify-worker"
+    ~image:"sun-registry:5000/myapp/notify-worker:abc123"
+    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] }) () in
+  assert_absent "rollout Background_worker no containerPort"  doc "containerPort:";
+  assert_absent "rollout Background_worker no readinessProbe" doc "readinessProbe:"
+
 let () =
   Alcotest.run "manifest_render"
     [ "svc", [
@@ -885,5 +925,11 @@ let () =
       ; Alcotest.test_case "render_spec ESO: all keys in data"    `Quick test_render_spec_eso_backend_all_keys
       ; Alcotest.test_case "render_spec ESO: no stringData"       `Quick test_render_spec_eso_backend_no_stringdata
       ; Alcotest.test_case "render_spec default: k8s placeholder" `Quick test_render_spec_k8s_placeholder_default
+      ]
+    ; "workload_shape", [
+        Alcotest.test_case "Http_service deployment has ports"         `Quick test_shape_http_service_deployment_has_ports
+      ; Alcotest.test_case "Background_worker deployment no ports"     `Quick test_shape_background_worker_deployment_no_ports
+      ; Alcotest.test_case "Http_service rollout has ports"            `Quick test_shape_rollout_http_service_has_ports
+      ; Alcotest.test_case "Background_worker rollout no ports"        `Quick test_shape_rollout_background_worker_no_ports
       ]
     ]
