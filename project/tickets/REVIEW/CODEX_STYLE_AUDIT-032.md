@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-032
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-032/validate-prometheus-names
+worktree: /home/lbendtly/Code/sun
 ---
 
 Validate observability metric and label names before rendering.
