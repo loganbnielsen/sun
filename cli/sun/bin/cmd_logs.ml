@@ -60,8 +60,7 @@ let deployment_exists ns k8s_name =
   Sys.command
     (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
 
-let run (service_arg : string) (_follow : bool) (no_follow : bool) (tail : int) (grafana_base_url : string) : unit =
-  let follow = not no_follow in
+let run (service_arg : string) (follow : bool) (tail : int) (grafana_base_url : string) : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -118,10 +117,20 @@ let grafana_base_url_arg =
                Sun prints a copyable Grafana Explore URL with a LogQL query \
                before streaming kubectl logs.")
 
+let follow_term =
+  let combine follow no_follow = match follow, no_follow with
+    | true,  true  ->
+      Printf.eprintf "error: --follow and --no-follow are mutually exclusive\n%!";
+      exit 1
+    | _,     true  -> false
+    | _,     false -> true
+  in
+  Term.(const combine $ follow_flag $ no_follow_flag)
+
 let cmd =
   Cmd.v
     (Cmd.info "logs"
        ~doc:"Stream logs from a deployed service. \
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
-    Term.(const run $ service_arg $ follow_flag $ no_follow_flag $ tail_arg $ grafana_base_url_arg)
+    Term.(const run $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg)
