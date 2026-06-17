@@ -30,3 +30,6 @@ Two issues:
 1. Delete `_follow` from the `run` signature.
 2. Update the Cmdliner term wiring in the same file to not pass the `_follow` value.
 3. Rename the remaining parameter to `no_follow` (keeping current semantics) or invert it to `follow` and remove the negation — whichever matches the Cmdliner flag that is exposed to users.
+
+## Review — automated checks passed
+Dead _follow parameter removed, follow_term wires both flags correctly, run body uses follow directly, build clean
