@@ -1,0 +1,27 @@
+---
+id: CODEX_STYLE_AUDIT-006
+type: refactor
+severity: high
+source: style audit
+---
+
+Use typed release-inspection fields instead of status, mode, primitive, and kind strings.
+
+**Depends on:** none.
+
+**Problem:** `cli/sun/lib/sun_cli_release_inspection.ml:13-53` stores finite
+domains as strings: `environment`, `mode`, `primitive`, `status`, and manifest
+`kind`. The module already defines variants for rollout and health status, but
+other finite fields bypass the compiler and are serialized directly later.
+
+**Goal:** Keep finite inspection concepts typed until the JSON/string rendering
+boundary.
+
+**Acceptance criteria:**
+
+- Replace `mode : string`, `primitive : string`, `status : string`, and
+  `kind : string` with variants or existing domain types where possible.
+- Keep `*_to_string` conversion functions at the output boundary.
+- Update `Sun_cli_hosted_executor` and tests that construct inspection records.
+- Ensure JSON output remains backward compatible unless a deliberate migration is
+  documented.
