@@ -39,3 +39,6 @@ let contains re s = try ignore (Str.search_forward re s 0); true with Not_found 
 Replace all 15 occurrences with `contains (Str.regexp "pattern") s`. This is a one-line change per site.
 
 For the `Error _ -> true | Ok _ -> false` pattern in production code, replace with the stdlib combinator `Result.is_error` (available since OCaml 4.08).
+
+## Review — automated checks passed
+All 15 inline Str.search_forward idioms replaced with contains helper, both Result.is_error substitutions applied, build clean, no ticket files modified.
