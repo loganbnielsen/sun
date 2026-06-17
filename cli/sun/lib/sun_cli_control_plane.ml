@@ -26,7 +26,7 @@ type registry_ops = {
   append_log_line       : string -> string -> unit;
   update_service_digest : string -> string -> string -> string -> (unit, string) result;
   (** [update_service_digest release_id service_name image_ref digest_str] *)
-  update_release_status : string -> string -> (unit, string) result;
+  update_release_status : string -> Sun_cli_registry.release_status -> (unit, string) result;
 }
 
 let ok body      = { status = 200; body }
