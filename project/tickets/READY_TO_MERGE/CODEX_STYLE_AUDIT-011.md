@@ -30,3 +30,6 @@ separate from parsing.
 - Share the helper across normal, partitioned, and retry-topic consumers.
 - Preserve existing `on_decode_error` strings or document intentional wording
   changes in tests.
+
+## Review — automated checks passed
+decode_message helper correctly extracted into kafka_service_schema.ml; all four repeated decode pipelines replaced; build and tests green
