@@ -24,3 +24,6 @@ Prometheus exposition format.
 - Use validated names in `Obs.register_counter`, `register_gauge`, and
   `register_histogram`.
 - Update tests for invalid names and existing valid metrics.
+
+## Review — automated checks passed
+CODEX_STYLE_AUDIT-032 passes review. The branch adds public metric_name and label_name validators for Prometheus naming rules, calls them from register_counter/register_gauge/register_histogram before returning emitters, and adds coverage for valid names plus invalid metric and label names. Pre-commit on the branch passed build, unit, observability, storage, kafka, and e2e suites; the feature commit is scoped to obs-eio code/tests with no perf baseline reset.
