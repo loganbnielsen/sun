@@ -11,12 +11,8 @@ type pool = {
 (* Internal — carries application errors out of Pool.use callbacks. *)
 exception App_error of Storage_error.t
 
-let ( let* ) = Result.bind
-
 let translate_error e =
   Storage_error.Query_error (Caqti_error.show e)
-
-let map_err r = Result.map_error translate_error r
 
 let create_pool ~url ?pool_size ~sw ~stdenv () =
   let uri = Uri.of_string url in
@@ -24,45 +20,55 @@ let create_pool ~url ?pool_size ~sw ~stdenv () =
     | None   -> Caqti_pool_config.create ()
     | Some n -> Caqti_pool_config.create ~max_size:n ()
   in
-  let* p = Caqti_eio_unix.connect_pool ~sw ~stdenv ~pool_config uri
-    |> Result.map_error (fun e -> Storage_error.Connection_failed (Caqti_error.show e)) in
-  let use_conn (type b)
-      (f : Caqti_eio.connection -> (b, Storage_error.t) result)
-      : (b, Storage_error.t) result =
-    try
-      match Caqti_eio.Pool.use (fun conn ->
-        match f conn with
+  match Caqti_eio_unix.connect_pool ~sw ~stdenv ~pool_config uri with
+  | Error e -> Error (Storage_error.Connection_failed (Caqti_error.show e))
+  | Ok p    ->
+    let use_conn (type b)
+        (f : Caqti_eio.connection -> (b, Storage_error.t) result)
+        : (b, Storage_error.t) result =
+      try
+        match Caqti_eio.Pool.use (fun conn ->
+          match f conn with
+          | Ok v    -> Ok v
+          | Error e -> raise (App_error e)
+        ) p with
         | Ok v    -> Ok v
-        | Error e -> raise (App_error e)
-      ) p with
-      | Ok v    -> Ok v
-      | Error e -> Error (Storage_error.Connection_failed (Caqti_error.show e))
-    with App_error e -> Error e
-  in
-  Ok { use_conn }
+        | Error e -> Error (Storage_error.Connection_failed (Caqti_error.show e))
+      with App_error e -> Error e
+    in
+    Ok { use_conn }
 
 let exec pool req params =
   pool.use_conn (fun (module C : Caqti_eio.CONNECTION) ->
-    map_err (C.exec req params))
+    match C.exec req params with
+    | Ok ()   -> Ok ()
+    | Error e -> Error (translate_error e))
 
 let find pool req params =
   pool.use_conn (fun (module C : Caqti_eio.CONNECTION) ->
-    map_err (C.find_opt req params))
+    match C.find_opt req params with
+    | Ok r    -> Ok r
+    | Error e -> Error (translate_error e))
 
 let collect pool req params =
   pool.use_conn (fun (module C : Caqti_eio.CONNECTION) ->
-    map_err (C.collect_list req params))
+    match C.collect_list req params with
+    | Ok r    -> Ok r
+    | Error e -> Error (translate_error e))
 
 let transaction pool f =
   pool.use_conn (fun conn ->
     let module C = (val conn : Caqti_eio.CONNECTION) in
-    let* () = map_err (C.start ()) in
-    let tx_pool = { use_conn = fun g -> g conn } in
-    let result = f tx_pool in
-    match result with
-    | Ok _ ->
-      let* () = map_err (C.commit ()) in
-      result
-    | Error _ ->
-      ignore (C.rollback ());
-      result)
+    match C.start () with
+    | Error e -> Error (translate_error e)
+    | Ok () ->
+      let tx_pool = { use_conn = fun g -> g conn } in
+      let result = f tx_pool in
+      match result with
+      | Ok _ ->
+        (match C.commit () with
+         | Error e -> Error (translate_error e)
+         | Ok ()   -> result)
+      | Error _ ->
+        ignore (C.rollback ());
+        result)
