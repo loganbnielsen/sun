@@ -54,34 +54,31 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
       let resources = match primitive, progressive_delivery with
         (* ── Argo Rollouts paths ─────────────────────────────────────────── *)
         | (Render_svc | Render_worker), Some pd ->
-          let ports  = primitive = Render_svc in
-          let probes = primitive = Render_svc in
-          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~ports ~probes ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd () in
+          let shape = if primitive = Render_svc then Http_service else Background_worker in
+          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd () in
           (match pd with
            | Sun_cli_toml.Blue_green ->
-             (* Blue-green needs active + preview services instead of one service *)
-             let is_svc = primitive = Render_svc in
              [ rollout
              ; blue_green_service_docs ns name
-             ; (if is_svc then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active")
+             ; (if shape = Http_service then ingress_doc ~ingress_host ~ingress_path ns (name ^ "-active")
                 else "")
              ]
              |> List.filter (fun s -> s <> "")
            | Sun_cli_toml.Canary _ ->
-             let svc    = if ports then [service_doc ns name] else [] in
-             let ingr   = if ports then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
+             let svc    = if shape = Http_service then [service_doc ns name] else [] in
+             let ingr   = if shape = Http_service then [ingress_doc ~ingress_host ~ingress_path ns name] else [] in
              [ rollout ] @ svc @ ingr)
         (* ── Standard Deployment paths ────────────────────────────────────── *)
         | Render_svc, None ->
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
               ~secret_keys:(List.map fst secrets)
-              ~ports:true ~probes:true ~replicas ~cpu ~memory ~ns ~name ~image:img ()
+              ~shape:Http_service ~replicas ~cpu ~memory ~ns ~name ~image:img ()
           ; service_doc ns name
           ; ingress_doc ~ingress_host ~ingress_path ns name ]
         | Render_worker, None ->
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
               ~secret_keys:(List.map fst secrets)
-              ~ports:false ~probes:false ~replicas ~cpu ~memory ~ns ~name ~image:img () ]
+              ~shape:Background_worker ~replicas ~cpu ~memory ~ns ~name ~image:img () ]
         | Render_fn, _ ->
           let schedule = Option.value schedule ~default:"0 * * * *" in
           [ cronjob_doc ~secret_keys:(List.map fst secrets) ns name img schedule ]
