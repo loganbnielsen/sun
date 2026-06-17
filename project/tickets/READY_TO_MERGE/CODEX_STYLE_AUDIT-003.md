@@ -30,3 +30,6 @@ boolean arguments.
 - Replace the logs follow/no-follow pair with one typed mode or one labeled
   boolean.
 - Update Cmdliner terms and tests to call the new labeled APIs.
+
+## Review — automated checks passed
+All three run functions converted to labeled arguments with correct lambda wrappers in Term expressions; build is clean and diff is confined to cli/sun/bin/
