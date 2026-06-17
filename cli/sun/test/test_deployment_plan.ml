@@ -1,7 +1,5 @@
 let check_string = Alcotest.(check string)
 
-let contains re s = try ignore (Str.search_forward re s 0); true with Not_found -> false
-
 let test_k8s_name_underscores () =
   check_string "underscore to hyphen" "charge-svc"
     (Sun_cli_deployment_plan.k8s_name_of "charge_svc")
@@ -118,16 +116,16 @@ let test_to_json_secret_keys_present () =
   let s    = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   (* Secret keys must appear *)
   assert (let re = Str.regexp "DB_PASSWORD" in
-          (contains re s));
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false));
   assert (let re = Str.regexp "API_KEY" in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_config_values_present () =
   let plan = sample_plan () in
   let s    = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   (* Config values (not secrets) must appear in full *)
   assert (let re = Str.regexp "us-east-1" in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_mode_strings () =
   let check_mode mode expected =
@@ -141,7 +139,7 @@ let test_to_json_mode_strings () =
     } in
     let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
     assert (let re = Str.regexp (Printf.sprintf {|"mode":"%s"|} expected) in
-            (contains re s))
+            (try ignore (Str.search_forward re s 0); true with Not_found -> false))
   in
   check_mode Sun_cli_deployment_plan.Local          "local";
   check_mode Sun_cli_deployment_plan.Customer_cloud "customer_cloud";
@@ -369,13 +367,13 @@ let test_to_json_secret_backend () =
   let plan = sample_plan () in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"secret_backend"|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_rollout_strategy () =
   let plan = sample_plan () in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"rollout_strategy":"rolling_update"|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_rollout_strategy_recreate () =
   let plan = sample_plan () in
@@ -386,7 +384,7 @@ let test_to_json_rollout_strategy_recreate () =
   let plan2 = { plan with services = [svc_recreate] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan2) in
   assert (let re = Str.regexp {|"rollout_strategy":"recreate"|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_rollout_strategy_canary () =
   let plan = sample_plan () in
@@ -397,7 +395,7 @@ let test_to_json_rollout_strategy_canary () =
   let plan2 = { plan with services = [svc_canary] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan2) in
   assert (let re = Str.regexp {|"rollout_strategy":"canary"|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_rollout_strategy_blue_green () =
   let plan = sample_plan () in
@@ -408,13 +406,13 @@ let test_to_json_rollout_strategy_blue_green () =
   let plan2 = { plan with services = [svc_bg] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan2) in
   assert (let re = Str.regexp {|"rollout_strategy":"blue_green"|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_ingress_null_when_absent () =
   let plan = sample_plan () in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"ingress":null|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_ingress_present () =
   let plan = sample_plan () in
@@ -426,25 +424,25 @@ let test_to_json_ingress_present () =
   let plan2 = { plan with services = [svc_with_ingress] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan2) in
   assert (let re = Str.regexp {|"ingress":{"host":"example.com","path":"/api"}|} in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_schema_subjects_present () =
   let plan = { (sample_plan ()) with
     schema_subjects = ["payments.Charged"; "comms.Notification"] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"schema_subjects"|} in
-          (contains re s));
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false));
   assert (let re = Str.regexp "payments.Charged" in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let test_to_json_consumer_groups_present () =
   let plan = { (sample_plan ()) with
     consumer_groups = ["myworkspace.comms.notify_worker"] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"consumer_groups"|} in
-          (contains re s));
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false));
   assert (let re = Str.regexp "myworkspace.comms.notify_worker" in
-          (contains re s))
+          (try ignore (Str.search_forward re s 0); true with Not_found -> false))
 
 let () =
   Alcotest.run "deployment_plan"
