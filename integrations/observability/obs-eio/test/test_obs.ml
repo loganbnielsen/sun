@@ -235,70 +235,6 @@ let test_counter_and_histogram_helper_emits_both () =
   Alcotest.(check (list string)) "emits both metrics"
     ["items_total"; "item_duration_seconds"] names
 
-let check_invalid_arg label f =
-  match f () with
-  | () -> Alcotest.fail (label ^ " should raise Invalid_argument")
-  | exception Invalid_argument _ -> ()
-
-let test_metric_name_validation () =
-  Alcotest.(check string) "valid metric name"
-    "http_requests_total" (Obs.metric_name "http_requests_total");
-  Alcotest.(check string) "colon allowed in metric name"
-    "sun:http_requests_total" (Obs.metric_name "sun:http_requests_total");
-  check_invalid_arg "empty metric name" (fun () ->
-    ignore (Obs.metric_name ""));
-  check_invalid_arg "metric name starting with digit" (fun () ->
-    ignore (Obs.metric_name "1_total"));
-  check_invalid_arg "metric name containing dash" (fun () ->
-    ignore (Obs.metric_name "http-requests-total"))
-
-let test_label_name_validation () =
-  Alcotest.(check string) "valid label name"
-    "http_status" (Obs.label_name "http_status");
-  check_invalid_arg "empty label name" (fun () ->
-    ignore (Obs.label_name ""));
-  check_invalid_arg "label name starting with digit" (fun () ->
-    ignore (Obs.label_name "1status"));
-  check_invalid_arg "label name containing colon" (fun () ->
-    ignore (Obs.label_name "http:status"))
-
-let test_register_rejects_invalid_metric_name () =
-  Eio_main.run @@ fun env ->
-  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
-  check_invalid_arg "invalid counter name" (fun () ->
-    let _emit : Obs_metrics.counter_fn =
-      Obs.register_counter ot ~name:"bad-name" ~help:"desc" ~label_names:[]
-    in
-    ());
-  check_invalid_arg "invalid gauge name" (fun () ->
-    let _emit : Obs_metrics.gauge_fn =
-      Obs.register_gauge ot ~name:"9bad" ~help:"desc" ~label_names:[]
-    in
-    ());
-  check_invalid_arg "invalid histogram name" (fun () ->
-    Obs.register_histogram ot ~name:"bad.name" ~help:"desc" ~label_names:[] 1.0)
-
-let test_register_rejects_invalid_label_name () =
-  Eio_main.run @@ fun env ->
-  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
-  check_invalid_arg "invalid counter label" (fun () ->
-    let _emit : Obs_metrics.counter_fn =
-      Obs.register_counter ot
-        ~name:"requests_total" ~help:"desc" ~label_names:["bad-label"]
-    in
-    ());
-  check_invalid_arg "invalid gauge label" (fun () ->
-    let _emit : Obs_metrics.gauge_fn =
-      Obs.register_gauge ot
-        ~name:"queue_depth" ~help:"desc" ~label_names:["9host"]
-    in
-    ());
-  check_invalid_arg "invalid histogram label" (fun () ->
-    Obs.register_histogram ot
-      ~name:"request_duration_seconds" ~help:"desc"
-      ~label_names:["bad.label"]
-      1.0)
-
 let test_noop_compiles_and_runs () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
@@ -353,10 +289,6 @@ let () =
       test_case "counter emits metric event"   `Quick test_counter_emits_event;
       test_case "histogram emits metric event" `Quick test_histogram_emits_event;
       test_case "counter and histogram helper emits both" `Quick test_counter_and_histogram_helper_emits_both;
-      test_case "metric name validation"       `Quick test_metric_name_validation;
-      test_case "label name validation"        `Quick test_label_name_validation;
-      test_case "register rejects invalid metric names" `Quick test_register_rejects_invalid_metric_name;
-      test_case "register rejects invalid label names" `Quick test_register_rejects_invalid_label_name;
       test_case "noop backend runs silently"   `Quick test_noop_compiles_and_runs;
     ];
     "compose", [

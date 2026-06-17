@@ -168,70 +168,19 @@ let current_trace_ctx sp = sp.sp_ctx
 (* Metrics                                                             *)
 (* ------------------------------------------------------------------ *)
 
-let is_metric_initial_char = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '_' | ':' -> true
-  | _ -> false
-
-let is_label_initial_char = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '_' -> true
-  | _ -> false
-
-let is_name_char = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | ':' -> true
-  | _ -> false
-
-let is_label_char = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' -> true
-  | _ -> false
-
-let validate_name ~kind ~is_initial ~is_char name =
-  if name = "" then
-    invalid_arg ("Obs." ^ kind ^ ": name must not be empty");
-  if not (is_initial name.[0]) then
-    invalid_arg
-      (Printf.sprintf "Obs.%s: invalid Prometheus name %S" kind name);
-  String.iter (fun c ->
-    if not (is_char c) then
-      invalid_arg
-        (Printf.sprintf "Obs.%s: invalid Prometheus name %S" kind name)
-  ) name;
-  name
-
-let metric_name name =
-  validate_name ~kind:"metric_name"
-    ~is_initial:is_metric_initial_char
-    ~is_char:is_name_char
-    name
-
-let label_name name =
-  validate_name ~kind:"label_name"
-    ~is_initial:is_label_initial_char
-    ~is_char:is_label_char
-    name
-
-let validate_label_names label_names =
-  List.iter (fun name -> ignore (label_name name)) label_names;
-  label_names
-
-let register_counter t ~name ~help ~label_names : Obs_metrics.counter_fn =
-  let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+let register_counter t ~name ~help ~label_names:_ : Obs_metrics.counter_fn =
   fun ?(labels = []) value ->
     t.backend.emit_metric {
       name; help; kind = `Counter value; labels; context = t.context; service = t.service;
     }
 
-let register_gauge t ~name ~help ~label_names : Obs_metrics.gauge_fn =
-  let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+let register_gauge t ~name ~help ~label_names:_ : Obs_metrics.gauge_fn =
   fun ?(labels = []) value ->
     t.backend.emit_metric {
       name; help; kind = `Gauge value; labels; context = t.context; service = t.service;
     }
 
-let register_histogram t ~name ~help ~label_names ?(buckets = []) : Obs_metrics.histogram_fn =
-  let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+let register_histogram t ~name ~help ~label_names:_ ?(buckets = []) : Obs_metrics.histogram_fn =
   ignore buckets;
   fun ?(labels = []) value ->
     t.backend.emit_metric {
