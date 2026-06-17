@@ -20,21 +20,11 @@ let registry_port = 5000
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
-type set_val =
-  | Bool  of bool   (** --set key=true/false *)
-  | Float of float  (** --set key=<number>   *)
-  | Str   of string (** --set-string key=val — always treated as string, avoids YAML coercion *)
-
 let helm_install release chart ~namespace ?(values = []) () =
-  let flag (k, v) = match v with
-    | Bool  b -> Printf.sprintf "--set %s=%s" k (string_of_bool b)
-    | Float f -> Printf.sprintf "--set %s=%g" k f
-    | Str   s -> Printf.sprintf "--set-string %s=%s" k s
-  in
   let cmd = String.concat " " (
     [ "helm upgrade --install"; release; chart ]
     @ [ "--namespace"; namespace; "--create-namespace" ]
-    @ List.map flag values
+    @ List.map render_helm_flag values
     @ [ "--wait --timeout 3m" ]
   ) in
   Sun_cli_shell.run_cmd cmd
