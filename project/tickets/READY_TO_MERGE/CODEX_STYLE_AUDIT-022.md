@@ -25,3 +25,6 @@ boundaries.
 - Keep path/string conversion helpers near the filesystem boundary.
 - Update `find_ticket`, `dependency_status`, list/check commands, and tests.
 - Preserve existing on-disk directory names.
+
+## Review — automated checks passed
+Build passed. Diff is scoped to sundev ticket/merge code and ticket tests. Ticket states and review statuses are represented as variants internally, conversions are used at filesystem/JSON/user-output boundaries, affected pipeline callers are updated, parser tests pass, project/tickets is untouched, and no new unsafe shell or wrapped true behavior was introduced.
