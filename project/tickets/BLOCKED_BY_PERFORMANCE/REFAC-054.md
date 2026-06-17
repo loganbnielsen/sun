@@ -33,3 +33,6 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "")
 ```
 
 Update all call sites in `sun_cli_manifest_yaml.ml` and anywhere `rollout_doc` / `deployment_doc` are called (search for usages). Add the trailing `()` because optional arguments precede the new labeled ones.
+
+## Review — automated checks passed
+deployment_doc and rollout_doc fully labelled; .mli matches; all 4 call sites updated; build clean.
