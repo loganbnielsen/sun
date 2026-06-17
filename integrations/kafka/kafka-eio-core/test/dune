@@ -15,7 +15,7 @@
 (test
  (name test_kafka_security)
  (modules test_kafka_security)
- (libraries kafka_eio_core alcotest))
+ (libraries kafka_eio_core alcotest unix))
 
 (test
  (name ffi_smoke)
