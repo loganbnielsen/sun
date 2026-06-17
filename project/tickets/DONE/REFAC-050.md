@@ -34,3 +34,6 @@ The function then immediately reconstructs this variant from the two booleans (l
 3. Delete the `match use_aws, use_gcp with` block.
 
 The `true, true` / `false, false` error paths become compile-time-unreachable rather than runtime exits.
+
+## Review — automated checks passed
+cloud_init now takes provider variant; provider_term converts --aws/--gcp flags at parse time; match use_aws,use_gcp block deleted; build clean
