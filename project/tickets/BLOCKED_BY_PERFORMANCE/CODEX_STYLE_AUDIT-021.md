@@ -28,3 +28,6 @@ to modify.
   DB pool creation.
 - Use Result/Option combinators or small helpers to reduce nested matches.
 - Keep generated runtime behavior and error messages compatible.
+
+## Review — automated checks passed
+Build passed with `eval $(opam env) && dune build 2>&1`. Diff is confined to scaffold templates/tests and ticket-relevant generated example entrypoints. Startup code is flattened with env, optional backend, DB pool, storage, and Kafka helpers; required error prefixes are preserved; no new Sys.command, shell injection surface, wrapped true, project/tickets edits, or unrelated command/doc obligations found.
