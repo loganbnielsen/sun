@@ -135,103 +135,84 @@ module Pg_registry = struct
 
   (* ── operations ────────────────────────────────────────────────────────── *)
 
+  let ( let* ) = Result.bind
+  let db r = Result.map_error storage_err_to_string r
+
   let pg_get_project pool project_id =
-    match Db.find pool find_project_q project_id with
-    | Error e -> Error (storage_err_to_string e)
-    | Ok None -> Error (Printf.sprintf "project %S not found" project_id)
-    | Ok (Some row) -> Ok (row_to_project row)
+    let* row = db (Db.find pool find_project_q project_id) in
+    match row with
+    | None -> Error (Printf.sprintf "project %S not found" project_id)
+    | Some row -> Ok (row_to_project row)
 
   let pg_create_project pool ~workspace =
     let project_id = Sun_cli_registry.project_id_of_workspace workspace in
-    (* Check if already exists by workspace *)
-    match Db.find pool find_project_by_workspace_q workspace with
-    | Error e -> Error (storage_err_to_string e)
-    | Ok (Some row) -> Ok (row_to_project row)
-    | Ok None ->
-      match Db.exec pool upsert_project_q (project_id, workspace) with
-      | Error e -> Error (storage_err_to_string e)
-      | Ok () ->
-        (* Re-fetch in case there was a conflict on project_id *)
-        match Db.find pool find_project_q project_id with
-        | Error e -> Error (storage_err_to_string e)
-        | Ok None -> Error "project not found after insert"
-        | Ok (Some row) -> Ok (row_to_project row)
+    let* existing = db (Db.find pool find_project_by_workspace_q workspace) in
+    match existing with
+    | Some row -> Ok (row_to_project row)
+    | None ->
+      let* () = db (Db.exec pool upsert_project_q (project_id, workspace)) in
+      let* row  = db (Db.find pool find_project_q project_id) in
+      match row with
+      | None     -> Error "project not found after insert"
+      | Some row -> Ok (row_to_project row)
+
+  let insert_services tx release_id svc_status service_names =
+    List.fold_left (fun acc name ->
+      let* () = acc in
+      Db.exec tx insert_service_q (release_id, name, svc_status)
+    ) (Ok ()) service_names
+
+  let append_log_lines tx release_id log_lines =
+    List.fold_left (fun acc line ->
+      let* () = acc in
+      Db.exec tx append_log_q (release_id, line)
+    ) (Ok ()) log_lines
 
   let pg_create_release pool ~project_id ~environment ~image_tag ~service_names =
-    match pg_get_project pool project_id with
-    | Error msg -> Error msg
-    | Ok _ ->
-      let release_id =
-        Printf.sprintf "rel-%s-%s"
-          project_id
-          (string_of_int (int_of_float (Unix.gettimeofday () *. 1000.0)))
-      in
-      let created_at = string_of_float (Unix.gettimeofday ()) in
-      let status = Sun_cli_registry.release_status_to_string Sun_cli_registry.Live in
-      let svc_status = Sun_cli_registry.service_status_to_string Sun_cli_registry.Service_live in
-      let result = Db.transaction pool (fun tx ->
-        match Db.exec tx insert_release_q
-                (release_id, project_id, environment, image_tag, status, created_at) with
-        | Error e -> Error e
-        | Ok () ->
-          let service_err =
-            List.fold_left (fun acc name ->
-              match acc with
-              | Error _ as e -> e
-              | Ok () ->
-                Db.exec tx insert_service_q (release_id, name, svc_status)
-            ) (Ok ()) service_names
-          in
-          (match service_err with
-           | Error _ as e -> e
-           | Ok () ->
-             let log_lines = [
-               Printf.sprintf "[deploy] release %s started: env=%s tag=%s"
-                 release_id environment image_tag;
-             ] @ List.map (fun svc ->
-               Printf.sprintf "[deploy] service %s deployed" svc
-             ) service_names
-             @ [ Printf.sprintf "[deploy] release %s complete: status=%s" release_id status ]
-             in
-             List.fold_left (fun acc line ->
-               match acc with
-               | Error _ as e -> e
-               | Ok () -> Db.exec tx append_log_q (release_id, line)
-             ) (Ok ()) log_lines)
-      ) in
-      (match result with
-       | Error e -> Error (storage_err_to_string e)
-       | Ok () ->
-         let services =
-           List.map (fun name ->
-             { Sun_cli_registry.service_name = name;
-               service_status = Sun_cli_registry.Service_live;
-               image = None; digest = None })
-             service_names
-         in
-         Ok { Sun_cli_registry.
-              release_id; project_id; environment; image_tag;
-              digest = None;
-              status = Sun_cli_registry.Live; created_at; services })
+    let* _ = pg_get_project pool project_id in
+    let release_id =
+      Printf.sprintf "rel-%s-%s"
+        project_id
+        (string_of_int (int_of_float (Unix.gettimeofday () *. 1000.0)))
+    in
+    let created_at = string_of_float (Unix.gettimeofday ()) in
+    let status     = Sun_cli_registry.release_status_to_string Sun_cli_registry.Live in
+    let svc_status = Sun_cli_registry.service_status_to_string Sun_cli_registry.Service_live in
+    let log_lines =
+      Printf.sprintf "[deploy] release %s started: env=%s tag=%s" release_id environment image_tag
+      :: List.map (fun svc -> Printf.sprintf "[deploy] service %s deployed" svc) service_names
+      @ [ Printf.sprintf "[deploy] release %s complete: status=%s" release_id status ]
+    in
+    let* () = db (Db.transaction pool (fun tx ->
+      let* () = Db.exec tx insert_release_q
+                  (release_id, project_id, environment, image_tag, status, created_at) in
+      let* () = insert_services tx release_id svc_status service_names in
+      append_log_lines tx release_id log_lines
+    )) in
+    let services =
+      List.map (fun name ->
+        { Sun_cli_registry.service_name = name;
+          service_status = Sun_cli_registry.Service_live;
+          image = None; digest = None })
+        service_names
+    in
+    Ok { Sun_cli_registry.
+         release_id; project_id; environment; image_tag;
+         digest = None;
+         status = Sun_cli_registry.Live; created_at; services }
 
   let pg_list_releases pool ~project_id =
-    match pg_get_project pool project_id with
-    | Error msg -> Error msg
-    | Ok _ ->
-      match Db.collect pool list_releases_q project_id with
-      | Error e -> Error (storage_err_to_string e)
-      | Ok rows ->
-        let results = List.map (fun row ->
-          let (release_id, _, _, _, _, _, _) = row in
-          match fetch_services pool release_id with
-          | Error e -> Error e
-          | Ok svcs -> Ok (row_to_release svcs row)
-        ) rows in
-        let err = List.find_opt (function Error _ -> true | Ok _ -> false) results in
-        (match err with
-         | Some (Error e) -> Error e
-         | _ ->
-           Ok (List.filter_map (function Ok r -> Some r | Error _ -> None) results))
+    let* _ = pg_get_project pool project_id in
+    let* rows = db (Db.collect pool list_releases_q project_id) in
+    let* releases_rev =
+      List.fold_left (fun acc row ->
+        let* acc = acc in
+        let (release_id, _, _, _, _, _, _) = row in
+        let* svcs = fetch_services pool release_id in
+        Ok (row_to_release svcs row :: acc)
+      ) (Ok []) rows
+    in
+    Ok (List.rev releases_rev)
 
   let pg_list_releases_page pool ~project_id ?(page = 1) ?(page_size = 20) () =
     match pg_list_releases pool ~project_id with
