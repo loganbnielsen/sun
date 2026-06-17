@@ -60,21 +60,6 @@ let read_body_limited headers (body : Cohttp_eio.Body.t) max_bytes =
 
 (* ── Dispatch ──────────────────────────────────────────────────────────── *)
 
-let ( let* ) = Result.bind
-
-let auth_result auth_cfg headers =
-  match Auth.validate auth_cfg headers with
-  | Error (`Unauthorized _)    -> Error Response.unauthorized
-  | Error (`Forbidden _)       -> Error Response.forbidden
-  | Error (`Server_error msg)  -> Error (Response.internal_error msg)
-  | Error (`Not_implemented _) -> Error Response.not_implemented
-  | Ok ctx -> Ok ctx
-
-let body_result headers body max_bytes =
-  match read_body_limited headers body max_bytes with
-  | None   -> Error Response.payload_too_large
-  | Some s -> Ok s
-
 let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
   let meth_opt = Route.method_of_http (Http.Request.meth req) in
   match meth_opt with
@@ -98,13 +83,15 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
         (match metrics_renderer with
          | None -> Some Response.not_found
          | Some render ->
-           let result =
-             let* _ = auth_result metrics_auth headers in
-             Ok (Response.ok
-               ~headers:["content-type","text/plain; version=0.0.4; charset=utf-8"]
-               (render ()))
-           in
-           Some (match result with Ok r | Error r -> r))
+           (match Auth.validate metrics_auth headers with
+            | Error (`Unauthorized _)    -> Some Response.unauthorized
+            | Error (`Forbidden _)       -> Some Response.forbidden
+            | Error (`Server_error msg)  -> Some (Response.internal_error msg)
+            | Error (`Not_implemented _) -> Some Response.not_implemented
+            | Ok _ ->
+              Some (Response.ok
+                ~headers:["content-type","text/plain; version=0.0.4; charset=utf-8"]
+                (render ()))))
       | _ -> None
     in
     (match builtin with
@@ -115,30 +102,34 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
        | Method_not_allowed -> observe "unmatched"; { Response.status = 405; headers = []; body = "" }
        | Found (route, params) ->
          observe route.Route.pattern;
-         let result =
-           let* auth_ctx = auth_result route.Route.auth headers in
-           let* body_str = body_result headers body max_body_bytes in
-           let trace_ctx =
-             Http.Header.to_list headers
-             |> Obs_trace.extract_from_headers
-           in
-           let sun_req = Request.{
-             method_    = meth;
-             path;
-             headers;
-             params;
-             uri;
-             body       = body_str;
-             auth       = auth_ctx;
-             trace_ctx;
-           } in
-           (try Ok (route.Route.handler sun_req)
-            with exn ->
-              Printf.eprintf "sun-svc: handler exception: %s\n%!"
-                (Printexc.to_string exn);
-              Ok (Response.internal_error "Internal server error"))
-         in
-         (match result with Ok r | Error r -> r))
+         (match Auth.validate route.Route.auth headers with
+          | Error (`Unauthorized _)    -> Response.unauthorized
+          | Error (`Forbidden _)       -> Response.forbidden
+          | Error (`Server_error msg)  -> Response.internal_error msg
+          | Error (`Not_implemented _) -> Response.not_implemented
+          | Ok auth_ctx ->
+            (match read_body_limited headers body max_body_bytes with
+             | None -> Response.payload_too_large
+             | Some body_str ->
+               let trace_ctx =
+                 Http.Header.to_list headers
+                 |> Obs_trace.extract_from_headers
+               in
+               let sun_req = Request.{
+                 method_    = meth;
+                 path;
+                 headers;
+                 params;
+                 uri;
+                 body       = body_str;
+                 auth       = auth_ctx;
+                 trace_ctx;
+               } in
+               (try route.Route.handler sun_req
+                with exn ->
+                  Printf.eprintf "sun-svc: handler exception: %s\n%!"
+                    (Printexc.to_string exn);
+                  Response.internal_error "Internal server error"))))
 
 (* ── Signal handling ───────────────────────────────────────────────────── *)
 
