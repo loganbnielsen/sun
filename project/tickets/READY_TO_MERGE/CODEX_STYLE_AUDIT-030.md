@@ -25,3 +25,6 @@ responses.
   `Topic_not_found` or `Topic_partitions of int`.
 - Update `Kafka_service.register` partition guard logic.
 - Add tests for malformed admin responses if existing HTTP test support allows.
+
+## Review — automated checks passed
+CODEX_STYLE_AUDIT-030 passes review. Redpanda topic lookup now returns typed metadata: Topic_not_found, Topic_partitions n, or typed admin/malformed-response errors. Kafka_service.register treats only Topic_not_found as safe to create, preserves the partition reduction guard, and reports admin/malformed metadata failures clearly. Focused Kafka service tests pass, including malformed admin response coverage; hook suites passed during commit after transient full-run timing spikes.
