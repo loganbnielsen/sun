@@ -32,7 +32,7 @@ type t = {
 }
 
 let ensure_topic rk ~topic_name ~partitions =
-  let err = Kafka_raw.create_topic rk topic_name partitions 1 in
+  let err = Kafka_raw.create_topic rk ~topic_name ~partitions ~replication_factor:1 in
   if err <> 0 then
     Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_raw.err2str err))
   else

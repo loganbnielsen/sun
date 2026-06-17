@@ -61,13 +61,17 @@ external consumer_close : kafka_handle -> unit
 external assignment_count : kafka_handle -> int
   = "ocaml_rd_kafka_assignment_count"
 
-external create_topic : kafka_handle -> string -> int -> int -> int
+external create_topic_raw : kafka_handle -> string -> int -> int -> int
   = "ocaml_rd_kafka_create_topic"
+let create_topic h ~topic_name ~partitions ~replication_factor =
+  create_topic_raw h topic_name partitions replication_factor
 
-external commit_message
+external commit_message_raw
   :  kafka_handle -> string -> int32 -> int64 -> bool
   -> (unit, int) result
   = "ocaml_rd_kafka_commit_message"
+let commit_message h ~topic ~partition ~offset ~async =
+  commit_message_raw h topic partition offset async
 
 external pipe_create : unit -> int * int
   = "ocaml_kafka_pipe_create"
