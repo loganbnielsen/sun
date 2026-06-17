@@ -3,6 +3,8 @@ id: REFAC-061
 type: audit-finding
 severity: low
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-061/flatten-read-api-key
+worktree: ../sun-REFAC-061-flatten-read-api-key
 ---
 
 Flatten `read_api_key` three-level option nest in `auth.ml`

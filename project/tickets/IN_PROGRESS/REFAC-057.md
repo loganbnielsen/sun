@@ -3,6 +3,8 @@ id: REFAC-057
 type: audit-finding
 severity: medium
 source: ocaml-type-safety-audit 2026-06-16
+branch: REFAC-057/typed-secret-backend
+worktree: ../sun-REFAC-057-typed-secret-backend
 ---
 
 Change `env_config.secret_backend` from `string` to `Sun_cli_manifest.secret_backend`
