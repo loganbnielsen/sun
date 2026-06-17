@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-022
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-022/typed-pipeline-states
+worktree: /home/lbendtly/Code/sun-CODEX-022
 ---
 
 Replace `sundev` pipeline string states with variants.
