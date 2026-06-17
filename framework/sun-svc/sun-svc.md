@@ -74,13 +74,18 @@ type level =
   ]
 
 and jwt_config =
-  { scopes                     : string list
+  { scopes       : string list
   (** Required scopes, e.g. ["write:payments"]. All must be present. *)
-  ; allow_unverified_v1_unsafe : bool
-  (** v1: JWT signature is NOT verified. Must be [true] to opt in explicitly.
-      Set to [false] (or upgrade to v2) before any public-facing deployment.
-      When [false] and v2 verification is not implemented, requests return 501. *)
+  ; verification : jwt_verification
+  (** [Verified_signature_required] is the production-facing mode. It returns
+      501 until v2 signature verification is implemented.
+      [Unverified_dev_only] decodes unsigned v1 tokens and must only be used
+      for local development and tests. *)
   }
+
+and jwt_verification =
+  | Verified_signature_required
+  | Unverified_dev_only
 
 (** Resolved identity after successful validation.
     Available in the handler via [Request.t.auth]. *)
@@ -123,8 +128,8 @@ Environment variables do not update in a running process on Linux. Relying on
 On success: `Service { key_id }` where `key_id` is the first 8 characters of the
 validated key. Missing header or wrong value → 401.
 
-**`` `Jwt config ``** — validates `Authorization: Bearer <token>`. For v1
-(`allow_unverified_v1_unsafe = true`):
+**`` `Jwt config ``** — validates `Authorization: Bearer <token>`.
+For v1 development mode (`verification = Unverified_dev_only`):
 
 1. Split on `.`, assert three segments (header.payload.signature).
 2. Base64url-decode the payload. Parse as JSON with `Yojson.Safe.from_string`.
@@ -133,7 +138,7 @@ validated key. Missing header or wrong value → 401.
    (space-separated string or JSON array).
 5. Return `User { sub; scopes = token_scopes; claims = full_payload_json }`.
 
-When `allow_unverified_v1_unsafe = false` and v2 not implemented → 501.
+When `verification = Verified_signature_required` and v2 is not implemented → 501.
 
 **Error responses:**
 
@@ -145,7 +150,7 @@ When `allow_unverified_v1_unsafe = false` and v2 not implemented → 501.
 | Malformed JWT (not three base64 segments) | 401 |
 | Expired JWT | 401 |
 | JWT missing a required scope | 403 |
-| `allow_unverified_v1_unsafe = false`, v2 not implemented | 501 |
+| `verification = Verified_signature_required`, v2 not implemented | 501 |
 
 ---
 
@@ -566,7 +571,7 @@ Eio.Promise.await server_ready;
 - Jwt missing one scope → 403
 - Jwt expired → 401; malformed → 401
 - Jwt scope superset (token has more than required) → ok
-- `allow_unverified_v1_unsafe = false` → 501
+- `verification = Verified_signature_required` → 501
 
 ### `test_service.ml`
 
@@ -607,7 +612,7 @@ let handle_internal req =
 module H = struct
   let routes =
     [ Route.post "/payments/charge"
-        ~auth:(`Jwt { scopes = ["write:payments"]; allow_unverified_v1_unsafe = true })
+        ~auth:(`Jwt { scopes = ["write:payments"]; verification = Unverified_dev_only })
         handle_charge
     ; Route.post "/payments/internal/charge"
         ~auth:`Api_key
@@ -628,8 +633,8 @@ let () =
 
 ## Out of Scope (v1)
 
-- **JWT signature verification** — `allow_unverified_v1_unsafe` must be `true` in v1;
-  `false` triggers a 501 until v2 JWKS verification is implemented
+- **JWT signature verification** — `Unverified_dev_only` is the v1 local-development mode;
+  `Verified_signature_required` triggers a 501 until v2 JWKS verification is implemented
 - **HTTPS / TLS** — terminate at k8s ingress; plain HTTP inside the cluster
 - **HTTP keep-alive** — one request per TCP connection
 - **Request body streaming** — body pre-read to string (bounded by `max_body_bytes`)
