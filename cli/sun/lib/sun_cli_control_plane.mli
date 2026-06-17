@@ -42,8 +42,9 @@ type registry_ops = {
   update_service_digest : string -> string -> string -> string -> (unit, string) result;
   (** [update_service_digest release_id service_name image_ref digest_str] records the image
       and digest for one service within [release_id]. *)
-  update_release_status : string -> Sun_cli_registry.release_status -> (unit, string) result;
-  (** [update_release_status release_id status] updates the status of [release_id]. *)
+  update_release_status : string -> string -> (unit, string) result;
+  (** [update_release_status release_id status_str] updates the status of [release_id].
+      Accepts ["failed"], ["building"], ["live"], or ["queued"]. *)
 }
 
 val handle : registry_ops -> request -> response
