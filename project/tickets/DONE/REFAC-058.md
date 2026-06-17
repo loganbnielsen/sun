@@ -33,3 +33,6 @@ Additionally, `secret_backend_to_string` (lines 47–50) converts the variant ba
 2. Change `run`'s `secret_backend_str : string` parameter (and associated `store_ref`, `store_kind`, `key_prefix`, `refresh_interval`) to a single `secret_backend : Sun_cli_manifest.secret_backend` value assembled by the converter.
 3. Delete `parse_secret_backend` — the validation happens at parse time, not inside the run function.
 4. The `secret_backend_to_string` helper can remain for display; consider moving it to `sun_cli_manifest.ml` as `Sun_cli_manifest.to_string`.
+
+## Review — automated checks passed
+All four remediation requirements are met. parse_secret_backend is deleted. run_config carries a single secret_backend : Sun_cli_manifest.secret_backend field. secret_backend_term assembles the typed variant before run is called. run uses cfg.secret_backend directly.
