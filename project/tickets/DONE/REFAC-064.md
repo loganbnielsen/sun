@@ -52,3 +52,6 @@ let build_and_push ~workspace_path ~service_dir ~image_ref ~log =
 ```
 
 Extract `copy_workspace`, `build_cmd`, `push_cmd` as small named helpers to keep the top-level pipeline readable.
+
+## Review — automated checks passed
+Build succeeds. Extracts copy_workspace, check_dockerfile, build_cmd, push_cmd helpers. Three duplicated cleanup calls replaced with Fun.protect ~finally:cleanup. Behavioral equivalence preserved. project/tickets/ unmodified in worktree.
