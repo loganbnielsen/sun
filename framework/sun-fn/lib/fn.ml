@@ -72,15 +72,13 @@ module Make (F : FN) = struct
      | `Completed (Error _) -> invocations ~labels:[("status","error")]     1
      | `Signalled           -> invocations ~labels:[("status","cancelled")] 1);
     (* Push errors are always swallowed — push never blocks exit *)
-    (match pushgateway_url with
-     | None -> ()
-     | Some url ->
-       (try
-          (match Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
-           | Ok ()    -> ()
-           | Error msg -> Printf.eprintf "sun-fn: push failed: %s\n%!" msg)
-        with exn ->
-          Printf.eprintf "sun-fn: push exception: %s\n%!" (Printexc.to_string exn)));
+    let push_metrics url =
+      match (try Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer
+             with exn -> Error (Printexc.to_string exn)) with
+      | Ok ()     -> ()
+      | Error msg -> Printf.eprintf "sun-fn: push failed (swallowed): %s\n%!" msg
+    in
+    Option.iter push_metrics pushgateway_url;
     match outcome with
     | `Completed (Ok ())     -> ()
     | `Completed (Error msg) -> raise (Failure msg)
