@@ -38,20 +38,41 @@ let ensure_topic rk ~topic_name ~partitions =
   else
     Ok ()
 
+type topic_partition_metadata =
+  | Topic_not_found
+  | Topic_partitions of int
+
+type topic_partition_error =
+  | Topic_admin_request_failed of string
+  | Topic_admin_unexpected_status of int * string
+  | Topic_admin_malformed_response of string
+
+let topic_partition_error_to_string = function
+  | Topic_admin_request_failed e ->
+    "admin API request failed: " ^ e
+  | Topic_admin_unexpected_status (status, body) ->
+    Printf.sprintf "admin API HTTP %d: %s" status body
+  | Topic_admin_malformed_response body ->
+    "malformed admin API topic response: " ^ body
+
+let decode_topic_partitions body =
+  try
+    match Yojson.Safe.from_string body with
+    | `Assoc fields ->
+      (match List.assoc_opt "partitions" fields with
+       | Some (`List parts) -> Ok (Topic_partitions (List.length parts))
+       | _ -> Error (Topic_admin_malformed_response body))
+    | _ -> Error (Topic_admin_malformed_response body)
+  with Yojson.Json_error _ ->
+    Error (Topic_admin_malformed_response body)
+
 let query_topic_partitions net ~clock ~admin_url ~topic_name =
   match Kafka_service_http.http_get net ~clock ~base_url:admin_url
           ~path:(Printf.sprintf "/v1/topics/%s" topic_name) with
-  | Error _ | Ok (404, _) -> None
-  | Ok (200, body) ->
-    (try
-      match Yojson.Safe.from_string body with
-      | `Assoc fields ->
-        (match List.assoc_opt "partitions" fields with
-         | Some (`List parts) -> Some (List.length parts)
-         | _ -> None)
-      | _ -> None
-    with _ -> None)
-  | Ok _ -> None
+  | Error e -> Error (Topic_admin_request_failed e)
+  | Ok (404, _) -> Ok Topic_not_found
+  | Ok (200, body) -> decode_topic_partitions body
+  | Ok (status, body) -> Error (Topic_admin_unexpected_status (status, body))
 
 let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
   let decode_err_count = match ot with

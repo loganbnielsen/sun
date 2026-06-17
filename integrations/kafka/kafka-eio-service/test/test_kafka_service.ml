@@ -159,6 +159,34 @@ let test_decode_registration_response_errors () =
     (Kafka_service_schema.decode_registration_response {|{"id":|})
 
 (* ------------------------------------------------------------------ *)
+(* Redpanda admin topic metadata decoding                             *)
+(* ------------------------------------------------------------------ *)
+
+let test_decode_topic_partitions () =
+  match Kafka_service_intf.decode_topic_partitions
+          {|{"partitions":[{"id":0},{"id":1},{"id":2}]}|} with
+  | Ok (Kafka_service_intf.Topic_partitions partitions) ->
+    Alcotest.(check int) "partition count" 3 partitions
+  | Ok Kafka_service_intf.Topic_not_found ->
+    Alcotest.fail "decoder should not return Topic_not_found for HTTP 200"
+  | Error e ->
+    Alcotest.failf "decode failed: %s"
+      (Kafka_service_intf.topic_partition_error_to_string e)
+
+let test_decode_topic_partitions_errors () =
+  let check_error name body =
+    match Kafka_service_intf.decode_topic_partitions body with
+    | Ok _ -> Alcotest.failf "%s: expected malformed response" name
+    | Error e ->
+      Alcotest.(check string) name
+        ("malformed admin API topic response: " ^ body)
+        (Kafka_service_intf.topic_partition_error_to_string e)
+  in
+  check_error "missing partitions" {|{"name":"orders"}|};
+  check_error "partitions not list" {|{"partitions":3}|};
+  check_error "malformed json" {|{"partitions":|}
+
+(* ------------------------------------------------------------------ *)
 (* Runner                                                              *)
 (* ------------------------------------------------------------------ *)
 
@@ -185,5 +213,9 @@ let () =
       test_case "compatibility response errors" `Quick test_decode_compatibility_response_errors;
       test_case "registration response" `Quick test_decode_registration_response;
       test_case "registration response errors" `Quick test_decode_registration_response_errors;
+    ];
+    "admin_topic_metadata", [
+      test_case "topic partitions" `Quick test_decode_topic_partitions;
+      test_case "topic partition errors" `Quick test_decode_topic_partitions_errors;
     ];
   ]

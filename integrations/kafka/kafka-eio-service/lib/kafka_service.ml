@@ -57,9 +57,14 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
             ~admin_url:svc.admin_url ~topic_name:M.topic_name with
-    | None -> Ok ()
-    | Some current when current <= svc.partitions -> Ok ()
-    | Some current ->
+    | Error e ->
+      Error (Printf.sprintf
+        "could not query topic '%s' metadata: %s"
+        M.topic_name
+        (Kafka_service_intf.topic_partition_error_to_string e))
+    | Ok Kafka_service_intf.Topic_not_found -> Ok ()
+    | Ok (Kafka_service_intf.Topic_partitions current) when current <= svc.partitions -> Ok ()
+    | Ok (Kafka_service_intf.Topic_partitions current) ->
       Error (Printf.sprintf
         "partition count for topic '%s' cannot be reduced from %d to %d; \
          delete the topic first if this change is intentional"
