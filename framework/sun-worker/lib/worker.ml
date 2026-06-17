@@ -106,23 +106,21 @@ module Make (W : WORKER) = struct
               Kafka_consumer.Error Kafka_error.Application
           end
         in
+        let ( let* ) = Result.bind in
         (match _consume_loop with
          | Some f ->
            (* test injection: _consume_loop drives handler directly, no retry *)
            f ~handler (); Ok ()
          | None ->
-           (match Kafka_service.create config ~sw with
-            | Error msg -> Error (`Create msg)
-            | Ok svc ->
-              (match Kafka_service.register svc
-                       ~net:env#net ~clock:env#clock (module W.Message) with
-               | Error msg -> Error (`Register msg)
-               | Ok topic ->
-                 match Kafka_service.consume_partitioned svc topic
-                         ~group_id:W.group_id ~sw ~clock:env#clock
-                         ?on_ready ~retry_strategy ~on_retry ?ot ~handler () with
-                 | Ok ()    -> Ok ()
-                 | Error ke -> Error (`Consume ke))))
+           let* svc = Kafka_service.create config ~sw
+             |> Result.map_error (fun msg -> `Create msg) in
+           let* topic = Kafka_service.register svc
+               ~net:env#net ~clock:env#clock (module W.Message)
+             |> Result.map_error (fun msg -> `Register msg) in
+           Kafka_service.consume_partitioned svc topic
+               ~group_id:W.group_id ~sw ~clock:env#clock
+               ?on_ready ~retry_strategy ~on_retry ?ot ~handler ()
+             |> Result.map_error (fun ke -> `Consume ke))
       )
     in
     match result with
