@@ -248,7 +248,8 @@ module Pg_registry = struct
     (Caqti_type.(t2 string string) ->. Caqti_type.unit)
       "UPDATE hosted_releases SET status = ? WHERE release_id = ?"
 
-  let pg_update_status pool release_id status_str =
+  let pg_update_status pool release_id status =
+    let status_str = Sun_cli_registry.release_status_to_string status in
     match Db.exec pool update_status_q (status_str, release_id) with
     | Ok () -> Ok ()
     | Error e -> Error (storage_err_to_string e)
