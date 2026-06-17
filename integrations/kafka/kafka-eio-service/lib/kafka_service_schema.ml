@@ -1,3 +1,45 @@
+type compatibility_response =
+  { is_compatible : bool
+  }
+
+type registration_response =
+  { id : int
+  }
+
+let decode_json ~parse_error resp_body =
+  try Ok (Yojson.Safe.from_string resp_body)
+  with Yojson.Json_error _ -> Error (parse_error resp_body)
+
+let decode_compatibility_response resp_body =
+  let ( let* ) = Result.bind in
+  let* json =
+    decode_json
+      ~parse_error:(fun body ->
+        "json parse error in registry response: " ^ body)
+      resp_body
+  in
+  match json with
+  | `Assoc fields ->
+    (match List.assoc_opt "is_compatible" fields with
+     | Some (`Bool is_compatible) -> Ok { is_compatible }
+     | _ -> Error ("unexpected registry response: " ^ resp_body))
+  | _ -> Error ("unexpected registry response: " ^ resp_body)
+
+let decode_registration_response resp_body =
+  let ( let* ) = Result.bind in
+  let* json =
+    decode_json
+      ~parse_error:(fun body ->
+        "schema registry: json parse error in: " ^ body)
+      resp_body
+  in
+  match json with
+  | `Assoc fields ->
+    (match List.assoc_opt "id" fields with
+     | Some (`Int id) -> Ok { id }
+     | _ -> Error ("schema registry: missing 'id' in: " ^ resp_body))
+  | _ -> Error ("schema registry: unexpected response: " ^ resp_body)
+
 module Schema = struct
   let check ~net ~clock ~registry_url (module M : Kafka_service_intf.MESSAGE) =
     let subject = M.topic_name ^ "-value" in
@@ -11,18 +53,13 @@ module Schema = struct
             ~body with
     | Error e -> Error ("connection failed: " ^ e)
     | Ok (200, resp_body) ->
-      (try
-        match Yojson.Safe.from_string resp_body with
-        | `Assoc fields ->
-          (match List.assoc_opt "is_compatible" fields with
-           | Some (`Bool true)  -> Ok ()
-           | Some (`Bool false) ->
-             Error (Printf.sprintf
-               "schema for topic '%s' is not compatible with the registered version"
-               M.topic_name)
-           | _ -> Error ("unexpected registry response: " ^ resp_body))
-        | _ -> Error ("unexpected registry response: " ^ resp_body)
-       with Yojson.Json_error _ -> Error ("json parse error in registry response: " ^ resp_body))
+      (match decode_compatibility_response resp_body with
+       | Error _ as err -> err
+       | Ok { is_compatible = true } -> Ok ()
+       | Ok { is_compatible = false } ->
+         Error (Printf.sprintf
+           "schema for topic '%s' is not compatible with the registered version"
+           M.topic_name))
     | Ok (404, _) ->
       Ok ()
     | Ok (status, body) ->
@@ -62,13 +99,9 @@ let register_schema net ~clock ~registry_url ~topic_name ~schema =
           ~body with
   | Error e -> Error ("schema registry connect: " ^ e)
   | Ok (status, resp_body) when status = 200 || status = 201 ->
-    (match Yojson.Safe.from_string resp_body with
-     | `Assoc fields ->
-       (match List.assoc_opt "id" fields with
-        | Some (`Int id) -> Ok id
-        | _ -> Error ("schema registry: missing 'id' in: " ^ resp_body))
-     | _ -> Error ("schema registry: unexpected response: " ^ resp_body)
-     | exception Yojson.Json_error _ -> Error ("schema registry: json parse error in: " ^ resp_body))
+    (match decode_registration_response resp_body with
+     | Ok { id } -> Ok id
+     | Error _ as err -> err)
   | Ok (status, resp_body) ->
     Error (Printf.sprintf "schema registry: HTTP %d: %s" status resp_body)
 
