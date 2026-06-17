@@ -80,18 +80,7 @@ type provider = Aws | Gcp
 
 let provider_name = function Aws -> "aws" | Gcp -> "gcp"
 
-let cloud_init use_aws use_gcp var_file dry_run =
-  (* Resolve provider — exactly one of --aws / --gcp required *)
-  let provider = match use_aws, use_gcp with
-    | true, false -> Aws
-    | false, true -> Gcp
-    | true, true ->
-      Printf.eprintf "error: --aws and --gcp are mutually exclusive.\n";
-      exit 1
-    | false, false ->
-      Printf.eprintf "error: specify --aws or --gcp.\n";
-      exit 1
-  in
+let cloud_init provider var_file dry_run =
   let pname = provider_name provider in
 
   (* Check prerequisites *)
@@ -172,10 +161,19 @@ let dry_run_flag =
          ~doc:"Run terraform plan instead of terraform apply. \
                No infrastructure is created.")
 
+let provider_term =
+  let combine aws gcp = match aws, gcp with
+    | true,  false -> `Ok Aws
+    | false, true  -> `Ok Gcp
+    | true,  true  -> `Error (false, "--aws and --gcp are mutually exclusive")
+    | false, false -> `Error (false, "specify --aws or --gcp")
+  in
+  Term.(ret (const combine $ aws_flag $ gcp_flag))
+
 let init_cmd =
   Cmd.v
     (Cmd.info "init"
        ~doc:"Provision cloud infrastructure via Terraform. \
              Requires the terraform binary in PATH and cloud credentials \
              in the environment (AWS_* or GOOGLE_* variables).")
-    Term.(const cloud_init $ aws_flag $ gcp_flag $ var_file_arg $ dry_run_flag)
+    Term.(const cloud_init $ provider_term $ var_file_arg $ dry_run_flag)
