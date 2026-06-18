@@ -3,25 +3,16 @@ let deploy_state_configmap_name workspace =
 
 let load_deployed_groups workspace =
   let name = deploy_state_configmap_name workspace in
-  let path = Filename.temp_file "sun-groups-" ".txt" in
-  let cmd = Printf.sprintf
-    "kubectl get configmap %s -n default \
-     -o jsonpath='{.data.consumer_groups}' 2>/dev/null > %s"
-    (Filename.quote name) (Filename.quote path)
+  let result =
+    Sun_process.run_argv ~echo:false
+      ["kubectl"; "get"; "configmap"; name; "-n"; "default"; "-o";
+       "jsonpath={.data.consumer_groups}"]
   in
-  let groups =
-    if Sys.command cmd <> 0 then []
-    else begin
-      let ic = open_in path in
-      let content = In_channel.input_all ic in
-      close_in ic;
-      String.split_on_char '\n' content
-      |> List.map String.trim
-      |> List.filter (fun s -> s <> "")
-    end
-  in
-  (try Sys.remove path with _ -> ());
-  groups
+  if result.exit_code <> 0 then []
+  else
+    String.split_on_char '\n' result.stdout
+    |> List.map String.trim
+    |> List.filter (fun s -> s <> "")
 
 let save_deployed_groups workspace groups =
   let name = deploy_state_configmap_name workspace in
