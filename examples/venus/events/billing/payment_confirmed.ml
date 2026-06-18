@@ -40,14 +40,14 @@ let required_int fields name =
   | Some _            -> Error (name ^ " must be an integer")
   | None              -> Error (name ^ " is required")
 
+let ( let* ) = Result.bind
+
 let decode = function
   | `Assoc fields ->
-    Result.bind (required_string fields "payment_id") @@ fun payment_id ->
-    Result.bind (required_string fields "charge_id") @@ fun charge_id ->
-    Result.bind (required_string fields "customer_id") @@ fun customer_id ->
-    Result.bind (required_int fields "amount_cents") @@ fun amount_cents ->
-    Result.map
-      (fun currency ->
-         { payment_id; charge_id; customer_id; amount_cents; currency })
-      (required_string fields "currency")
+    let* payment_id = required_string fields "payment_id" in
+    let* charge_id = required_string fields "charge_id" in
+    let* customer_id = required_string fields "customer_id" in
+    let* amount_cents = required_int fields "amount_cents" in
+    let* currency = required_string fields "currency" in
+    Ok { payment_id; charge_id; customer_id; amount_cents; currency }
   | _ -> Error "expected object"

@@ -30,19 +30,26 @@ module OrderPlaced = struct
     ("correlation_id", `String t.correlation_id);
   ]
 
+  let ( let* ) = Result.bind
+
+  let required_string fields name =
+    match List.assoc_opt name fields with
+    | Some (`String value) -> Ok value
+    | Some _              -> Error (name ^ " must be a string")
+    | None                -> Error (name ^ " is required")
+
+  let required_int fields name =
+    match List.assoc_opt name fields with
+    | Some (`Int value) -> Ok value
+    | Some _            -> Error (name ^ " must be an integer")
+    | None              -> Error (name ^ " is required")
+
   let decode = function
     | `Assoc fields ->
-      let get_s k = match List.assoc_opt k fields with
-        | Some (`String s) -> Some s
-        | _ -> None
-      in
-      let get_i k = match List.assoc_opt k fields with
-        | Some (`Int i) -> Some i
-        | _ -> None
-      in
-      (match get_s "order_id", get_s "item", get_i "quantity", get_s "correlation_id" with
-       | Some order_id, Some item, Some quantity, Some correlation_id ->
-         Ok { order_id; item; quantity; correlation_id }
-       | _ -> Error "missing required fields")
+      let* order_id = required_string fields "order_id" in
+      let* item = required_string fields "item" in
+      let* quantity = required_int fields "quantity" in
+      let* correlation_id = required_string fields "correlation_id" in
+      Ok { order_id; item; quantity; correlation_id }
     | _ -> Error "expected object"
 end
