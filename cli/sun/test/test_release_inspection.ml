@@ -15,6 +15,16 @@ let contains_substring ~needle s =
     in
     go 0
 
+let cpu s =
+  match Sun_cli_toml.cpu_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let memory s =
+  match Sun_cli_toml.memory_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
 let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc)
     ?progressive_delivery () =
   { Sun_cli_deployment_plan.domain = "payments";
@@ -28,8 +38,8 @@ let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc)
     secrets = [ ("DATABASE_URL", "postgres://secret") ];
     schedule = None;
     replicas = 2;
-    cpu = "250m";
-    memory = "256Mi";
+    cpu = cpu "250m";
+    memory = memory "256Mi";
     rollout_strategy = None;
     ingress_host = None;
     ingress_path = None;

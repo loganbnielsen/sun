@@ -8,6 +8,26 @@ let check_bool   = Alcotest.(check bool)
 
 (* ── helpers ─────────────────────────────────────────────────────────────── *)
 
+let cpu s =
+  match Sun_cli_toml.cpu_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let memory s =
+  match Sun_cli_toml.memory_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let hostname s =
+  match Sun_cli_toml.hostname_of_string s with
+  | Ok host -> host
+  | Error message -> Alcotest.fail message
+
+let ingress_path s =
+  match Sun_cli_toml.ingress_path_of_string s with
+  | Ok path -> path
+  | Error message -> Alcotest.fail message
+
 let contains haystack needle =
   let hl = String.length haystack and nl = String.length needle in
   if nl = 0 then true
@@ -65,8 +85,8 @@ let svc_spec : Sun_cli_deployment_plan.service_spec = {
   secrets               = [];
   schedule              = None;
   replicas              = 2;
-  cpu                   = "200m";
-  memory                = "256Mi";
+  cpu                   = cpu "200m";
+  memory                = memory "256Mi";
   rollout_strategy      = None;
   ingress_host          = None;
   ingress_path          = None;
@@ -86,8 +106,8 @@ let worker_spec : Sun_cli_deployment_plan.service_spec = {
   secrets               = [];
   schedule              = None;
   replicas              = 1;
-  cpu                   = "100m";
-  memory                = "128Mi";
+  cpu                   = cpu "100m";
+  memory                = memory "128Mi";
   rollout_strategy      = None;
   ingress_host          = None;
   ingress_path          = None;
@@ -107,8 +127,8 @@ let fn_spec : Sun_cli_deployment_plan.service_spec = {
   secrets               = [];
   schedule              = Some "0 9 * * 1";
   replicas              = 1;
-  cpu                   = "100m";
-  memory                = "128Mi";
+  cpu                   = cpu "100m";
+  memory                = memory "128Mi";
   rollout_strategy      = None;
   ingress_host          = None;
   ingress_path          = None;
@@ -348,8 +368,8 @@ let test_svc_render_spec_matches_render () =
     secrets               = [];
     schedule              = None;
     replicas              = 1;
-    cpu                   = "100m";
-    memory                = "128Mi";
+    cpu                   = cpu "100m";
+    memory                = memory "128Mi";
     rollout_strategy      = None;
     ingress_host          = None;
     ingress_path          = None;
@@ -479,13 +499,13 @@ let test_rollout_blue_green_secrets_use_sun_secrets () =
 
 let test_ingress_host_override () =
   (* ingress_host override must appear in the Ingress rule *)
-  let spec = { svc_spec with ingress_host = Some "payments.example.com" } in
+  let spec = { svc_spec with ingress_host = Some (hostname "payments.example.com") } in
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
   assert_contains "ingress host" workload "host: payments.example.com"
 
 let test_ingress_path_override () =
   (* ingress_path override must appear in the path field *)
-  let spec = { svc_spec with ingress_path = Some "/api/v2" } in
+  let spec = { svc_spec with ingress_path = Some (ingress_path "/api/v2") } in
   let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
   assert_contains "ingress path" workload "path: /api/v2"
 
@@ -559,9 +579,81 @@ ingress_path = "/v1"
   let toml = Sun_cli_toml.load path in
   Sys.remove path;
   check_bool "ingress_host parsed"
-    true (toml.Sun_cli_toml.ingress_host = Some "api.example.com");
+    true
+    (Option.map Sun_cli_toml.hostname_to_string toml.Sun_cli_toml.ingress_host
+     = Some "api.example.com");
   check_bool "ingress_path parsed"
-    true (toml.Sun_cli_toml.ingress_path = Some "/v1")
+    true
+    (Option.map Sun_cli_toml.ingress_path_to_string toml.Sun_cli_toml.ingress_path
+     = Some "/v1")
+
+let test_toml_invalid_cpu_quantity () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.scale]
+cpu = "250Mi"
+|};
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Validation { message; _ }) ->
+    assert_contains "invalid cpu quantity" message "cpu quantity"
+  | Ok _ ->
+    Alcotest.fail "expected invalid CPU quantity to be rejected"
+  | Error (Sun_cli_toml.Toml_syntax _) ->
+    Alcotest.fail "expected validation error, got syntax error"
+
+let test_toml_invalid_memory_quantity () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.scale]
+memory = "many"
+|};
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Validation { message; _ }) ->
+    assert_contains "invalid memory quantity" message "memory quantity"
+  | Ok _ ->
+    Alcotest.fail "expected invalid memory quantity to be rejected"
+  | Error (Sun_cli_toml.Toml_syntax _) ->
+    Alcotest.fail "expected validation error, got syntax error"
+
+let test_toml_invalid_ingress_host () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.deploy]
+ingress_host = "Bad_Host.example.com"
+|};
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Validation { message; _ }) ->
+    assert_contains "invalid ingress host" message "ingress_host"
+  | Ok _ ->
+    Alcotest.fail "expected invalid ingress_host to be rejected"
+  | Error (Sun_cli_toml.Toml_syntax _) ->
+    Alcotest.fail "expected validation error, got syntax error"
+
+let test_toml_invalid_ingress_path () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc {|[infra.deploy]
+ingress_path = "api/v1"
+|};
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Validation { message; _ }) ->
+    assert_contains "invalid ingress path" message "ingress_path"
+  | Ok _ ->
+    Alcotest.fail "expected invalid ingress_path to be rejected"
+  | Error (Sun_cli_toml.Toml_syntax _) ->
+    Alcotest.fail "expected validation error, got syntax error"
 
 let test_toml_secret_keys () =
   let path = Filename.temp_file "sun-toml-test-" ".toml" in
@@ -726,9 +818,13 @@ memory = "256Mi"
   check_bool "replicas from dotted header"
     true (toml.Sun_cli_toml.replicas = Some 3);
   check_bool "cpu from dotted header"
-    true (toml.Sun_cli_toml.cpu = Some "250m");
+    true
+    (Option.map Sun_cli_toml.cpu_quantity_to_string toml.Sun_cli_toml.cpu
+     = Some "250m");
   check_bool "memory from dotted header"
-    true (toml.Sun_cli_toml.memory = Some "256Mi")
+    true
+    (Option.map Sun_cli_toml.memory_quantity_to_string toml.Sun_cli_toml.memory
+     = Some "256Mi")
 
 let test_toml_canary_pause_steps () =
   (* Canary steps with pause = {} and pause = {duration = 60} inline tables *)
@@ -936,6 +1032,10 @@ let () =
       ; Alcotest.test_case "reserved label key rejected"   `Quick test_toml_reserved_label_key
       ; Alcotest.test_case "valid Recreate from toml"      `Quick test_toml_valid_rollout_recreate
       ; Alcotest.test_case "valid ingress overrides toml"  `Quick test_toml_valid_ingress_overrides
+      ; Alcotest.test_case "invalid cpu quantity"          `Quick test_toml_invalid_cpu_quantity
+      ; Alcotest.test_case "invalid memory quantity"       `Quick test_toml_invalid_memory_quantity
+      ; Alcotest.test_case "invalid ingress host"          `Quick test_toml_invalid_ingress_host
+      ; Alcotest.test_case "invalid ingress path"          `Quick test_toml_invalid_ingress_path
       ; Alcotest.test_case "secret keys from toml"          `Quick test_toml_secret_keys
       ; Alcotest.test_case "valid canary rollout toml"     `Quick test_toml_valid_canary_rollout
       ; Alcotest.test_case "valid blue-green rollout toml" `Quick test_toml_valid_blue_green_rollout

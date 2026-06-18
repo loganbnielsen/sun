@@ -17,6 +17,16 @@ let get_ok = function
   | Ok v -> v
   | Error msg -> Alcotest.fail msg
 
+let cpu s =
+  match Sun_cli_toml.cpu_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let memory s =
+  match Sun_cli_toml.memory_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
 let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc) () =
   { Sun_cli_deployment_plan.domain = "payments";
     source_name = name;
@@ -29,8 +39,8 @@ let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc) ()
     secrets = [ ("DATABASE_URL", "ignored-secret-ref") ];
     schedule = None;
     replicas = 2;
-    cpu = "250m";
-    memory = "256Mi";
+    cpu = cpu "250m";
+    memory = memory "256Mi";
     rollout_strategy = None;
     ingress_host = None;
     ingress_path = None;

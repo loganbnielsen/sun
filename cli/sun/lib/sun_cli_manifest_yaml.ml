@@ -517,14 +517,30 @@ spec:
 
 let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
   let replicas         = Option.value toml.replicas ~default:1 in
-  let cpu              = Option.value toml.cpu      ~default:"100m" in
-  let memory           = Option.value toml.memory   ~default:"128Mi" in
+  let cpu              =
+    match toml.cpu with
+    | Some cpu -> Sun_cli_toml.cpu_quantity_to_string cpu
+    | None -> "100m"
+  in
+  let memory           =
+    match toml.memory with
+    | Some memory -> Sun_cli_toml.memory_quantity_to_string memory
+    | None -> "128Mi"
+  in
   let rollout_strategy = Option.value toml.rollout_strategy
                            ~default:Sun_cli_toml.RollingUpdate in
   let progressive_delivery = toml.progressive_delivery in
   let extra_labels     = toml.extra_labels in
-  let ingress_host     = Option.value toml.ingress_host ~default:"" in
-  let ingress_path     = Option.value toml.ingress_path ~default:"/" in
+  let ingress_host     =
+    match toml.ingress_host with
+    | Some host -> Sun_cli_toml.hostname_to_string host
+    | None -> ""
+  in
+  let ingress_path     =
+    match toml.ingress_path with
+    | Some path -> Sun_cli_toml.ingress_path_to_string path
+    | None -> "/"
+  in
   let config_hash      = config_hash toml.env_config in
   let ns_yaml = namespace_doc ~ns in
   let workload_yaml =

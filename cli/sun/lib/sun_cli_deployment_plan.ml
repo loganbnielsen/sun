@@ -30,11 +30,11 @@ type service_spec = {
   secrets               : (string * string) list;
   schedule              : string option;
   replicas              : int;
-  cpu                   : string;
-  memory                : string;
+  cpu                   : Sun_cli_toml.cpu_quantity;
+  memory                : Sun_cli_toml.memory_quantity;
   rollout_strategy      : Sun_cli_toml.rollout_strategy option;
-  ingress_host          : string option;
-  ingress_path          : string option;
+  ingress_host          : Sun_cli_toml.hostname option;
+  ingress_path          : Sun_cli_toml.ingress_path option;
   extra_labels          : (string * string) list;
   progressive_delivery  : Sun_cli_toml.progressive_delivery option;
 }
@@ -63,6 +63,16 @@ let prim_to_string = function
 
 let secret_backend_to_json backend =
   `String (Sun_cli_manifest.secret_backend_to_string backend)
+
+let default_cpu =
+  match Sun_cli_toml.cpu_quantity_of_string "100m" with
+  | Ok cpu -> cpu
+  | Error message -> invalid_arg message
+
+let default_memory =
+  match Sun_cli_toml.memory_quantity_of_string "128Mi" with
+  | Ok memory -> memory
+  | Error message -> invalid_arg message
 
 let effective_rollout_strategy s =
   match s.progressive_delivery with
@@ -110,7 +120,12 @@ let to_json t =
     match s.ingress_host with
     | None      -> `Null
     | Some host ->
-      let path = Option.value s.ingress_path ~default:"/" in
+      let host = Sun_cli_toml.hostname_to_string host in
+      let path =
+        match s.ingress_path with
+        | Some path -> Sun_cli_toml.ingress_path_to_string path
+        | None -> "/"
+      in
       `Assoc [ "host", `String host; "path", `String path ]
   in
   let service_to_json (s : service_spec) =
@@ -130,8 +145,8 @@ let to_json t =
       "secret_keys", `List  (List.map (fun (k, _) -> `String k) s.secrets);
       "schedule",    opt_string s.schedule;
       "replicas",    `Int    s.replicas;
-      "cpu",         `String s.cpu;
-      "memory",      `String s.memory;
+      "cpu",         `String (Sun_cli_toml.cpu_quantity_to_string s.cpu);
+      "memory",      `String (Sun_cli_toml.memory_quantity_to_string s.memory);
       "rollout_strategy",     `String rollout_strategy;
       "ingress",              ingress_json s;
       "progressive_delivery", progressive_delivery_to_json s.progressive_delivery;
@@ -250,8 +265,8 @@ let of_services_result ~workspace ~env services =
     ; secrets               = List.map (fun key -> (key, "")) toml.Sun_cli_toml.secret_keys
     ; schedule
     ; replicas              = Option.value toml.Sun_cli_toml.replicas ~default:1
-    ; cpu                   = Option.value toml.Sun_cli_toml.cpu      ~default:"100m"
-    ; memory                = Option.value toml.Sun_cli_toml.memory   ~default:"128Mi"
+    ; cpu                   = Option.value toml.Sun_cli_toml.cpu      ~default:default_cpu
+    ; memory                = Option.value toml.Sun_cli_toml.memory   ~default:default_memory
     ; rollout_strategy      = toml.Sun_cli_toml.rollout_strategy
     ; ingress_host          = toml.Sun_cli_toml.ingress_host
     ; ingress_path          = toml.Sun_cli_toml.ingress_path

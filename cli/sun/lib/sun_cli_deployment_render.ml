@@ -11,8 +11,18 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
   let img              = if image = "" then spec_image else image in
   let rollout_strategy = Option.value rollout_strategy
                            ~default:Sun_cli_toml.RollingUpdate in
-  let ingress_host     = Option.value ingress_host ~default:"" in
-  let ingress_path     = Option.value ingress_path ~default:"/" in
+  let cpu              = Sun_cli_toml.cpu_quantity_to_string cpu in
+  let memory           = Sun_cli_toml.memory_quantity_to_string memory in
+  let ingress_host     =
+    match ingress_host with
+    | Some host -> Sun_cli_toml.hostname_to_string host
+    | None -> ""
+  in
+  let ingress_path     =
+    match ingress_path with
+    | Some path -> Sun_cli_toml.ingress_path_to_string path
+    | None -> "/"
+  in
   let cfg_hash         = Sun_cli_manifest.config_hash config in
   Sun_cli_manifest.(
     let ns_yaml = namespace_doc ~ns in
