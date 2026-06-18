@@ -73,6 +73,75 @@ let test_table_offset_rejects_negative () =
   | Error err ->
     Alcotest.failf "unexpected error: %s" (Storage_error.to_string err)
 
+let assert_invalid_identifier kind name expected =
+  match Table.Identifier.of_string ~kind name with
+  | Ok _ ->
+    Alcotest.failf "expected invalid %s identifier: %S" kind name
+  | Error (Storage_error.Query_error msg) ->
+    Alcotest.(check string) "identifier error" expected msg
+  | Error err ->
+    Alcotest.failf "unexpected error: %s" (Storage_error.to_string err)
+
+let apply_schema ~table ~id_column ~columns =
+  let module Schema = struct
+    let table = table
+    let id_column = id_column
+    let columns = columns
+    type t = int
+    type id = int
+    let row_type = Caqti_type.int
+    let id_type = Caqti_type.int
+    let get_id id = id
+  end in
+  let module _ = Table.Make(Schema) in
+  ()
+
+let assert_invalid_schema label f expected =
+  match f () with
+  | () ->
+    Alcotest.failf "expected invalid schema: %s" label
+  | exception Invalid_argument msg ->
+    Alcotest.(check string) label expected msg
+
+let test_table_identifier_rejects_invalid_names () =
+  let cases = [
+    "", "table identifier must not be empty";
+    "1users",
+    "table identifier \"1users\" is unsafe; expected [A-Za-z_][A-Za-z0-9_]*";
+    "users; DROP TABLE users",
+    "table identifier \"users; DROP TABLE users\" is unsafe; expected [A-Za-z_][A-Za-z0-9_]*";
+    "public.users",
+    "table identifier \"public.users\" is unsafe; expected [A-Za-z_][A-Za-z0-9_]*";
+  ] in
+  List.iter (fun (name, expected) ->
+    assert_invalid_identifier "table" name expected
+  ) cases
+
+let test_table_make_rejects_invalid_table_name () =
+  assert_invalid_schema "invalid table name"
+    (fun () ->
+      apply_schema
+        ~table:"users; DROP TABLE users"
+        ~id_column:"id"
+        ~columns:["id"])
+    "table identifier \"users; DROP TABLE users\" is unsafe; expected [A-Za-z_][A-Za-z0-9_]*"
+
+let test_table_make_rejects_invalid_column_names () =
+  assert_invalid_schema "invalid id column"
+    (fun () ->
+      apply_schema
+        ~table:"users"
+        ~id_column:"id; DROP TABLE users"
+        ~columns:["id"])
+    "column identifier \"id; DROP TABLE users\" is unsafe; expected [A-Za-z_][A-Za-z0-9_]*";
+  assert_invalid_schema "invalid row column"
+    (fun () ->
+      apply_schema
+        ~table:"users"
+        ~id_column:"id"
+        ~columns:["id"; ""])
+    "column identifier must not be empty"
+
 (* ── Integration tests (require POSTGRES_URL) ───────────────────────────── *)
 
 let test_pool_create () =
@@ -459,6 +528,14 @@ let () =
         test_table_limit_rejects_non_positive;
       test_case "rejects_negative_offset"    `Quick
         test_table_offset_rejects_negative;
+    ];
+    "table_identifiers", [
+      test_case "constructor_rejects_invalid_names" `Quick
+        test_table_identifier_rejects_invalid_names;
+      test_case "make_rejects_invalid_table_name" `Quick
+        test_table_make_rejects_invalid_table_name;
+      test_case "make_rejects_invalid_column_names" `Quick
+        test_table_make_rejects_invalid_column_names;
     ];
     "integration", [
       test_case "pool_create"         `Quick test_pool_create;

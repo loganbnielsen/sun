@@ -1,13 +1,14 @@
 module type SCHEMA = sig
   val table     : string
-  (** Postgres table name. *)
+  (** Postgres table name. Validated by [Make] as an unquoted SQL identifier. *)
 
   val id_column : string
-  (** Name of the primary-key column. *)
+  (** Name of the primary-key column. Validated by [Make] as an unquoted SQL
+      identifier. *)
 
   val columns   : string list
   (** All column names in declaration order; must match the fields encoded by
-      [row_type]. *)
+      [row_type]. Validated by [Make] as unquoted SQL identifiers. *)
 
   type t
   (** OCaml row type. *)
@@ -21,6 +22,19 @@ module type SCHEMA = sig
 
   val id_type  : id Caqti_type.t
   val get_id   : t -> id
+end
+
+(** Validated unquoted SQL identifier.
+
+    Identifiers must match [[A-Za-z_][A-Za-z0-9_]*]. Quoted identifiers and
+    schema-qualified names are intentionally rejected because [Table.Make]
+    interpolates identifiers into generated SQL without quoting. *)
+module Identifier : sig
+  type t = private string
+
+  val of_string : ?kind:string -> string -> (t, Storage_error.t) result
+  val of_string_exn : ?kind:string -> string -> t
+  val to_string : t -> string
 end
 
 (** Validated LIMIT value for table listing. *)
