@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-074
 type: refactor
 severity: medium
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-074/contributing-map
+worktree: /home/lbendtly/Code/sun-CODEX-074
 ---
 
 Create a contributor map for ownership boundaries and extension points.
