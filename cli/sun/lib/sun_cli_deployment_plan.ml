@@ -59,6 +59,9 @@ let prim_to_string = function
   | Worker -> "worker"
   | Fn     -> "fn"
 
+let secret_backend_to_json backend =
+  `String (Sun_cli_manifest.secret_backend_to_string backend)
+
 let effective_rollout_strategy s =
   match s.progressive_delivery with
   | Some (Sun_cli_toml.Canary _) -> Effective_canary
@@ -143,7 +146,7 @@ let to_json t =
       "image_tag",      `String env.image_tag;
       "region",         opt_string env.region;
       "base_domain",    opt_string env.base_domain;
-      "secret_backend", `String (Sun_cli_manifest.secret_backend_to_string env.secret_backend);
+      "secret_backend", secret_backend_to_json env.secret_backend;
     ];
     "services",         `List (List.map service_to_json t.services);
     "topics",           `List (List.map (fun s -> `String s) t.topics);
