@@ -9,6 +9,9 @@ Validate storage table and column identifiers before SQL construction.
 
 **Depends on:** none.
 
+branch: CODEX_STYLE_AUDIT-038/storage-identifiers
+worktree: /home/lbendtly/Code/sun-CODEX-038
+
 **Problem:** `integrations/storage/sun-storage/lib/table.ml:3-5` accepts `table`,
 `id_column`, and `columns` as raw strings, then interpolates them into SQL at
 `table.ml:17-34`. Caqti parameters protect values, not identifiers.
