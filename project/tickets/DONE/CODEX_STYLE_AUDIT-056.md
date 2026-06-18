@@ -20,3 +20,9 @@ management path.
 - Change `mode_of_env` to return `(mode, string) result`.
 - Update `set`, `list`, and `delete` to handle unknown modes explicitly.
 - Keep accepted aliases documented and tested.
+
+Completion: secret environment parsing now returns a typed `Result`, accepts
+only documented hosted/local/customer-cloud aliases, and makes set/list/delete
+return an explicit error for unknown modes instead of defaulting to customer
+cloud. Focused secret tests and the affected CLI build pass. No baseline changes
+accepted.

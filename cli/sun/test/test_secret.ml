@@ -1,6 +1,9 @@
 let check_string = Alcotest.(check string)
 let check_bool = Alcotest.(check bool)
 
+let check_mode label expected actual =
+  check_bool label true (actual = Ok expected)
+
 let contains haystack needle =
   let hl = String.length haystack and nl = String.length needle in
   if nl = 0 then true
@@ -30,6 +33,29 @@ let test_key_validation_rejects_hyphen () =
   | Error msg ->
     check_string "error"
       "secret key may contain only uppercase letters, digits, and underscores"
+      msg
+
+let test_mode_of_env_accepts_hosted_aliases () =
+  List.iter
+    (fun env -> check_mode env Sun_cli_secret.Sun_hosted (Sun_cli_secret.mode_of_env env))
+    [ "hosted"; "sun_hosted"; "sun-hosted" ]
+
+let test_mode_of_env_accepts_local_aliases () =
+  List.iter
+    (fun env -> check_mode env Sun_cli_secret.Local (Sun_cli_secret.mode_of_env env))
+    [ "local"; "dev" ]
+
+let test_mode_of_env_accepts_customer_cloud_aliases () =
+  List.iter
+    (fun env -> check_mode env Sun_cli_secret.Customer_cloud (Sun_cli_secret.mode_of_env env))
+    [ "cloud"; "customer_cloud"; "customer-cloud" ]
+
+let test_mode_of_env_rejects_unknown () =
+  match Sun_cli_secret.mode_of_env "staging" with
+  | Ok _ -> Alcotest.fail "unknown env accepted"
+  | Error msg ->
+    check_string "error"
+      "unknown secret environment \"staging\"; expected one of: hosted, sun_hosted, sun-hosted, local, dev, cloud, customer_cloud, customer-cloud"
       msg
 
 let test_secret_manifest_contains_value_boundary () =
@@ -65,12 +91,30 @@ let test_hosted_stub_boundary () =
       "hosted secret management will use the Sun control-plane API; no hosted endpoint is configured yet"
       msg
 
+let test_list_rejects_unknown_env () =
+  match Sun_cli_secret.list
+          ~env:"staging"
+          ~workspace:"myapp"
+          ~namespaces:[ "myapp-payments" ] with
+  | Ok _ -> Alcotest.fail "unknown env list unexpectedly succeeded"
+  | Error msg ->
+    check_string "unknown env"
+      "unknown secret environment \"staging\"; expected one of: hosted, sun_hosted, sun-hosted, local, dev, cloud, customer_cloud, customer-cloud"
+      msg
+
 let () =
   Alcotest.run "secret"
     [ "validation", [
         Alcotest.test_case "accepts env style key" `Quick test_key_validation_accepts_env_style_key
       ; Alcotest.test_case "rejects lowercase" `Quick test_key_validation_rejects_lowercase
       ; Alcotest.test_case "rejects hyphen" `Quick test_key_validation_rejects_hyphen
+      ]
+    ; "env", [
+        Alcotest.test_case "accepts hosted aliases" `Quick test_mode_of_env_accepts_hosted_aliases
+      ; Alcotest.test_case "accepts local aliases" `Quick test_mode_of_env_accepts_local_aliases
+      ; Alcotest.test_case "accepts customer cloud aliases" `Quick test_mode_of_env_accepts_customer_cloud_aliases
+      ; Alcotest.test_case "rejects unknown parser input" `Quick test_mode_of_env_rejects_unknown
+      ; Alcotest.test_case "rejects unknown operation env" `Quick test_list_rejects_unknown_env
       ]
     ; "rendering", [
         Alcotest.test_case "k8s materialization manifest" `Quick test_secret_manifest_contains_value_boundary

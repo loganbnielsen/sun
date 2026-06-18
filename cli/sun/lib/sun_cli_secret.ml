@@ -7,10 +7,16 @@ type action_result =
   | Hosted_unavailable of string
 
 let mode_of_env env =
-  match String.lowercase_ascii (String.trim env) with
-  | "hosted" | "sun_hosted" | "sun-hosted" -> Sun_hosted
-  | "local" | "dev" -> Local
-  | _ -> Customer_cloud
+  let normalized = String.lowercase_ascii (String.trim env) in
+  match normalized with
+  | "hosted" | "sun_hosted" | "sun-hosted" -> Ok Sun_hosted
+  | "local" | "dev" -> Ok Local
+  | "cloud" | "customer_cloud" | "customer-cloud" -> Ok Customer_cloud
+  | _ ->
+    Error
+      (Printf.sprintf
+         "unknown secret environment %S; expected one of: hosted, sun_hosted, sun-hosted, local, dev, cloud, customer_cloud, customer-cloud"
+         env)
 
 let is_key_char = function
   | 'A' .. 'Z' | '0' .. '9' | '_' -> true
@@ -190,8 +196,9 @@ let set ~env ~workspace:_ ~namespaces ~key ~value =
   | Error _ as e -> e
   | Ok () ->
     (match mode_of_env env with
-     | Sun_hosted -> hosted_stub env
-     | Local | Customer_cloud ->
+     | Error _ as e -> e
+     | Ok Sun_hosted -> hosted_stub env
+     | Ok (Local | Customer_cloud) ->
        (match require_namespaces namespaces with
         | Error _ as e -> e
         | Ok () ->
@@ -238,8 +245,9 @@ let read_keys namespace =
 
 let list ~env ~workspace:_ ~namespaces =
   match mode_of_env env with
-  | Sun_hosted -> hosted_stub env
-  | Local | Customer_cloud ->
+  | Error _ as e -> e
+  | Ok Sun_hosted -> hosted_stub env
+  | Ok (Local | Customer_cloud) ->
     (match require_namespaces namespaces with
      | Error _ as e -> e
      | Ok () ->
@@ -258,8 +266,9 @@ let delete ~env ~workspace:_ ~namespaces ~key =
   | Error _ as e -> e
   | Ok () ->
     (match mode_of_env env with
-     | Sun_hosted -> hosted_stub env
-     | Local | Customer_cloud ->
+     | Error _ as e -> e
+     | Ok Sun_hosted -> hosted_stub env
+     | Ok (Local | Customer_cloud) ->
        (match require_namespaces namespaces with
         | Error _ as e -> e
         | Ok () ->

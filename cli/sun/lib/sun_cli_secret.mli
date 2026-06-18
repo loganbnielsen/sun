@@ -6,7 +6,7 @@ type action_result =
   | Listed of string list
   | Hosted_unavailable of string
 
-val mode_of_env : string -> mode
+val mode_of_env : string -> (mode, string) result
 val validate_key : string -> (unit, string) result
 val secret_manifest :
   existing_data:(string * string) list ->
