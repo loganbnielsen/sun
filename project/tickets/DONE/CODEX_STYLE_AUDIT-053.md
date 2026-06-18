@@ -20,3 +20,9 @@ as aliases of `string`. The compiler cannot prevent swapping them.
 - Replace string aliases with private wrapper types or modules per ID kind.
 - Keep validated constructors and string conversion helpers.
 - Update hosted model, hosted executor, and tests.
+
+Completion: hosted IDs now use distinct abstract wrapper modules with validated
+string constructors and explicit string conversion helpers. Hosted model and
+executor JSON/release boundaries unwrap IDs deliberately, focused hosted tests
+and the affected CLI build pass, and valid JSON output remains unchanged. No
+baseline changes accepted.

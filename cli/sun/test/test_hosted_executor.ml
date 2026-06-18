@@ -1,5 +1,7 @@
 let check_string = Alcotest.(check string)
 
+let environment_id = Sun_cli_hosted_model.environment_id_to_string
+
 let contains_substring ~needle s =
   let ln = String.length needle in
   let ls = String.length s in
@@ -109,7 +111,7 @@ let test_mock_submit_returns_release_shape () =
   let plan = hosted_plan () in
   let release = Sun_cli_hosted_executor.submit_mock (request plan) |> get_ok in
   check_string "release id" "rel_env-prod_abc123" release.release_id;
-  check_string "environment id" "env_prod" release.environment_id;
+  check_string "environment id" "env_prod" (environment_id release.environment_id);
   check_string "environment name" "production" release.environment_name;
   check_string "status" "mock_submitted"
     (Sun_cli_hosted_executor.release_status_to_string release.status);
@@ -208,10 +210,12 @@ let test_rejects_serialized_plan_mismatch () =
 let test_rejects_non_hosted_plan () =
   let plan = hosted_plan ~mode:Sun_cli_deployment_plan.Customer_cloud () in
   let target = {
-    Sun_cli_hosted_model.account_id = "acct_123";
-    project_id = "proj_123";
-    environment_id = "env_prod";
-    runtime_id = "rt_123";
+    Sun_cli_hosted_model.account_id =
+      Sun_cli_hosted_model.Account_id.of_string "acct_123" |> get_ok;
+    project_id = Sun_cli_hosted_model.Project_id.of_string "proj_123" |> get_ok;
+    environment_id =
+      Sun_cli_hosted_model.Environment_id.of_string "env_prod" |> get_ok;
+    runtime_id = Sun_cli_hosted_model.Runtime_id.of_string "rt_123" |> get_ok;
     workspace = "pluto";
     environment_name = "production";
   } in

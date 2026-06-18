@@ -1,5 +1,10 @@
 let check_string = Alcotest.(check string)
 
+let account_id = Sun_cli_hosted_model.account_id_to_string
+let project_id = Sun_cli_hosted_model.project_id_to_string
+let environment_id = Sun_cli_hosted_model.environment_id_to_string
+let runtime_id = Sun_cli_hosted_model.runtime_id_to_string
+
 let get_ok = function
   | Ok v -> v
   | Error msg -> Alcotest.fail msg
@@ -64,14 +69,16 @@ let fixture () =
 
 let test_account_fields () =
   let account, _, _, _ = fixture () in
-  check_string "account id" "acct_123" account.Sun_cli_hosted_model.account_id;
+  check_string "account id" "acct_123"
+    (account_id account.Sun_cli_hosted_model.account_id);
   check_string "billing" "ready"
     (Sun_cli_hosted_model.billing_state_to_string account.billing_state);
   Alcotest.(check (option int)) "spend cap" (Some 50000) account.spend_cap_cents
 
 let test_single_tenant_runtime () =
   let account, _, runtime, _ = fixture () in
-  check_string "account link" account.account_id runtime.account_id;
+  check_string "account link" (account_id account.account_id)
+    (account_id runtime.account_id);
   check_string "tenancy" "single_tenant"
     (Sun_cli_hosted_model.tenancy_to_string runtime.tenancy);
   check_string "kind" "kubernetes"
@@ -83,11 +90,18 @@ let test_secret_scope () =
     Sun_cli_hosted_model.secret_scope ~account ~project ~environment
     |> get_ok
   in
-  check_string "account" account.account_id scope.account_id;
-  check_string "project" project.project_id scope.project_id;
-  check_string "environment" environment.environment_id scope.environment_id;
-  let json = Yojson.Safe.to_string (Sun_cli_hosted_model.secret_scope_to_json scope) in
-  if String.contains json ':' = false then Alcotest.fail "expected JSON object"
+  check_string "account" (account_id account.account_id)
+    (account_id scope.account_id);
+  check_string "project" (project_id project.project_id)
+    (project_id scope.project_id);
+  check_string "environment" (environment_id environment.environment_id)
+    (environment_id scope.environment_id);
+  let json =
+    Yojson.Safe.to_string (Sun_cli_hosted_model.secret_scope_to_json scope)
+  in
+  check_string "json"
+    {|{"account_id":"acct_123","project_id":"proj_123","environment_id":"env_prod"}|}
+    json
 
 let test_spend_guardrail_within_cap () =
   let account, _, _, _ = fixture () in
@@ -150,8 +164,10 @@ let test_cost_attribution_record () =
       ()
     |> get_ok
   in
-  check_string "account" environment.account_id attribution.account_id;
-  check_string "environment" environment.environment_id attribution.environment_id;
+  check_string "account" (account_id environment.account_id)
+    (account_id attribution.account_id);
+  check_string "environment" (environment_id environment.environment_id)
+    (environment_id attribution.environment_id);
   let json =
     Yojson.Safe.to_string
       (Sun_cli_hosted_model.cost_attribution_to_json attribution)
@@ -189,9 +205,14 @@ let test_release_target_success () =
   in
   check_string "workspace" "pluto" target.workspace;
   check_string "environment" "production" target.environment_name;
-  check_string "runtime" runtime.runtime_id target.runtime_id;
-  let json = Yojson.Safe.to_string (Sun_cli_hosted_model.release_target_to_json target) in
-  if not (String.contains json '{') then Alcotest.fail "expected JSON object"
+  check_string "runtime" (runtime_id runtime.runtime_id)
+    (runtime_id target.runtime_id);
+  let json =
+    Yojson.Safe.to_string (Sun_cli_hosted_model.release_target_to_json target)
+  in
+  check_string "json"
+    {|{"account_id":"acct_123","project_id":"proj_123","environment_id":"env_prod","runtime_id":"rt_123","workspace":"pluto","environment_name":"production"}|}
+    json
 
 let test_release_target_rejects_workspace_mismatch () =
   let account, project, runtime, environment = fixture () in

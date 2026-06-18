@@ -59,7 +59,8 @@ let normalize_id value =
 let release_id ~(target : Sun_cli_hosted_model.release_target)
     ~(plan : Sun_cli_deployment_plan.t) =
   Printf.sprintf "rel_%s_%s"
-    (normalize_id target.environment_id)
+    (normalize_id
+       (Sun_cli_hosted_model.environment_id_to_string target.environment_id))
     (normalize_id plan.environment.image_tag)
 
 let find_image_ref service_name (image_refs : image_ref list) =
@@ -155,7 +156,9 @@ let submit_mock request =
           let inspection =
             Sun_cli_release_inspection.release_summary
               ~release_id
-              ~environment_id:target.environment_id
+              ~environment_id:
+                (Sun_cli_hosted_model.environment_id_to_string
+                   target.environment_id)
               ~environment_name:target.environment_name
               ~status:Sun_cli_release_inspection.Mock_submitted
               ~plan
@@ -189,7 +192,9 @@ let release_to_json release =
   `Assoc [
     "_note", `String "experimental hosted executor mock; no control plane submission occurred";
     "release_id", `String release.release_id;
-    "environment_id", `String release.environment_id;
+    "environment_id",
+      `String
+        (Sun_cli_hosted_model.environment_id_to_string release.environment_id);
     "environment_name", `String release.environment_name;
     "status", `String (release_status_to_string release.status);
     "services", `List (List.map service_to_json release.services);

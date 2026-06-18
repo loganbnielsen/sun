@@ -4,11 +4,46 @@
     hosted executor spike. It intentionally does not implement auth, persistence,
     provisioning, billing-provider integration, or RBAC. *)
 
-type account_id = string
-type project_id = string
-type environment_id = string
-type runtime_id = string
-type attribution_id = string
+module Account_id : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Project_id : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Environment_id : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Runtime_id : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Attribution_id : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+type account_id = Account_id.t
+type project_id = Project_id.t
+type environment_id = Environment_id.t
+type runtime_id = Runtime_id.t
+type attribution_id = Attribution_id.t
 
 type billing_state =
   | Billing_ready
@@ -119,7 +154,7 @@ type early_cost_plus_billing_record = {
 }
 
 val make_account :
-  account_id:account_id ->
+  account_id:string ->
   display_name:string ->
   billing_state:billing_state ->
   ?spend_cap_cents:int ->
@@ -128,14 +163,14 @@ val make_account :
   (account, string) result
 
 val make_project :
-  project_id:project_id ->
+  project_id:string ->
   account:account ->
   workspace:string ->
   display_name:string ->
   (project, string) result
 
 val make_runtime :
-  runtime_id:runtime_id ->
+  runtime_id:string ->
   account:account ->
   ?region:string ->
   ?base_domain:string ->
@@ -143,7 +178,7 @@ val make_runtime :
   (runtime_substrate, string) result
 
 val make_environment :
-  environment_id:environment_id ->
+  environment_id:string ->
   account:account ->
   project:project ->
   runtime:runtime_substrate ->
@@ -173,7 +208,7 @@ val evaluate_spend_guardrail :
   (spend_guardrail, string) result
 
 val make_cost_attribution :
-  attribution_id:attribution_id ->
+  attribution_id:string ->
   environment:environment ->
   runtime:runtime_substrate ->
   billing_period:string ->
@@ -209,3 +244,8 @@ val runtime_kind_to_string : runtime_kind -> string
 val cap_behavior_to_string : cap_behavior -> string
 val cap_status_to_string : cap_status -> string
 val billing_record_status_to_string : billing_record_status -> string
+val account_id_to_string : account_id -> string
+val project_id_to_string : project_id -> string
+val environment_id_to_string : environment_id -> string
+val runtime_id_to_string : runtime_id -> string
+val attribution_id_to_string : attribution_id -> string
