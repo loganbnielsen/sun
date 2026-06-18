@@ -9,6 +9,9 @@ Type Loki stream label selection instead of passing raw label-name strings.
 
 **Depends on:** CODEX_STYLE_AUDIT-032.
 
+branch: CODEX_STYLE_AUDIT-034/loki-label-selection
+worktree: /home/lbendtly/Code/sun-CODEX-034
+
 **Problem:** `integrations/observability/obs-eio-loki/lib/obs_loki.ml:188-206`
 accepts `?(label_names = [])` as raw strings and looks them up in ambient
 context. A typo silently omits the intended label.
