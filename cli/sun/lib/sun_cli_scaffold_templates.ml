@@ -592,7 +592,8 @@ let ws_svc_bin_ml = {tpl|let env_nonempty name =
 let optional_log_backend ~net ~clock = function
   | None     -> Obs.stdout
   | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
+    Obs_loki.create ~net ~clock ~url
+      ~label_names:[Obs_loki.stream_label "team"] ()
 
 let optional_db_pool ~sw ~stdenv postgres_url =
   Option.bind postgres_url (fun url ->
@@ -692,7 +693,8 @@ let ws_worker_bin_ml = {tpl|let env_nonempty name =
 let optional_log_backend ~net ~clock = function
   | None     -> Obs.stdout
   | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
+    Obs_loki.create ~net ~clock ~url
+      ~label_names:[Obs_loki.stream_label "team"] ()
 
 let optional_db_pool ~sw ~stdenv postgres_url =
   Option.bind postgres_url (fun url ->

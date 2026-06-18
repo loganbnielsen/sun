@@ -6,7 +6,8 @@ let env_nonempty name =
 let optional_log_backend ~net ~clock = function
   | None     -> Obs.stdout
   | Some url ->
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
+    Obs_loki.create ~net ~clock ~url
+      ~label_names:[Obs_loki.stream_label "team"] ()
 
 let require_storage label = function
   | Ok value -> value

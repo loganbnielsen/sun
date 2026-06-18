@@ -59,7 +59,8 @@ let log_backend ~net ~clock = function
     Obs.stdout
   | Some url ->
     Printf.printf "\n  Logs -> Loki at %s\n%!" url;
-    Obs_loki.create ~net ~clock ~url ~label_names:["service"; "team"] ()
+    Obs_loki.create ~net ~clock ~url
+      ~label_names:[Obs_loki.stream_label "team"] ()
 
 let require_storage label = function
   | Ok value -> value

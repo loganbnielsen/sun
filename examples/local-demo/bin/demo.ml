@@ -159,7 +159,7 @@ let () =
       Obs.stdout
     | Some url ->
       Printf.printf "\n  Logs -> Loki at %s\n%!" url;
-      Obs_loki.create ~net:env#net ~clock:env#clock ~url ~label_names:["service"] ()
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
   let backend   = Obs.compose log_backend prom_backend in
   let svc_ot    = Obs.create ~service:"order-svc"

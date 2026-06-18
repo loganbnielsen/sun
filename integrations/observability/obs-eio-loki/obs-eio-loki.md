@@ -25,9 +25,10 @@ val create
   -> clock:_ Eio.Time.clock
   -> url:string
      (** Base URL, e.g. "http://localhost:3100". Push path appended automatically. *)
-  -> ?label_names:string list
+  -> ?label_names:Obs_loki.stream_label list
      (** Context field names to promote to Loki stream labels (low-cardinality only).
-         [service] is always included. Default: [[]]. *)
+         Missing context fields are logged to stderr and omitted. [service] is
+         always included. Default: [[]]. *)
   -> unit
   -> Obs.backend
 ```
@@ -62,14 +63,15 @@ This makes them:
 
 ## Stream Labels
 
-Stream labels are always `{"service": "<service>"}` plus any context fields whose names
-appear in `label_names`. Keep labels low-cardinality — `env`, `region`, `tier` are good
-candidates; `payment_id`, `request_id` are not.
+Stream labels are always `{"service": "<service>"}` plus any selected context fields.
+Keep labels low-cardinality — `env`, `region`, `tier` are good candidates; `payment_id`,
+`request_id` are not.
 
 ```ocaml
 let loki = Obs_loki.create ~net:env#net ~clock:env#clock
              ~url:"http://localhost:3100"
-             ~label_names:["env"; "region"] () in
+             ~label_names:[Obs_loki.stream_label "env";
+                           Obs_loki.stream_label "region"] () in
 let ot = Obs.create ~service:"payments-worker"
            ~mono_clock:env#mono_clock ~backend:loki in
 let ot = Obs.with_context ot [("env", "prod"); ("region", "eu-west-1")] in

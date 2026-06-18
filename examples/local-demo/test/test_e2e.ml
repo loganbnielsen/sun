@@ -105,7 +105,7 @@ let run_golden_path () =
     match loki_url with
     | None     -> Obs.stdout
     | Some url ->
-      Obs_loki.create ~net:env#net ~clock:env#clock ~url ~label_names:["service"] ()
+      Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
   let backend   = Obs.compose log_backend prom_backend in
   let svc_ot    = Obs.create ~service:"order-svc"

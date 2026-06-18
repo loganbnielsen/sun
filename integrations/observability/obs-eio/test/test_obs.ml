@@ -290,7 +290,7 @@ let test_metric_name_validation () =
 
 let test_label_name_validation () =
   Alcotest.(check string) "valid label name"
-    "http_status" (Obs.label_name "http_status");
+    "http_status" (Obs.label_name_to_string (Obs.label_name "http_status"));
   check_invalid_arg "empty label name" (fun () ->
     ignore (Obs.label_name ""));
   check_invalid_arg "label name starting with digit" (fun () ->
