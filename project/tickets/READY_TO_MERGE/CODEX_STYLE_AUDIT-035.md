@@ -23,3 +23,6 @@ keys. This is fragile stringly-typed coupling between modules.
 - Emit `log_entries : log_entry list` instead of flattened magic fields.
 - Update stdout and Loki backends to render from the structured list.
 - Preserve current log output shape where tests depend on it.
+
+## Review — automated checks passed
+Implementation satisfies CODEX_STYLE_AUDIT-035: Obs.span_event now exposes structured log_entries while generated span fields remain empty/reserved; stdout renders through structured entries while preserving the prior flattened output shape; Loki renders from log_entries directly. Focused obs-eio/obs-eio-loki tests and dune build passed.
