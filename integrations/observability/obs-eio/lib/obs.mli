@@ -28,6 +28,14 @@
 (* Backend                                                             *)
 (* ------------------------------------------------------------------ *)
 
+type level = Debug | Info | Warn | Error
+
+type log_entry = {
+  level   : level;
+  message : string;
+  fields  : (string * string) list;
+}
+
 type span_event = {
   trace_ctx : Obs_trace.t;
   name      : string;
@@ -36,9 +44,10 @@ type span_event = {
   end_ns    : int64;
   status    : [ `Ok | `Error of string ];
   fields    : (string * string) list;
-  (** Flattened log entries from [log] calls within this span.
-      Each call contributes ["log.level"] and ["log.msg"] keys plus
-      any extra fields the caller supplied. Entries appear in call order. *)
+  (** Span-level fields reserved for backend-specific metadata. *)
+  log_entries : log_entry list;
+  (** Structured log entries from [log] calls within this span.
+      Entries appear in call order. *)
   context   : (string * string) list;
   (** Ambient context from [with_context] at the time the span was opened.
       Backends use this for stream labels (Loki) or resource attributes (OTLP). *)
@@ -102,12 +111,11 @@ val with_span : t -> ?parent:Obs_trace.t -> string -> (span -> 'a) -> 'a
     [parent] is typically from [Obs_trace.extract_from_headers] on the incoming
     Kafka message or HTTP request — linking this span to the upstream trace. *)
 
-type level = Debug | Info | Warn | Error
-
 val log : span -> level -> ?fields:(string * string) list -> string -> unit
 (** [log span level ?fields message] records a structured log entry inside an
-    active span. Entries are buffered and included in [span_event.fields] when
-    the span closes. The span's trace_id and span_id are attached automatically. *)
+    active span. Entries are buffered and included in [span_event.log_entries]
+    when the span closes. The span's trace_id and span_id are attached
+    automatically. *)
 
 val log_t : t -> level -> ?fields:(string * string) list -> string -> unit
 (** [log_t ot level ?fields message] logs without requiring an explicit span.

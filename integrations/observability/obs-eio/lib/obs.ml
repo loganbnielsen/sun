@@ -4,6 +4,12 @@
 
 type level = Debug | Info | Warn | Error
 
+type log_entry = {
+  level   : level;
+  message : string;
+  fields  : (string * string) list;
+}
+
 type span_event = {
   trace_ctx : Obs_trace.t;
   name      : string;
@@ -12,6 +18,7 @@ type span_event = {
   end_ns    : int64;
   status    : [ `Ok | `Error of string ];
   fields    : (string * string) list;
+  log_entries : log_entry list;
   context   : (string * string) list;
 }
 
@@ -45,8 +52,8 @@ type span = {
   sp_name    : string;
   sp_service : string;
   sp_start   : int64;
-  (* Accumulates (level, message, extra_fields) in reverse call order. *)
-  sp_log_buf : (level * string * (string * string) list) list ref;
+  (* Accumulates log entries in reverse call order. *)
+  sp_log_buf : log_entry list ref;
   sp_ot      : t;
 }
 
@@ -59,10 +66,12 @@ let now_ns t = Mtime.to_uint64_ns (t.get_time ())
 let level_string = function
   | Debug -> "debug" | Info -> "info" | Warn -> "warn" | Error -> "error"
 
-let flatten_logs buf =
-  List.concat_map (fun (lvl, msg, fields) ->
-    [("log.level", level_string lvl); ("log.msg", msg)] @ fields
-  ) (List.rev !buf)
+let log_entry_fields entry =
+  [("log.level", level_string entry.level); ("log.msg", entry.message)]
+  @ entry.fields
+
+let log_entries_fields entries =
+  List.concat_map log_entry_fields entries
 
 (* ------------------------------------------------------------------ *)
 (* Built-in backends                                                   *)
@@ -84,9 +93,10 @@ let stdout =
   { emit_span = (fun e ->
       let dur_ms = Int64.(to_float (sub e.end_ns e.start_ns)) /. 1e6 in
       let status = match e.status with `Ok -> "ok" | `Error s -> "error:" ^ s in
+      let fields = e.fields @ log_entries_fields e.log_entries in
       Printf.printf "SPAN  svc=%s name=%s %s status=%s dur=%.2fms%s\n%!"
         e.service e.name (pp_trace e.trace_ctx) status dur_ms
-        (if e.fields = [] then "" else " | " ^ pp_kv e.fields));
+        (if fields = [] then "" else " | " ^ pp_kv fields));
     emit_metric = (fun e ->
       let kind = match e.kind with
         | `Counter n   -> Printf.sprintf "counter=%d" n
@@ -142,11 +152,13 @@ let with_span t ?parent name f =
   Fun.protect
     ~finally:(fun () ->
       let end_ns = now_ns t in
+      let log_entries = List.rev !(sp.sp_log_buf) in
       t.backend.emit_span {
         trace_ctx = sp_ctx; name; service = t.service;
         start_ns = sp_start; end_ns;
         status = !outcome;
-        fields = flatten_logs sp.sp_log_buf;
+        fields = [];
+        log_entries;
         context = t.context;
       })
     (fun () ->
@@ -157,7 +169,7 @@ let with_span t ?parent name f =
         raise exn)
 
 let log sp level ?(fields = []) message =
-  sp.sp_log_buf := (level, message, fields) :: !(sp.sp_log_buf)
+  sp.sp_log_buf := { level; message; fields } :: !(sp.sp_log_buf)
 
 let log_t t level ?(fields = []) message =
   with_span t "log" (fun sp -> log sp level ~fields message)

@@ -48,6 +48,26 @@ type histogram_fn = ?labels:(string * string) list -> float -> unit
 ### `Obs`
 
 ```ocaml
+type level = Debug | Info | Warn | Error
+
+type log_entry = {
+  level   : level;
+  message : string;
+  fields  : (string * string) list;
+}
+
+type span_event = {
+  trace_ctx   : Obs_trace.t;
+  name        : string;
+  service     : string;
+  start_ns    : int64;
+  end_ns      : int64;
+  status      : [ `Ok | `Error of string ];
+  fields      : (string * string) list;
+  log_entries : log_entry list;
+  context     : (string * string) list;
+}
+
 type backend = {
   emit_span   : span_event   -> unit;
   emit_metric : metric_event -> unit;
@@ -67,7 +87,6 @@ val with_context : t -> (string * string) list -> t
 
 val with_span : t -> ?parent:Obs_trace.t -> string -> (span -> 'a) -> 'a
 
-type level = Debug | Info | Warn | Error
 val log             : span -> level -> ?fields:(string * string) list -> string -> unit
 val current_trace_ctx : span -> Obs_trace.t
 
