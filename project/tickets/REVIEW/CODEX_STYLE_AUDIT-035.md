@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-035
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-035/structured-log-entries
+worktree: /home/lbendtly/Code/sun-CODEX-035
 ---
 
 Represent buffered log entries structurally instead of flattening magic keys.
