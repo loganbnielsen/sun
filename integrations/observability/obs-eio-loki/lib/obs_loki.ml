@@ -122,33 +122,17 @@ let trace_fields trace_id span_id =
   [("trace_id", trace_id); ("span_id", span_id)]
 
 (* ------------------------------------------------------------------ *)
-(* Log entry reconstruction                                            *)
-(* ------------------------------------------------------------------ *)
-
-(* span_event.fields is a flat list of (key, value) pairs produced by
-   flatten_logs.  Each Obs.log call contributes ("log.level", _) and
-   ("log.msg", _) followed by any caller-supplied extra fields.
-   Split into per-entry sublists by grouping on "log.level" boundaries. *)
-let split_log_entries fields =
-  let rec go entries cur = function
-    | [] ->
-      if cur = [] then List.rev entries
-      else List.rev (List.rev cur :: entries)
-    | (("log.level", _) as kv) :: rest ->
-      let entries' =
-        if cur = [] then entries else List.rev cur :: entries
-      in
-      go entries' [kv] rest
-    | kv :: rest -> go entries (kv :: cur) rest
-  in
-  go [] [] fields
-
-(* ------------------------------------------------------------------ *)
 (* Payload construction (Yojson)                                       *)
 (* ------------------------------------------------------------------ *)
 
 let trace_id_hex (hi, lo) = Printf.sprintf "%016Lx%016Lx" hi lo
 let span_id_hex id        = Printf.sprintf "%016Lx" id
+
+let level_string = function
+  | Obs.Debug -> "debug"
+  | Obs.Info  -> "info"
+  | Obs.Warn  -> "warn"
+  | Obs.Error -> "error"
 
 (* Wall-clock nanoseconds from the Eio clock as a decimal string —
    Loki's timestamp format. *)
@@ -197,9 +181,8 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
     let trace_id = trace_id_hex e.trace_ctx.Obs_trace.trace_id in
     let span_id  = span_id_hex  e.trace_ctx.Obs_trace.span_id  in
     let trace    = trace_fields trace_id span_id in
-    let entries  = split_log_entries e.fields in
     let values =
-      if entries = [] then
+      if e.log_entries = [] then
         (* Span had no Obs.log calls — emit a single span-completion line. *)
         let status = match e.status with `Ok -> "ok" | `Error s -> "error:" ^ s in
         let line = logfmt
@@ -207,19 +190,14 @@ let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
         in
         [ (ts, line) ]
       else
-        List.map (fun entry ->
-          let level = Option.value ~default:"info"
-              (List.assoc_opt "log.level" entry) in
-          let msg   = Option.value ~default:""
-              (List.assoc_opt "log.msg" entry) in
-          let extra =
-            List.filter (fun (k, _) -> k <> "log.level" && k <> "log.msg") entry
-          in
+        List.map (fun (entry : Obs.log_entry) ->
           let line = logfmt
-            ([ ("level", level); ("msg", msg); ("span", e.name) ] @ extra @ trace)
+            ([ ("level", level_string entry.level);
+               ("msg", entry.message);
+               ("span", e.name) ] @ entry.fields @ trace)
           in
           (ts, line)
-        ) entries
+        ) e.log_entries
     in
     let body = loki_push_body ~stream_labels ~values in
     (match http_post ~net ~clock ~url ~body with

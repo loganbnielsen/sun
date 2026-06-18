@@ -170,14 +170,19 @@ let test_log_appends_to_span () =
   Obs.with_span ot "op" (fun sp ->
     Obs.log sp Obs.Info ~fields:[("key", "val")] "first";
     Obs.log sp Obs.Warn "second");
-  let fields = (List.hd !spans).Obs.fields in
-  Alcotest.(check bool) "fields non-empty"     true (fields <> []);
-  Alcotest.(check bool) "log.msg present"
-    true (List.exists (fun (k, _) -> k = "log.msg") fields);
-  Alcotest.(check bool) "log.level present"
-    true (List.exists (fun (k, _) -> k = "log.level") fields);
-  Alcotest.(check bool) "extra field present"
-    true (List.exists (fun (k, v) -> k = "key" && v = "val") fields)
+  let span = List.hd !spans in
+  Alcotest.(check (list (pair string string))) "span fields stay empty" [] span.Obs.fields;
+  let entries = span.Obs.log_entries in
+  Alcotest.(check int) "two log entries" 2 (List.length entries);
+  (match entries with
+   | [first; second] ->
+     Alcotest.(check bool) "first level" true (first.Obs.level = Obs.Info);
+     Alcotest.(check string) "first message" "first" first.Obs.message;
+     Alcotest.(check bool) "extra field present"
+       true (List.exists (fun (k, v) -> k = "key" && v = "val") first.Obs.fields);
+     Alcotest.(check bool) "second level" true (second.Obs.level = Obs.Warn);
+     Alcotest.(check string) "second message" "second" second.Obs.message
+   | _ -> Alcotest.fail "expected exactly two log entries")
 
 let test_log_order_preserved () =
   Eio_main.run @@ fun env ->
@@ -188,8 +193,8 @@ let test_log_order_preserved () =
   Obs.with_span ot "op" (fun sp ->
     Obs.log sp Obs.Info "first";
     Obs.log sp Obs.Info "second");
-  let msgs = (List.hd !spans).Obs.fields
-    |> List.filter_map (fun (k, v) -> if k = "log.msg" then Some v else None) in
+  let msgs = (List.hd !spans).Obs.log_entries
+    |> List.map (fun entry -> entry.Obs.message) in
   Alcotest.(check (list string)) "call order preserved" ["first"; "second"] msgs
 
 let test_current_trace_ctx_child_of_parent () =
@@ -378,7 +383,7 @@ let () =
       test_case "span emitted on close"           `Quick test_span_emitted;
       test_case "ok status on normal return"      `Quick test_span_ok_status;
       test_case "error status on exception"       `Quick test_span_error_status_on_exception;
-      test_case "log appends fields to span"      `Quick test_log_appends_to_span;
+      test_case "log appends entries to span"     `Quick test_log_appends_to_span;
       test_case "log order preserved"             `Quick test_log_order_preserved;
       test_case "current_trace_ctx child of parent" `Quick test_current_trace_ctx_child_of_parent;
       test_case "root span has valid traceparent" `Quick test_with_span_no_parent_generates_root;
