@@ -6,6 +6,8 @@ type action_result =
   | Listed of string list
   | Hosted_unavailable of string
 
+let ( let* ) = Result.bind
+
 let mode_of_env env =
   let normalized = String.lowercase_ascii (String.trim env) in
   match normalized with
@@ -129,6 +131,14 @@ let data_keys = function
      | _ -> [])
   | _ -> []
 
+let existing_data = function
+  | None -> []
+  | Some json ->
+    List.filter_map (function
+      | k, `String v -> Some (k, v)
+      | _ -> None
+    ) (data_keys json)
+
 (* List per-workload secret names in a namespace — secrets ending in "-secrets"
    except the shared sun-secrets object, which is patched separately for
    Argo Rollout compatibility. *)
@@ -161,19 +171,10 @@ let list_workload_secrets namespace =
   secrets
 
 let apply_to_named_secret ~secret_name ~namespace ~key ~value =
-  match get_named_secret_json ~name:secret_name namespace with
-  | Error _ as e -> e
-  | Ok existing ->
-    let existing_data = match existing with
-      | None -> []
-      | Some json ->
-        List.filter_map (function
-          | k, `String v -> Some (k, v)
-          | _ -> None
-        ) (data_keys json)
-    in
-    let yaml = named_secret_manifest ~secret_name ~existing_data ~namespace ~key ~value in
-    apply_manifest yaml
+  let* existing = get_named_secret_json ~name:secret_name namespace in
+  let existing_data = existing_data existing in
+  let yaml = named_secret_manifest ~secret_name ~existing_data ~namespace ~key ~value in
+  apply_manifest yaml
 
 let rollout_restart namespace =
   let cmd = Printf.sprintf
@@ -191,111 +192,96 @@ let require_namespaces namespaces =
   | [] -> Error "no target namespaces found for this workspace"
   | _ -> Ok ()
 
+let validate_operation_context ~env ~namespaces =
+  let* mode = mode_of_env env in
+  match mode with
+  | Sun_hosted -> hosted_stub env
+  | Local | Customer_cloud ->
+    let* () = require_namespaces namespaces in
+    Ok namespaces
+
+let rec iter_namespaces namespaces ~f =
+  match namespaces with
+  | [] -> Ok ()
+  | namespace :: rest ->
+    let* () = f namespace in
+    iter_namespaces rest ~f
+
+let rec fold_namespaces namespaces ~init ~f =
+  match namespaces with
+  | [] -> Ok init
+  | namespace :: rest ->
+    let* init = f init namespace in
+    fold_namespaces rest ~init ~f
+
+let patch_workload_secrets ~namespace ~key ~value =
+  list_workload_secrets namespace
+  |> List.map (fun secret_name ->
+       apply_to_named_secret ~secret_name ~namespace ~key ~value)
+  |> List.find_opt Result.is_error
+  |> function
+     | Some (Error _ as e) -> e
+     | _ -> Ok ()
+
 let set ~env ~workspace:_ ~namespaces ~key ~value =
-  match validation_error (validate_key key) with
-  | Error _ as e -> e
-  | Ok () ->
-    (match mode_of_env env with
-     | Error _ as e -> e
-     | Ok Sun_hosted -> hosted_stub env
-     | Ok (Local | Customer_cloud) ->
-       (match require_namespaces namespaces with
-        | Error _ as e -> e
-        | Ok () ->
-          let rec apply_all = function
-            | [] -> Ok (Applied namespaces)
-            | ns :: rest ->
-              (* Patch sun-secrets for Argo Rollout workloads *)
-              (match get_secret_json ns with
-               | Error _ as e -> e
-               | Ok existing ->
-                 let existing_data = match existing with
-                   | None -> []
-                   | Some json ->
-                     List.filter_map (function
-                       | k, `String v -> Some (k, v)
-                       | _ -> None
-                     ) (data_keys json)
-                 in
-                 let yaml = secret_manifest ~existing_data ~namespace:ns ~key ~value in
-                 match apply_manifest yaml with
-                 | Error _ as e -> e
-                 | Ok () ->
-                   (* Also patch each per-service secret so standard Deployment
-                      workloads (which mount <svc>-secrets, not sun-secrets) see
-                      the updated value immediately on next restart. *)
-                   let workload_secrets = list_workload_secrets ns in
-                   let patch_results = List.map (fun sname ->
-                     apply_to_named_secret ~secret_name:sname ~namespace:ns ~key ~value
-                   ) workload_secrets in
-                   let first_error = List.find_opt Result.is_error patch_results in
-                   (match first_error with
-                    | Some (Error _ as e) -> e
-                    | _ ->
-                      rollout_restart ns;
-                      apply_all rest))
-          in
-          apply_all namespaces))
+  let* () = validation_error (validate_key key) in
+  let* namespaces = validate_operation_context ~env ~namespaces in
+  let* () =
+    iter_namespaces namespaces ~f:(fun namespace ->
+      (* Patch sun-secrets for Argo Rollout workloads *)
+      let* existing = get_secret_json namespace in
+      let existing_data = existing_data existing in
+      let yaml = secret_manifest ~existing_data ~namespace ~key ~value in
+      let* () = apply_manifest yaml in
+      (* Also patch each per-service secret so standard Deployment workloads
+         (which mount <svc>-secrets, not sun-secrets) see the updated value
+         immediately on next restart. *)
+      let* () = patch_workload_secrets ~namespace ~key ~value in
+      rollout_restart namespace;
+      Ok ())
+  in
+  Ok (Applied namespaces)
 
 let read_keys namespace =
-  match get_secret_json namespace with
-  | Error _ as e -> e
-  | Ok None -> Ok []
-  | Ok (Some json) -> Ok (List.map fst (data_keys json))
+  let* json = get_secret_json namespace in
+  match json with
+  | None -> Ok []
+  | Some json -> Ok (List.map fst (data_keys json))
 
 let list ~env ~workspace:_ ~namespaces =
-  match mode_of_env env with
-  | Error _ as e -> e
-  | Ok Sun_hosted -> hosted_stub env
-  | Ok (Local | Customer_cloud) ->
-    (match require_namespaces namespaces with
-     | Error _ as e -> e
-     | Ok () ->
-       let keys =
-         List.fold_left (fun acc ns ->
-           match read_keys ns with
-           | Ok ks -> ks @ acc
-           | Error _ -> acc
-         ) [] namespaces
-         |> List.sort_uniq String.compare
-       in
-       Ok (Listed keys))
+  let* namespaces = validate_operation_context ~env ~namespaces in
+  let* keys =
+    fold_namespaces namespaces ~init:[] ~f:(fun acc namespace ->
+      match read_keys namespace with
+      | Ok keys -> Ok (keys @ acc)
+      | Error _ -> Ok acc)
+  in
+  Ok (Listed (List.sort_uniq String.compare keys))
 
 let delete ~env ~workspace:_ ~namespaces ~key =
-  match validation_error (validate_key key) with
-  | Error _ as e -> e
-  | Ok () ->
-    (match mode_of_env env with
-     | Error _ as e -> e
-     | Ok Sun_hosted -> hosted_stub env
-     | Ok (Local | Customer_cloud) ->
-       (match require_namespaces namespaces with
-        | Error _ as e -> e
-        | Ok () ->
-          let patch = Printf.sprintf
-            "[{\"op\":\"remove\",\"path\":\"/data/%s\"}]"
-            key
-          in
-          let remove_from namespace name =
-            let cmd = Printf.sprintf
-              "kubectl patch secret %s -n %s --type json -p %s >/dev/null 2>/dev/null || true"
-              (Filename.quote name)
-              (Filename.quote namespace)
-              (Filename.quote patch)
-            in
-            run_command cmd
-          in
-          let rec delete_all = function
-            | [] -> Ok (Deleted namespaces)
-            | ns :: rest ->
-              (match remove_from ns Sun_cli_manifest.runtime_secret_name with
-               | Error _ as e -> e
-               | Ok () ->
-                 let workload_secrets = list_workload_secrets ns in
-                 let _ = List.iter (fun sname ->
-                   let _ = remove_from ns sname in ()
-                 ) workload_secrets in
-                 rollout_restart ns;
-                 delete_all rest)
-          in
-          delete_all namespaces))
+  let* () = validation_error (validate_key key) in
+  let* namespaces = validate_operation_context ~env ~namespaces in
+  let patch = Printf.sprintf
+    "[{\"op\":\"remove\",\"path\":\"/data/%s\"}]"
+    key
+  in
+  let remove_from namespace name =
+    let cmd = Printf.sprintf
+      "kubectl patch secret %s -n %s --type json -p %s >/dev/null 2>/dev/null || true"
+      (Filename.quote name)
+      (Filename.quote namespace)
+      (Filename.quote patch)
+    in
+    run_command cmd
+  in
+  let* () =
+    iter_namespaces namespaces ~f:(fun namespace ->
+      let* () = remove_from namespace Sun_cli_manifest.runtime_secret_name in
+      list_workload_secrets namespace
+      |> List.iter (fun secret_name ->
+           let _ = remove_from namespace secret_name in
+           ());
+      rollout_restart namespace;
+      Ok ())
+  in
+  Ok (Deleted namespaces)
