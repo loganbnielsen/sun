@@ -14,6 +14,47 @@ module type SCHEMA = sig
   val get_id   : t -> id
 end
 
+module Limit : sig
+  type t = private int
+
+  val max_value : int
+  val of_int : int -> (t, Storage_error.t) result
+  val to_int : t -> int
+end = struct
+  type t = int
+
+  let max_value = 10_000
+
+  let of_int n =
+    if n <= 0 then
+      Error (Storage_error.Query_error "table list limit must be positive")
+    else if n > max_value then
+      Error
+        (Storage_error.Query_error
+           (Printf.sprintf "table list limit must be <= %d" max_value))
+    else
+      Ok n
+
+  let to_int n = n
+end
+
+module Offset : sig
+  type t = private int
+
+  val of_int : int -> (t, Storage_error.t) result
+  val to_int : t -> int
+end = struct
+  type t = int
+
+  let of_int n =
+    if n < 0 then
+      Error (Storage_error.Query_error "table list offset must be non-negative")
+    else
+      Ok n
+
+  let to_int n = n
+end
+
 module Make (S : SCHEMA) = struct
 
   let placeholders n =
@@ -43,5 +84,9 @@ module Make (S : SCHEMA) = struct
   let delete pool id  = Db.exec    pool delete_q  id
 
   let list pool ?(limit = 100) ?(offset = 0) () =
-    Db.collect pool list_q (limit, offset)
+    match Limit.of_int limit, Offset.of_int offset with
+    | Ok limit, Ok offset ->
+      Db.collect pool list_q (Limit.to_int limit, Offset.to_int offset)
+    | Error e, _ | _, Error e ->
+      Error e
 end
