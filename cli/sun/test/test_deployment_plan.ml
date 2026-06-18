@@ -371,6 +371,30 @@ let test_to_json_secret_backend () =
   assert (let re = Str.regexp {|"secret_backend"|} in
           (contains re s))
 
+let test_to_json_secret_backend_values () =
+  let check_backend backend expected =
+    let plan = sample_plan () in
+    let plan =
+      { plan with
+        environment = { plan.environment with secret_backend = backend } }
+    in
+    let json = Sun_cli_deployment_plan.to_json plan in
+    let actual =
+      Yojson.Safe.Util.(json |> member "environment" |> member "secret_backend" |> to_string)
+    in
+    Alcotest.(check string) expected expected actual
+  in
+  check_backend Sun_cli_manifest.Kubernetes_live "kubernetes-live";
+  check_backend Sun_cli_manifest.Kubernetes_placeholder "kubernetes-placeholder";
+  check_backend
+    (Sun_cli_manifest.External_secrets {
+       store_ref = "cluster-secret-store";
+       store_kind = "ClusterSecretStore";
+       key_prefix = "prod/myworkspace";
+       refresh_interval = "1h";
+     })
+    "external-secrets"
+
 let test_to_json_rollout_strategy () =
   let plan = sample_plan () in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
@@ -510,6 +534,7 @@ let () =
       ; Alcotest.test_case "config values present"   `Quick test_to_json_config_values_present
       ; Alcotest.test_case "mode strings"            `Quick test_to_json_mode_strings
       ; Alcotest.test_case "secret_backend present"  `Quick test_to_json_secret_backend
+      ; Alcotest.test_case "secret_backend values"   `Quick test_to_json_secret_backend_values
       ; Alcotest.test_case "rollout_strategy rolling_update" `Quick test_to_json_rollout_strategy
       ; Alcotest.test_case "rollout_strategy recreate"       `Quick test_to_json_rollout_strategy_recreate
       ; Alcotest.test_case "rollout_strategy canary"         `Quick test_to_json_rollout_strategy_canary
