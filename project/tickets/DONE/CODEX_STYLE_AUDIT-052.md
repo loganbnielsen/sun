@@ -21,3 +21,9 @@ component suffix, module template, and binary suffix.
 - Use one helper to compute directory, library name, module name, binary name,
   and common files.
 - Preserve generated file contents.
+
+Completion: service, worker, and function scaffolds now flow through a typed
+component-kind helper that computes the shared scaffold shape and writes common
+files. Byte-for-byte golden tests cover all three generated component layouts,
+and focused scaffold tests plus the affected CLI build pass. No baseline changes
+accepted.

@@ -144,61 +144,104 @@ let domain_name_or_exit arg =
 
 let ws_of_cwd () = norm (Filename.basename (Sys.getcwd ()))
 
+type component_kind =
+  | Service
+  | Worker
+  | Function
+
+type component_scaffold = {
+  kind_label : string;
+  dir : string;
+  lib : string;
+  mod_ : string;
+  binary : string;
+  files : (string * string) list;
+}
+
+let component_suffix = function
+  | Service -> "svc"
+  | Worker -> "worker"
+  | Function -> "fn"
+
+let component_module kind name =
+  match kind with
+  | Service -> "Handler"
+  | Worker -> cap name ^ "_worker"
+  | Function -> cap name ^ "_fn"
+
+let component_scaffold kind ~ws ~domain ~name =
+  let suffix = component_suffix kind in
+  let dir = Printf.sprintf "app/%s/%s_%s" domain name suffix in
+  let lib = Printf.sprintf "%s_%s_%s_%s" ws domain name suffix in
+  let mod_ = component_module kind name in
+  let binary = name ^ "-" ^ suffix in
+  let v = [
+    ("lib", lib);
+    ("dir", dir);
+    ("repo_dir", dir);
+    ("name", name);
+    ("domain", domain);
+    ("Mod", mod_);
+    ("binary", binary);
+  ] in
+  let files =
+    match kind with
+    | Service -> [
+        ("lib/handler.ml", svc_handler_ml);
+        ("lib/dune", subst v svc_lib_dune);
+        ("bin/main.ml", svc_bin_ml);
+        ("bin/dune", subst v svc_bin_dune);
+        ("sun.toml", tpl_sun_toml);
+        ("Dockerfile", subst v tpl_dockerfile);
+      ]
+    | Worker -> [
+        ("lib/" ^ name ^ "_worker.ml", subst v worker_lib_ml);
+        ("lib/dune", subst v worker_lib_dune);
+        ("bin/main.ml", subst v worker_bin_ml);
+        ("bin/dune", subst v worker_bin_dune);
+        ("sun.toml", tpl_sun_toml);
+        ("Dockerfile", subst v tpl_dockerfile);
+      ]
+    | Function -> [
+        ("lib/" ^ name ^ "_fn.ml", subst v fn_lib_ml);
+        ("lib/dune", subst v fn_lib_dune);
+        ("bin/main.ml", subst v fn_bin_ml);
+        ("bin/dune", subst v fn_bin_dune);
+        ("sun.toml", tpl_sun_toml);
+        ("Dockerfile", subst v tpl_dockerfile);
+      ]
+  in
+  { kind_label = suffix; dir; lib; mod_; binary; files }
+
+let write_component scaffold =
+  List.iter (fun (rel_path, content) ->
+    write ~path:(Filename.concat scaffold.dir rel_path) ~content
+  ) scaffold.files
+
 let new_svc arg =
   let ws = ws_of_cwd () in
   let domain, name = domain_name_or_exit arg in
-  let dir      = Printf.sprintf "app/%s/%s_svc" domain name in
-  let repo_dir = dir in
-  let lib      = Printf.sprintf "%s_%s_%s_svc" ws domain name in
-  let v = [("lib", lib); ("dir", dir); ("repo_dir", repo_dir);
-           ("name", name); ("domain", domain); ("binary", name ^ "-svc")] in
+  let scaffold = component_scaffold Service ~ws ~domain ~name in
   Printf.printf "\nScaffolding svc %s/%s_svc ...\n\n" domain name;
-  write ~path:(dir ^ "/lib/handler.ml") ~content:svc_handler_ml;
-  write ~path:(dir ^ "/lib/dune")       ~content:(subst v svc_lib_dune);
-  write ~path:(dir ^ "/bin/main.ml")    ~content:svc_bin_ml;
-  write ~path:(dir ^ "/bin/dune")       ~content:(subst v svc_bin_dune);
-  write ~path:(dir ^ "/sun.toml")       ~content:tpl_sun_toml;
-  write ~path:(dir ^ "/Dockerfile")     ~content:(subst v tpl_dockerfile);
-  Printf.printf "\nDone.  Build: dune build %s/bin/main.exe\n" dir
+  write_component scaffold;
+  Printf.printf "\nDone.  Build: dune build %s/bin/main.exe\n" scaffold.dir
 
 let new_worker arg =
   let ws = ws_of_cwd () in
   let domain, name = domain_name_or_exit arg in
-  let dir      = Printf.sprintf "app/%s/%s_worker" domain name in
-  let repo_dir = dir in
-  let lib      = Printf.sprintf "%s_%s_%s_worker" ws domain name in
-  let mod_     = cap name ^ "_worker" in
-  let v = [("lib", lib); ("dir", dir); ("repo_dir", repo_dir);
-           ("name", name); ("domain", domain); ("Mod", mod_);
-           ("binary", name ^ "-worker")] in
+  let scaffold = component_scaffold Worker ~ws ~domain ~name in
   Printf.printf "\nScaffolding worker %s/%s_worker ...\n\n" domain name;
-  write ~path:(dir ^ "/lib/" ^ (norm name) ^ "_worker.ml") ~content:(subst v worker_lib_ml);
-  write ~path:(dir ^ "/lib/dune")    ~content:(subst v worker_lib_dune);
-  write ~path:(dir ^ "/bin/main.ml") ~content:(subst v worker_bin_ml);
-  write ~path:(dir ^ "/bin/dune")    ~content:(subst v worker_bin_dune);
-  write ~path:(dir ^ "/sun.toml")    ~content:tpl_sun_toml;
-  write ~path:(dir ^ "/Dockerfile")  ~content:(subst v tpl_dockerfile);
+  write_component scaffold;
   Printf.printf "\nDone.  Replace the stub Message module with your event module, then:\n";
-  Printf.printf "  dune build %s/bin/main.exe\n" dir
+  Printf.printf "  dune build %s/bin/main.exe\n" scaffold.dir
 
 let new_fn arg =
   let ws = ws_of_cwd () in
   let domain, name = domain_name_or_exit arg in
-  let dir      = Printf.sprintf "app/%s/%s_fn" domain name in
-  let repo_dir = dir in
-  let lib      = Printf.sprintf "%s_%s_%s_fn" ws domain name in
-  let mod_     = cap name ^ "_fn" in
-  let v = [("lib", lib); ("dir", dir); ("repo_dir", repo_dir);
-           ("name", name); ("domain", domain); ("Mod", mod_);
-           ("binary", name ^ "-fn")] in
+  let scaffold = component_scaffold Function ~ws ~domain ~name in
   Printf.printf "\nScaffolding fn %s/%s_fn ...\n\n" domain name;
-  write ~path:(dir ^ "/lib/" ^ (norm name) ^ "_fn.ml") ~content:(subst v fn_lib_ml);
-  write ~path:(dir ^ "/lib/dune")    ~content:(subst v fn_lib_dune);
-  write ~path:(dir ^ "/bin/main.ml") ~content:(subst v fn_bin_ml);
-  write ~path:(dir ^ "/bin/dune")    ~content:(subst v fn_bin_dune);
-  write ~path:(dir ^ "/sun.toml")    ~content:tpl_sun_toml;
-  write ~path:(dir ^ "/Dockerfile")  ~content:(subst v tpl_dockerfile);
-  Printf.printf "\nDone.  Build: dune build %s/bin/main.exe\n" dir
+  write_component scaffold;
+  Printf.printf "\nDone.  Build: dune build %s/bin/main.exe\n" scaffold.dir
 
 (* Append [new_mod] to the "(modules ...)" stanza in [path].
    Handles the standard single-line form "(modules Foo Bar)". *)

@@ -492,6 +492,92 @@ let test_golden_test_dune () =
                    Sun_cli_scaffold_templates.ws_test_dune in
   Alcotest.(check string) "test/dune golden" expected actual
 
+let component_vars ~suffix ~mod_ =
+  let ws = Sun_cli_scaffold.normalize (Filename.basename (Sys.getcwd ())) in
+  let dir = Printf.sprintf "app/comms/notify_%s" suffix in
+  [
+    ("lib", Printf.sprintf "%s_comms_notify_%s" ws suffix);
+    ("dir", dir);
+    ("repo_dir", dir);
+    ("name", "notify");
+    ("domain", "comms");
+    ("Mod", mod_);
+    ("binary", "notify-" ^ suffix);
+  ]
+
+let check_generated_file label path expected =
+  let actual = read_file path in
+  Alcotest.(check string) label expected actual
+
+let test_golden_new_svc_files () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_svc "comms/notify";
+  let v = component_vars ~suffix:"svc" ~mod_:"Handler" in
+  check_generated_file "svc handler"
+    "app/comms/notify_svc/lib/handler.ml"
+    Sun_cli_scaffold_templates.svc_handler_ml;
+  check_generated_file "svc lib dune"
+    "app/comms/notify_svc/lib/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.svc_lib_dune);
+  check_generated_file "svc bin main"
+    "app/comms/notify_svc/bin/main.ml"
+    Sun_cli_scaffold_templates.svc_bin_ml;
+  check_generated_file "svc bin dune"
+    "app/comms/notify_svc/bin/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.svc_bin_dune);
+  check_generated_file "svc sun.toml"
+    "app/comms/notify_svc/sun.toml"
+    Sun_cli_scaffold_templates.tpl_sun_toml;
+  check_generated_file "svc Dockerfile"
+    "app/comms/notify_svc/Dockerfile"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.tpl_dockerfile)
+
+let test_golden_new_worker_files () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_worker "comms/notify";
+  let v = component_vars ~suffix:"worker" ~mod_:"Notify_worker" in
+  check_generated_file "worker lib"
+    "app/comms/notify_worker/lib/notify_worker.ml"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.worker_lib_ml);
+  check_generated_file "worker lib dune"
+    "app/comms/notify_worker/lib/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.worker_lib_dune);
+  check_generated_file "worker bin main"
+    "app/comms/notify_worker/bin/main.ml"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.worker_bin_ml);
+  check_generated_file "worker bin dune"
+    "app/comms/notify_worker/bin/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.worker_bin_dune);
+  check_generated_file "worker sun.toml"
+    "app/comms/notify_worker/sun.toml"
+    Sun_cli_scaffold_templates.tpl_sun_toml;
+  check_generated_file "worker Dockerfile"
+    "app/comms/notify_worker/Dockerfile"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.tpl_dockerfile)
+
+let test_golden_new_fn_files () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_fn "comms/notify";
+  let v = component_vars ~suffix:"fn" ~mod_:"Notify_fn" in
+  check_generated_file "fn lib"
+    "app/comms/notify_fn/lib/notify_fn.ml"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.fn_lib_ml);
+  check_generated_file "fn lib dune"
+    "app/comms/notify_fn/lib/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.fn_lib_dune);
+  check_generated_file "fn bin main"
+    "app/comms/notify_fn/bin/main.ml"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.fn_bin_ml);
+  check_generated_file "fn bin dune"
+    "app/comms/notify_fn/bin/dune"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.fn_bin_dune);
+  check_generated_file "fn sun.toml"
+    "app/comms/notify_fn/sun.toml"
+    Sun_cli_scaffold_templates.tpl_sun_toml;
+  check_generated_file "fn Dockerfile"
+    "app/comms/notify_fn/Dockerfile"
+    (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.tpl_dockerfile)
+
 (* ── entry point ─────────────────────────────────────────────────────────── *)
 
 let () =
@@ -540,5 +626,8 @@ let () =
       ; Alcotest.test_case "charge_svc bin/main.ml" `Quick test_golden_svc_bin_ml
       ; Alcotest.test_case "notify_worker bin/main.ml" `Quick test_golden_worker_bin_ml
       ; Alcotest.test_case "test/dune"             `Quick test_golden_test_dune
+      ; Alcotest.test_case "new svc files"         `Quick test_golden_new_svc_files
+      ; Alcotest.test_case "new worker files"      `Quick test_golden_new_worker_files
+      ; Alcotest.test_case "new fn files"          `Quick test_golden_new_fn_files
       ]
     ]
