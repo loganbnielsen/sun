@@ -79,12 +79,16 @@ let default_url_for (s : Sun_cli_deployment_plan.service_spec)
     (plan : Sun_cli_deployment_plan.t) =
   match s.primitive, plan.environment.base_domain with
   | Sun_cli_deployment_plan.Svc, Some base_domain ->
-    Some (Sun_cli_hosted_url.generate_default_url
-            ~service_name:s.k8s_name
-            ~workspace:plan.workspace
-            ~environment_name:plan.environment.name
-            ~base_domain)
-  | _ -> None
+    (match Sun_cli_hosted_url.generate_default_url
+             ~service_name:s.k8s_name
+             ~workspace:plan.workspace
+             ~environment_name:plan.environment.name
+             ~base_domain with
+     | Ok url -> Ok (Some url)
+     | Error msg ->
+       Error (Printf.sprintf "invalid hosted default URL for service %s: %s"
+                s.k8s_name msg))
+  | _ -> Ok None
 
 let service_summaries plan (image_refs : image_ref list) =
   let rec loop acc = function
@@ -94,14 +98,17 @@ let service_summaries plan (image_refs : image_ref list) =
       | None ->
         Error (Printf.sprintf "missing hosted image ref for service %s" s.k8s_name)
       | Some ref ->
-        let summary = {
-          service_name = s.k8s_name;
-          namespace = s.namespace;
-          primitive = s.primitive;
-          image = ref.image;
-          default_url = default_url_for s plan;
-        } in
-        loop (summary :: acc) rest
+        match default_url_for s plan with
+        | Error msg -> Error msg
+        | Ok default_url ->
+          let summary = {
+            service_name = s.k8s_name;
+            namespace = s.namespace;
+            primitive = s.primitive;
+            image = ref.image;
+            default_url;
+          } in
+          loop (summary :: acc) rest
   in
   loop [] plan.Sun_cli_deployment_plan.services
 
@@ -121,12 +128,15 @@ let inspection_services plan (image_refs : image_ref list) =
       | None ->
         Error (Printf.sprintf "missing hosted image ref for service %s" s.k8s_name)
       | Some ref ->
-        let service =
-          Sun_cli_release_inspection.affected_service
-            ?default_url:(default_url_for s plan)
-            ~image:ref.image s
-        in
-        loop (service :: acc) rest
+        match default_url_for s plan with
+        | Error msg -> Error msg
+        | Ok default_url ->
+          let service =
+            Sun_cli_release_inspection.affected_service
+              ?default_url
+              ~image:ref.image s
+          in
+          loop (service :: acc) rest
   in
   loop [] plan.Sun_cli_deployment_plan.services
 

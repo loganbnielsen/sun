@@ -172,6 +172,18 @@ let test_no_base_domain_no_url () =
   Alcotest.(check bool) "no url without base_domain" true
     (Option.is_none svc.default_url)
 
+let test_rejects_invalid_default_url_input () =
+  let plan = {
+    (hosted_plan ()) with
+    services = [ service ~name:"..." () ];
+  } in
+  match Sun_cli_hosted_executor.submit_mock (request plan) with
+  | Ok _ -> Alcotest.fail "expected invalid default URL rejection"
+  | Error msg ->
+    check_string "error"
+      "invalid hosted default URL for service ...: invalid DNS label: \"\""
+      msg
+
 let test_uses_supplied_image_refs () =
   let plan = hosted_plan () in
   let image_refs = [
@@ -244,5 +256,6 @@ let () =
         Alcotest.test_case "worker has no url" `Quick test_worker_has_no_default_url;
         Alcotest.test_case "default url in json" `Quick test_default_url_in_json;
         Alcotest.test_case "no url without base_domain" `Quick test_no_base_domain_no_url;
+        Alcotest.test_case "rejects invalid input" `Quick test_rejects_invalid_default_url_input;
       ];
     ]

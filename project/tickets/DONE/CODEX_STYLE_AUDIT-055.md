@@ -20,3 +20,10 @@ domain segments are normalized to `"unknown"` instead of rejected.
 - Add validated DNS label/domain and positive TTL types.
 - Reject invalid default URL inputs at construction time.
 - Keep JSON output unchanged for valid records.
+
+Completion: hosted URL generation now validates DNS labels/domains and returns
+typed `Result` failures instead of falling back to `unknown`; custom-domain DNS
+records use validated domains and positive TTLs. Hosted executor propagates
+invalid default URL construction errors, valid DNS JSON output is unchanged, and
+focused hosted URL/executor tests plus the affected CLI build pass. No baseline
+changes accepted.
