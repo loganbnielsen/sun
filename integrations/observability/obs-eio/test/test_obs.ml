@@ -31,7 +31,7 @@ let test_inject_extract_headers () =
   let ctx     = Obs_trace.generate () in
   let headers = Obs_trace.inject_to_headers ctx [("content-type", "application/json")] in
   Alcotest.(check bool) "traceparent present"
-    true (List.mem_assoc "traceparent" headers);
+    true (List.mem_assoc Obs_trace.traceparent_header headers);
   Alcotest.(check bool) "original header preserved"
     true (List.assoc_opt "content-type" headers = Some "application/json");
   match Obs_trace.extract_from_headers headers with
@@ -46,7 +46,38 @@ let test_inject_replaces_existing () =
   let headers = Obs_trace.inject_to_headers ctx1 [] in
   let headers = Obs_trace.inject_to_headers ctx2 headers in
   Alcotest.(check int) "exactly one traceparent"
-    1 (List.length (List.filter (fun (k, _) -> k = "traceparent") headers));
+    1
+    (List.length
+       (List.filter (fun (k, _) -> k = Obs_trace.traceparent_header) headers));
+  match Obs_trace.extract_from_headers headers with
+  | None      -> Alcotest.fail "extract returned None"
+  | Some ctx3 -> Alcotest.(check bool) "latest wins" true (ctx2.span_id = ctx3.span_id)
+
+let test_extract_headers_case_insensitive () =
+  let ctx     = Obs_trace.generate () in
+  let headers = [("TraceParent", Obs_trace.to_traceparent ctx)] in
+  match Obs_trace.extract_from_headers headers with
+  | None      -> Alcotest.fail "extract returned None"
+  | Some ctx2 ->
+    Alcotest.(check bool) "trace_id round-trips" true (ctx.trace_id = ctx2.trace_id);
+    Alcotest.(check bool) "span_id round-trips"  true (ctx.span_id  = ctx2.span_id)
+
+let test_inject_replaces_existing_case_insensitive () =
+  let ctx1    = Obs_trace.generate () in
+  let ctx2    = Obs_trace.generate () in
+  let headers = [
+    ("TraceParent", Obs_trace.to_traceparent ctx1);
+    ("content-type", "application/json");
+  ] in
+  let headers = Obs_trace.inject_to_headers ctx2 headers in
+  Alcotest.(check int) "exactly one traceparent variant"
+    1 (List.length (List.filter
+         (fun (k, _) -> String.lowercase_ascii k = Obs_trace.traceparent_header)
+         headers));
+  Alcotest.(check bool) "canonical traceparent present"
+    true (List.mem_assoc Obs_trace.traceparent_header headers);
+  Alcotest.(check bool) "original header preserved"
+    true (List.assoc_opt "content-type" headers = Some "application/json");
   match Obs_trace.extract_from_headers headers with
   | None      -> Alcotest.fail "extract returned None"
   | Some ctx3 -> Alcotest.(check bool) "latest wins" true (ctx2.span_id = ctx3.span_id)
@@ -335,6 +366,9 @@ let () =
       test_case "malformed traceparent → None"    `Quick test_of_traceparent_malformed;
       test_case "inject/extract headers"          `Quick test_inject_extract_headers;
       test_case "inject replaces existing header" `Quick test_inject_replaces_existing;
+      test_case "extract mixed-case header"       `Quick test_extract_headers_case_insensitive;
+      test_case "inject replaces mixed-case header" `Quick
+        test_inject_replaces_existing_case_insensitive;
     ];
     "context", [
       test_case "with_context merges and overrides" `Quick test_with_context_merges;

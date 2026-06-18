@@ -16,6 +16,16 @@ let generate () = {
 
 let child_span t = { t with span_id = random_int64 () }
 
+let traceparent_header = "traceparent"
+
+let header_name_equal a b =
+  String.equal (String.lowercase_ascii a) (String.lowercase_ascii b)
+
+let assoc_header_opt name headers =
+  List.find_map
+    (fun (k, v) -> if header_name_equal k name then Some v else None)
+    headers
+
 let to_traceparent t =
   let (hi, lo) = t.trace_id in
   Printf.sprintf "00-%016Lx%016Lx-%016Lx-%02x"
@@ -38,11 +48,13 @@ let of_traceparent s =
   | _ -> None
 
 let extract_from_headers headers =
-  match List.assoc_opt "traceparent" headers with
+  match assoc_header_opt traceparent_header headers with
   | None   -> None
   | Some v -> of_traceparent v
 
 let inject_to_headers ctx headers =
   let tp      = to_traceparent ctx in
-  let without = List.filter (fun (k, _) -> k <> "traceparent") headers in
-  ("traceparent", tp) :: without
+  let without =
+    List.filter (fun (k, _) -> not (header_name_equal k traceparent_header)) headers
+  in
+  (traceparent_header, tp) :: without

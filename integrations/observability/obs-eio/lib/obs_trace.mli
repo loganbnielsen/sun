@@ -14,6 +14,9 @@ val generate   : unit -> t
 val child_span : t -> t
 (** Derive a child span: inherits trace_id, generates a new span_id. *)
 
+val traceparent_header : string
+(** Canonical W3C traceparent header name. *)
+
 val to_traceparent : t -> string
 (** Serialize to W3C traceparent: ["00-{32hex}-{16hex}-{02hex}"] *)
 
@@ -21,7 +24,7 @@ val of_traceparent : string -> t option
 (** Parse a W3C traceparent header value. Returns [None] if malformed. *)
 
 val extract_from_headers : (string * string) list -> t option
-(** Look up ["traceparent"] in a header list and parse it. *)
+(** Look up {!traceparent_header} in a header list case-insensitively and parse it. *)
 
 val inject_to_headers : t -> (string * string) list -> (string * string) list
-(** Set or replace ["traceparent"] in a header list. *)
+(** Set or replace {!traceparent_header} in a header list case-insensitively. *)
