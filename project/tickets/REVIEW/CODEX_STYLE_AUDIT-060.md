@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-060
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-060/effective-rollout-strategy
+worktree: /home/lbendtly/Code/sun-CODEX-060
 ---
 
 Make rollout strategy JSON strings come from one typed conversion boundary.
