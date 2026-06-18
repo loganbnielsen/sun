@@ -128,6 +128,10 @@ module Make (S : SCHEMA) : sig
 end
 ```
 
+`table`, `id_column`, and each entry in `columns` are validated once when
+`Table.Make` is applied. They must be unquoted SQL identifiers matching
+`[A-Za-z_][A-Za-z0-9_]*`; quoted and schema-qualified identifiers are rejected.
+
 **Example:**
 
 ```ocaml
