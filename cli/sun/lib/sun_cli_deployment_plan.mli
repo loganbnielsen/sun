@@ -12,6 +12,12 @@ type env_config = {
 
 type primitive = Svc | Worker | Fn
 
+type effective_rollout_strategy =
+  | Effective_canary
+  | Effective_blue_green
+  | Effective_recreate
+  | Effective_rolling_update
+
 type service_spec = {
   domain                : string;
   source_name           : string;
@@ -62,6 +68,13 @@ val derive_consumer_groups : string -> service_spec list -> string list
 (** [derive_consumer_groups workspace services] returns a sorted, deduplicated
     list of consumer group identifiers for all [Worker] entries in [services].
     Convention: ["<workspace>.<domain>.<worker_name>"]. *)
+
+val effective_rollout_strategy : service_spec -> effective_rollout_strategy
+(** Resolve the deployment strategy that applies after progressive delivery
+    settings have taken precedence over Deployment rollout settings. *)
+
+val effective_rollout_strategy_to_string : effective_rollout_strategy -> string
+(** Render an [effective_rollout_strategy] for deployment plan JSON and summaries. *)
 
 val to_json : t -> Yojson.Safe.t
 (** Serialize a deployment plan to JSON (experimental format — schema not frozen).

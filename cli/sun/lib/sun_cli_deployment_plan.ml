@@ -12,6 +12,12 @@ type env_config = {
 
 type primitive = Svc | Worker | Fn
 
+type effective_rollout_strategy =
+  | Effective_canary
+  | Effective_blue_green
+  | Effective_recreate
+  | Effective_rolling_update
+
 type service_spec = {
   domain                : string;
   source_name           : string;
@@ -53,6 +59,22 @@ let prim_to_string = function
   | Worker -> "worker"
   | Fn     -> "fn"
 
+let effective_rollout_strategy s =
+  match s.progressive_delivery with
+  | Some (Sun_cli_toml.Canary _) -> Effective_canary
+  | Some Sun_cli_toml.Blue_green -> Effective_blue_green
+  | None ->
+    (match s.rollout_strategy with
+     | Some Sun_cli_toml.Recreate -> Effective_recreate
+     | Some Sun_cli_toml.RollingUpdate
+     | None -> Effective_rolling_update)
+
+let effective_rollout_strategy_to_string = function
+  | Effective_canary         -> "canary"
+  | Effective_blue_green     -> "blue_green"
+  | Effective_recreate       -> "recreate"
+  | Effective_rolling_update -> "rolling_update"
+
 let canary_step_to_json = function
   | Sun_cli_toml.Weight n ->
     `Assoc [ "setWeight", `Int n ]
@@ -79,16 +101,6 @@ let to_json t =
     | None   -> `Null
     | Some s -> `String s
   in
-  let rollout_strategy_string s =
-    match s.progressive_delivery with
-    | Some (Sun_cli_toml.Canary _)  -> "canary"
-    | Some Sun_cli_toml.Blue_green  -> "blue_green"
-    | None ->
-      (match s.rollout_strategy with
-       | Some Sun_cli_toml.Recreate     -> "recreate"
-       | Some Sun_cli_toml.RollingUpdate
-       | None                           -> "rolling_update")
-  in
   let ingress_json s =
     match s.ingress_host with
     | None      -> `Null
@@ -97,6 +109,11 @@ let to_json t =
       `Assoc [ "host", `String host; "path", `String path ]
   in
   let service_to_json (s : service_spec) =
+    let rollout_strategy =
+      s
+      |> effective_rollout_strategy
+      |> effective_rollout_strategy_to_string
+    in
     `Assoc [
       "k8s_name",    `String s.k8s_name;
       "domain",      `String s.domain;
@@ -110,7 +127,7 @@ let to_json t =
       "replicas",    `Int    s.replicas;
       "cpu",         `String s.cpu;
       "memory",      `String s.memory;
-      "rollout_strategy",     `String (rollout_strategy_string s);
+      "rollout_strategy",     `String rollout_strategy;
       "ingress",              ingress_json s;
       "progressive_delivery", progressive_delivery_to_json s.progressive_delivery;
     ]
@@ -145,8 +162,13 @@ let pp_summary fmt t =
   Format.fprintf fmt "@\n";
   Format.fprintf fmt "services:@\n";
   List.iter (fun (s : service_spec) ->
-    Format.fprintf fmt "  [%s] %s/%s    -> %s@\n"
-      (prim_to_string s.primitive) s.domain s.source_name s.image
+    let rollout_strategy =
+      s
+      |> effective_rollout_strategy
+      |> effective_rollout_strategy_to_string
+    in
+    Format.fprintf fmt "  [%s] %s/%s    rollout=%s -> %s@\n"
+      (prim_to_string s.primitive) s.domain s.source_name rollout_strategy s.image
   ) t.services;
   (match t.topics with
    | []     -> ()
