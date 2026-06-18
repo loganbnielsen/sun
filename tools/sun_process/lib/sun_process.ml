@@ -1,13 +1,56 @@
+type status =
+  | Exited of int
+  | Signaled of int
+  | Stopped of int
+
 type result = {
-  exit_code : int;
-  stdout    : string;
-  stderr    : string;
+  status : status;
+  stdout : string;
+  stderr : string;
 }
 
-let exit_of_status = function
-  | Unix.WEXITED n   -> n
-  | Unix.WSIGNALED n -> 128 + n
-  | Unix.WSTOPPED _  -> 128
+let signal_number n =
+  if n >= 0 then n
+  else if n = Sys.sigabrt then 6
+  else if n = Sys.sigalrm then 14
+  else if n = Sys.sigfpe then 8
+  else if n = Sys.sighup then 1
+  else if n = Sys.sigill then 4
+  else if n = Sys.sigint then 2
+  else if n = Sys.sigkill then 9
+  else if n = Sys.sigpipe then 13
+  else if n = Sys.sigquit then 3
+  else if n = Sys.sigsegv then 11
+  else if n = Sys.sigterm then 15
+  else if n = Sys.sigusr1 then 10
+  else if n = Sys.sigusr2 then 12
+  else if n = Sys.sigchld then 17
+  else if n = Sys.sigcont then 18
+  else if n = Sys.sigstop then 19
+  else if n = Sys.sigtstp then 20
+  else if n = Sys.sigttin then 21
+  else if n = Sys.sigttou then 22
+  else if n = Sys.sigvtalrm then 26
+  else if n = Sys.sigprof then 27
+  else abs n
+
+let status_of_unix = function
+  | Unix.WEXITED n   -> Exited n
+  | Unix.WSIGNALED n -> Signaled (signal_number n)
+  | Unix.WSTOPPED n  -> Stopped (signal_number n)
+
+let status_to_exit_code = function
+  | Exited n   -> n
+  | Signaled n -> 128 + n
+  | Stopped n  -> 128 + n
+
+let exit_code r =
+  status_to_exit_code r.status
+
+let succeeded r =
+  match r.status with
+  | Exited 0 -> true
+  | Exited _ | Signaled _ | Stopped _ -> false
 
 let command_of_argv argv =
   String.concat " " (List.map Filename.quote argv)
@@ -60,7 +103,7 @@ let capture_fds stdout_fd stderr_fd =
     end
   in
   loop true true;
-  { exit_code = 0
+  { status = Exited 0
   ; stdout = Buffer.contents stdout_buf
   ; stderr = Buffer.contents stderr_buf
   }
@@ -89,15 +132,15 @@ let run_argv ?(echo = false) argv =
           let captured = capture_fds stdout_r stderr_r in
           close_noerr stdout_r;
           close_noerr stderr_r;
-          let exit_code = exit_of_status (Unix.waitpid [] pid |> snd) in
-          trim_result { captured with exit_code }
+          let status = status_of_unix (Unix.waitpid [] pid |> snd) in
+          trim_result { captured with status }
       | exception Unix.Unix_error (err, fn, arg) ->
           close_noerr stdin_fd;
           close_noerr stdout_r;
           close_noerr stdout_w;
           close_noerr stderr_r;
           close_noerr stderr_w;
-          { exit_code = 127
+          { status = Exited 127
           ; stdout = ""
           ; stderr = Printf.sprintf "%s: %s %s" fn arg (Unix.error_message err) |> String.trim
           }
@@ -112,8 +155,8 @@ let run_shell ?(echo = false) cmd =
   close_out oc;
   let stdout = In_channel.input_all ic in
   let stderr = In_channel.input_all ec in
-  let exit_code = exit_of_status (Unix.close_process_full (ic, oc, ec)) in
-  { exit_code; stdout = String.trim stdout; stderr = String.trim stderr }
+  let status = status_of_unix (Unix.close_process_full (ic, oc, ec)) in
+  { status; stdout = String.trim stdout; stderr = String.trim stderr }
 
 (* Capture stdout lines; stderr goes to /dev/null.
    Uses Unix.open_process_in so no temp file is needed. *)

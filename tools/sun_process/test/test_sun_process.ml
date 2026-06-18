@@ -1,17 +1,40 @@
 let check_int  = Alcotest.(check int)
 let check_str  = Alcotest.(check string)
 let check_bool = Alcotest.(check bool)
+let check_status =
+  Alcotest.(check (of_pp (fun fmt -> function
+    | Sun_process.Exited n -> Format.fprintf fmt "Exited %d" n
+    | Signaled n -> Format.fprintf fmt "Signaled %d" n
+    | Stopped n -> Format.fprintf fmt "Stopped %d" n)))
 
 (* ── run / structured result ─────────────────────────────────────────────── *)
 
 let test_run_success () =
   let r = Sun_process.run_shell ~echo:false "echo hello" in
-  check_int  "exit code 0"   0       r.exit_code;
+  check_status "status"      (Sun_process.Exited 0) r.status;
+  check_int  "exit code 0"   0       (Sun_process.exit_code r);
   check_str  "stdout"        "hello" r.stdout
 
 let test_run_nonzero () =
   let r = Sun_process.run_shell ~echo:false "exit 42" in
-  check_int  "exit code 42" 42 r.exit_code
+  check_status "status" (Sun_process.Exited 42) r.status;
+  check_int  "exit code 42" 42 (Sun_process.exit_code r)
+
+let test_status_shell_codes () =
+  check_int "exited" 42
+    (Sun_process.status_to_exit_code (Sun_process.Exited 42));
+  check_int "signaled" 143
+    (Sun_process.status_to_exit_code (Sun_process.Signaled 15));
+  check_int "stopped" 147
+    (Sun_process.status_to_exit_code (Sun_process.Stopped 19))
+
+let test_run_signaled () =
+  let r = Sun_process.run_argv ~echo:false ["sh"; "-c"; "kill -TERM $$"] in
+  match r.status with
+  | Sun_process.Signaled 15 ->
+      check_int "shell-compatible exit code" 143 (Sun_process.exit_code r)
+  | status ->
+      check_status "status" (Sun_process.Signaled 15) status
 
 let test_run_stderr_captured () =
   let r = Sun_process.run_shell ~echo:false "echo bar >&2" in
@@ -25,13 +48,14 @@ let test_run_both_streams () =
 
 let test_run_command_not_found () =
   let r = Sun_process.run_shell ~echo:false "nonexistent_command_sun_process_test_abc123" in
-  check_bool "exit code non-zero" true (r.exit_code <> 0)
+  check_bool "exit code non-zero" true (Sun_process.exit_code r <> 0)
 
 (* ── run_argv ────────────────────────────────────────────────────────────── *)
 
 let test_run_argv_basic () =
   let r = Sun_process.run_argv ~echo:false ["echo"; "hello world"] in
-  check_int  "exit code 0"  0             r.exit_code;
+  check_status "status"     (Sun_process.Exited 0) r.status;
+  check_int  "exit code 0"  0             (Sun_process.exit_code r);
   check_str  "stdout"       "hello world" r.stdout
 
 let test_run_argv_special_chars () =
@@ -41,7 +65,7 @@ let test_run_argv_special_chars () =
 
 let test_run_argv_no_shell_interpretation () =
   let r = Sun_process.run_argv ~echo:false ["printf"; "%s"; "a; echo injected"] in
-  check_int "exit code 0" 0 r.exit_code;
+  check_int "exit code 0" 0 (Sun_process.exit_code r);
   check_str "metacharacters are literal" "a; echo injected" r.stdout
 
 let test_run_argv_command_not_found () =
@@ -49,7 +73,8 @@ let test_run_argv_command_not_found () =
     Sun_process.run_argv ~echo:false
       ["nonexistent_command_sun_process_test_abc123"]
   in
-  check_bool "exit code non-zero" true (r.exit_code <> 0);
+  check_status "status" (Sun_process.Exited 127) r.status;
+  check_bool "exit code non-zero" true (Sun_process.exit_code r <> 0);
   check_str "stdout empty" "" r.stdout
 
 (* ── lines ──────────────────────────────────────────────────────────────── *)
@@ -105,6 +130,8 @@ let () =
     [ "run", [
         Alcotest.test_case "success result"         `Quick test_run_success
       ; Alcotest.test_case "non-zero exit code"     `Quick test_run_nonzero
+      ; Alcotest.test_case "shell-compatible status codes" `Quick test_status_shell_codes
+      ; Alcotest.test_case "signaled status"        `Quick test_run_signaled
       ; Alcotest.test_case "stderr captured"        `Quick test_run_stderr_captured
       ; Alcotest.test_case "both streams"           `Quick test_run_both_streams
       ; Alcotest.test_case "command not found"      `Quick test_run_command_not_found

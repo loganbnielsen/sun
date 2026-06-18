@@ -147,11 +147,13 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
 
       if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
-        if (Sun_process.run_argv ~echo:false
-              ["docker"; "build"; "-t"; push_image; "-f"; dockerfile; ctx_dir]).exit_code <> 0 then
+        if not (Sun_process.succeeded
+              (Sun_process.run_argv ~echo:false
+                 ["docker"; "build"; "-t"; push_image; "-f"; dockerfile; ctx_dir])) then
           raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
         Printf.printf "  pushing...\n%!";
-        if (Sun_process.run_argv ~echo:false ["docker"; "push"; push_image]).exit_code <> 0 then
+        if not (Sun_process.succeeded
+              (Sun_process.run_argv ~echo:false ["docker"; "push"; push_image])) then
           raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
