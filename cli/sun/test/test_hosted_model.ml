@@ -9,6 +9,10 @@ let get_ok = function
   | Ok v -> v
   | Error msg -> Alcotest.fail msg
 
+let expect_error expected = function
+  | Ok _ -> Alcotest.fail "expected error"
+  | Error msg -> check_string "error" expected msg
+
 let hosted_plan ?(workspace = "pluto") ?(environment_name = "production") () =
   let env : Sun_cli_deployment_plan.env_config = {
     name = environment_name;
@@ -172,7 +176,69 @@ let test_cost_attribution_record () =
     Yojson.Safe.to_string
       (Sun_cli_hosted_model.cost_attribution_to_json attribution)
   in
-  if not (String.contains json '{') then Alcotest.fail "expected JSON object"
+  check_string "json"
+    {|{"attribution_id":"attr_123","account_id":"acct_123","project_id":"proj_123","environment_id":"env_prod","runtime_id":"rt_123","billing_period":"2026-06","provider":"aws","provider_resource_id":"arn:aws:eks:us-east-1:123:cluster/sun","resource_kind":"eks_cluster","observed_cost_cents":12345,"currency":"USD","metadata":{"provider_region":"us-east-1","source":"manual"}}|}
+    json
+
+let test_cost_attribution_rejects_invalid_provider () =
+  let _, _, runtime, environment = fixture () in
+  Sun_cli_hosted_model.make_cost_attribution
+    ~attribution_id:"attr_123"
+    ~environment
+    ~runtime
+    ~billing_period:"2026-06"
+    ~provider:"bad provider"
+    ~provider_resource_id:"arn:aws:eks:us-east-1:123:cluster/sun"
+    ~resource_kind:"eks_cluster"
+    ~observed_cost_cents:12345
+    ~currency:"USD"
+    ()
+  |> expect_error {|provider "bad provider" contains unsupported characters|}
+
+let test_cost_attribution_rejects_invalid_resource_kind () =
+  let _, _, runtime, environment = fixture () in
+  Sun_cli_hosted_model.make_cost_attribution
+    ~attribution_id:"attr_123"
+    ~environment
+    ~runtime
+    ~billing_period:"2026-06"
+    ~provider:"aws"
+    ~provider_resource_id:"arn:aws:eks:us-east-1:123:cluster/sun"
+    ~resource_kind:"eks/cluster"
+    ~observed_cost_cents:12345
+    ~currency:"USD"
+    ()
+  |> expect_error {|resource_kind "eks/cluster" contains unsupported characters|}
+
+let test_cost_attribution_rejects_invalid_billing_period () =
+  let _, _, runtime, environment = fixture () in
+  Sun_cli_hosted_model.make_cost_attribution
+    ~attribution_id:"attr_123"
+    ~environment
+    ~runtime
+    ~billing_period:"2026-13"
+    ~provider:"aws"
+    ~provider_resource_id:"arn:aws:eks:us-east-1:123:cluster/sun"
+    ~resource_kind:"eks_cluster"
+    ~observed_cost_cents:12345
+    ~currency:"USD"
+    ()
+  |> expect_error "billing_period month must be between 01 and 12"
+
+let test_cost_attribution_rejects_invalid_currency () =
+  let _, _, runtime, environment = fixture () in
+  Sun_cli_hosted_model.make_cost_attribution
+    ~attribution_id:"attr_123"
+    ~environment
+    ~runtime
+    ~billing_period:"2026-06"
+    ~provider:"aws"
+    ~provider_resource_id:"arn:aws:eks:us-east-1:123:cluster/sun"
+    ~resource_kind:"eks_cluster"
+    ~observed_cost_cents:12345
+    ~currency:"usd"
+    ()
+  |> expect_error "currency must be uppercase ASCII"
 
 let test_early_cost_plus_billing_record () =
   let account, _, _, environment = fixture () in
@@ -194,7 +260,33 @@ let test_early_cost_plus_billing_record () =
     Yojson.Safe.to_string
       (Sun_cli_hosted_model.early_cost_plus_billing_record_to_json record)
   in
-  if not (String.contains json '{') then Alcotest.fail "expected JSON object"
+  check_string "json"
+    {|{"account_id":"acct_123","environment_id":"env_prod","billing_period":"2026-06","provider_cost_cents":10000,"markup_basis_points":20000,"charge_amount_cents":20000,"currency":"USD","status":"pending_review"}|}
+    json
+
+let test_early_cost_plus_billing_record_rejects_invalid_billing_period () =
+  let account, _, _, environment = fixture () in
+  Sun_cli_hosted_model.make_early_cost_plus_billing_record
+    ~account
+    ~environment
+    ~billing_period:"202606"
+    ~provider_cost_cents:10000
+    ~markup_basis_points:20000
+    ~currency:"USD"
+    ~status:Sun_cli_hosted_model.Billing_record_pending_review
+  |> expect_error "billing_period must use YYYY-MM format"
+
+let test_early_cost_plus_billing_record_rejects_invalid_currency () =
+  let account, _, _, environment = fixture () in
+  Sun_cli_hosted_model.make_early_cost_plus_billing_record
+    ~account
+    ~environment
+    ~billing_period:"2026-06"
+    ~provider_cost_cents:10000
+    ~markup_basis_points:20000
+    ~currency:"US"
+    ~status:Sun_cli_hosted_model.Billing_record_pending_review
+  |> expect_error "currency must be a 3-letter code"
 
 let test_release_target_success () =
   let account, project, runtime, environment = fixture () in
@@ -380,7 +472,13 @@ let () =
         Alcotest.test_case "approval required" `Quick test_spend_guardrail_requires_approval;
         Alcotest.test_case "cap reached" `Quick test_spend_guardrail_blocks_at_cap;
         Alcotest.test_case "cost attribution" `Quick test_cost_attribution_record;
+        Alcotest.test_case "cost attribution invalid provider" `Quick test_cost_attribution_rejects_invalid_provider;
+        Alcotest.test_case "cost attribution invalid resource kind" `Quick test_cost_attribution_rejects_invalid_resource_kind;
+        Alcotest.test_case "cost attribution invalid billing period" `Quick test_cost_attribution_rejects_invalid_billing_period;
+        Alcotest.test_case "cost attribution invalid currency" `Quick test_cost_attribution_rejects_invalid_currency;
         Alcotest.test_case "early cost-plus record" `Quick test_early_cost_plus_billing_record;
+        Alcotest.test_case "early cost-plus invalid billing period" `Quick test_early_cost_plus_billing_record_rejects_invalid_billing_period;
+        Alcotest.test_case "early cost-plus invalid currency" `Quick test_early_cost_plus_billing_record_rejects_invalid_currency;
         Alcotest.test_case "spend cap required" `Quick test_environment_requires_spend_cap;
         Alcotest.test_case "threshold above cap" `Quick test_account_rejects_threshold_above_cap;
       ];

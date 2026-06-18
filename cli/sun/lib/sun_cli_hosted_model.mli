@@ -39,11 +39,43 @@ module Attribution_id : sig
   val to_string : t -> string
 end
 
+module Billing_period : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Cost_provider : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Cost_resource_kind : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
+module Currency : sig
+  type t
+
+  val of_string : string -> (t, string) result
+  val to_string : t -> string
+end
+
 type account_id = Account_id.t
 type project_id = Project_id.t
 type environment_id = Environment_id.t
 type runtime_id = Runtime_id.t
 type attribution_id = Attribution_id.t
+type billing_period = Billing_period.t
+type cost_provider = Cost_provider.t
+type cost_resource_kind = Cost_resource_kind.t
+type currency = Currency.t
 
 type billing_state =
   | Billing_ready
@@ -133,23 +165,23 @@ type cost_attribution = {
   project_id            : project_id;
   environment_id        : environment_id;
   runtime_id            : runtime_id;
-  billing_period        : string;
-  provider              : string;
+  billing_period        : billing_period;
+  provider              : cost_provider;
   provider_resource_id  : string;
-  resource_kind         : string;
+  resource_kind         : cost_resource_kind;
   observed_cost_cents   : int;
-  currency              : string;
+  currency              : currency;
   metadata              : (string * string) list;
 }
 
 type early_cost_plus_billing_record = {
   account_id            : account_id;
   environment_id        : environment_id;
-  billing_period        : string;
+  billing_period        : billing_period;
   provider_cost_cents   : int;
   markup_basis_points   : int;
   charge_amount_cents   : int;
-  currency              : string;
+  currency              : currency;
   status                : billing_record_status;
 }
 
@@ -249,3 +281,7 @@ val project_id_to_string : project_id -> string
 val environment_id_to_string : environment_id -> string
 val runtime_id_to_string : runtime_id -> string
 val attribution_id_to_string : attribution_id -> string
+val billing_period_to_string : billing_period -> string
+val cost_provider_to_string : cost_provider -> string
+val cost_resource_kind_to_string : cost_resource_kind -> string
+val currency_to_string : currency -> string

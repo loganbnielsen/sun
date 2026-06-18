@@ -22,11 +22,59 @@ module Environment_id = Make_id (struct let field = "environment_id" end)
 module Runtime_id = Make_id (struct let field = "runtime_id" end)
 module Attribution_id = Make_id (struct let field = "attribution_id" end)
 
+let is_digit = function
+  | '0' .. '9' -> true
+  | _ -> false
+
+let validate_billing_period value =
+  let value = String.trim value in
+  if String.length value <> 7 then
+    Error "billing_period must use YYYY-MM format"
+  else if value.[4] <> '-' then
+    Error "billing_period must use YYYY-MM format"
+  else if not (String.for_all is_digit (String.sub value 0 4)) then
+    Error "billing_period must use YYYY-MM format"
+  else if not (String.for_all is_digit (String.sub value 5 2)) then
+    Error "billing_period must use YYYY-MM format"
+  else
+    let month = int_of_string (String.sub value 5 2) in
+    if month < 1 || month > 12 then
+      Error "billing_period month must be between 01 and 12"
+    else Ok value
+
+let validate_currency value =
+  let value = String.trim value in
+  if String.length value <> 3 then Error "currency must be a 3-letter code"
+  else if not (String.for_all (function 'A' .. 'Z' -> true | _ -> false) value) then
+    Error "currency must be uppercase ASCII"
+  else Ok value
+
+module Billing_period = struct
+  type t = string
+
+  let of_string = validate_billing_period
+  let to_string t = t
+end
+
+module Cost_provider = Make_id (struct let field = "provider" end)
+module Cost_resource_kind = Make_id (struct let field = "resource_kind" end)
+
+module Currency = struct
+  type t = string
+
+  let of_string = validate_currency
+  let to_string t = t
+end
+
 type account_id = Account_id.t
 type project_id = Project_id.t
 type environment_id = Environment_id.t
 type runtime_id = Runtime_id.t
 type attribution_id = Attribution_id.t
+type billing_period = Billing_period.t
+type cost_provider = Cost_provider.t
+type cost_resource_kind = Cost_resource_kind.t
+type currency = Currency.t
 
 type billing_state =
   | Billing_ready
@@ -116,23 +164,23 @@ type cost_attribution = {
   project_id            : project_id;
   environment_id        : environment_id;
   runtime_id            : runtime_id;
-  billing_period        : string;
-  provider              : string;
+  billing_period        : billing_period;
+  provider              : cost_provider;
   provider_resource_id  : string;
-  resource_kind         : string;
+  resource_kind         : cost_resource_kind;
   observed_cost_cents   : int;
-  currency              : string;
+  currency              : currency;
   metadata              : (string * string) list;
 }
 
 type early_cost_plus_billing_record = {
   account_id            : account_id;
   environment_id        : environment_id;
-  billing_period        : string;
+  billing_period        : billing_period;
   provider_cost_cents   : int;
   markup_basis_points   : int;
   charge_amount_cents   : int;
-  currency              : string;
+  currency              : currency;
   status                : billing_record_status;
 }
 
@@ -167,17 +215,14 @@ let project_id_to_string = Project_id.to_string
 let environment_id_to_string = Environment_id.to_string
 let runtime_id_to_string = Runtime_id.to_string
 let attribution_id_to_string = Attribution_id.to_string
+let billing_period_to_string = Billing_period.to_string
+let cost_provider_to_string = Cost_provider.to_string
+let cost_resource_kind_to_string = Cost_resource_kind.to_string
+let currency_to_string = Currency.to_string
 
 let validate_name ~field value =
   let value = String.trim value in
   if value = "" then Error (Printf.sprintf "%s must not be empty" field)
-  else Ok value
-
-let validate_currency value =
-  let value = String.trim value in
-  if String.length value <> 3 then Error "currency must be a 3-letter code"
-  else if not (String.for_all (function 'A' .. 'Z' -> true | _ -> false) value) then
-    Error "currency must be uppercase ASCII"
   else Ok value
 
 let validate_non_negative ~field = function
@@ -350,16 +395,16 @@ let make_cost_attribution
     ?(metadata = [])
     () =
   let* attribution_id = Attribution_id.of_string attribution_id in
-  let* billing_period = validate_name ~field:"billing_period" billing_period in
-  let* provider = validate_name ~field:"provider" provider in
+  let* billing_period = Billing_period.of_string billing_period in
+  let* provider = Cost_provider.of_string provider in
   let* provider_resource_id =
     validate_name ~field:"provider_resource_id" provider_resource_id
   in
-  let* resource_kind = validate_name ~field:"resource_kind" resource_kind in
+  let* resource_kind = Cost_resource_kind.of_string resource_kind in
   let* observed_cost_cents =
     validate_non_negative_int ~field:"observed_cost_cents" observed_cost_cents
   in
-  let* currency = validate_currency currency in
+  let* currency = Currency.of_string currency in
   if environment.runtime_id <> runtime.runtime_id then
     Error "cost attribution runtime does not match environment"
   else if environment.account_id <> runtime.account_id then
@@ -388,14 +433,14 @@ let make_early_cost_plus_billing_record
     ~markup_basis_points
     ~currency
     ~status =
-  let* billing_period = validate_name ~field:"billing_period" billing_period in
+  let* billing_period = Billing_period.of_string billing_period in
   let* provider_cost_cents =
     validate_non_negative_int ~field:"provider_cost_cents" provider_cost_cents
   in
   let* markup_basis_points =
     validate_positive_int ~field:"markup_basis_points" markup_basis_points
   in
-  let* currency = validate_currency currency in
+  let* currency = Currency.of_string currency in
   if environment.account_id <> account.account_id then
     Error "billing record environment does not belong to account"
   else
@@ -450,12 +495,12 @@ let cost_attribution_to_json (c : cost_attribution) =
     "project_id", `String (Project_id.to_string c.project_id);
     "environment_id", `String (Environment_id.to_string c.environment_id);
     "runtime_id", `String (Runtime_id.to_string c.runtime_id);
-    "billing_period", `String c.billing_period;
-    "provider", `String c.provider;
+    "billing_period", `String (Billing_period.to_string c.billing_period);
+    "provider", `String (Cost_provider.to_string c.provider);
     "provider_resource_id", `String c.provider_resource_id;
-    "resource_kind", `String c.resource_kind;
+    "resource_kind", `String (Cost_resource_kind.to_string c.resource_kind);
     "observed_cost_cents", `Int c.observed_cost_cents;
-    "currency", `String c.currency;
+    "currency", `String (Currency.to_string c.currency);
     "metadata",
       `Assoc (List.map (fun (key, value) -> key, `String value) c.metadata);
   ]
@@ -465,10 +510,10 @@ let early_cost_plus_billing_record_to_json
   `Assoc [
     "account_id", `String (Account_id.to_string r.account_id);
     "environment_id", `String (Environment_id.to_string r.environment_id);
-    "billing_period", `String r.billing_period;
+    "billing_period", `String (Billing_period.to_string r.billing_period);
     "provider_cost_cents", `Int r.provider_cost_cents;
     "markup_basis_points", `Int r.markup_basis_points;
     "charge_amount_cents", `Int r.charge_amount_cents;
-    "currency", `String r.currency;
+    "currency", `String (Currency.to_string r.currency);
     "status", `String (billing_record_status_to_string r.status);
   ]

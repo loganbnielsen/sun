@@ -21,3 +21,10 @@ strings. Only currency is validated later.
   and currency.
 - Move parsing/validation into constructors.
 - Preserve JSON output strings.
+
+Completion: hosted cost attribution now uses abstract validated wrappers for
+billing period, provider, resource kind, and currency while public constructors
+continue to parse string inputs. JSON rendering explicitly converts typed values
+back to strings, focused invalid-input and JSON stability tests pass, and the
+affected CLI build plus hosted executor compatibility tests pass. No baseline
+changes accepted.
