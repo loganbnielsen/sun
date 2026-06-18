@@ -169,13 +169,29 @@ let loki_push_body ~stream_labels ~values =
 (* Backend                                                             *)
 (* ------------------------------------------------------------------ *)
 
+type stream_label = Obs.label_name
+
+let stream_label = Obs.label_name
+
+let stream_label_to_string = Obs.label_name_to_string
+
+let selected_stream_labels ~context label_names =
+  List.filter_map (fun label_name ->
+    let name = stream_label_to_string label_name in
+    match List.assoc_opt name context with
+    | Some value -> Some (name, value)
+    | None ->
+      Printf.eprintf
+        "[obs-loki] requested stream label %S missing from context\n%!"
+        name;
+      None
+  ) label_names
+
 let create ~net ~clock ~url ?(label_names = []) () : Obs.backend =
   let emit_span (e : Obs.span_event) =
     let stream_labels =
       ("service", e.service) ::
-      List.filter_map (fun name ->
-        Option.map (fun v -> (name, v)) (List.assoc_opt name e.context)
-      ) label_names
+      selected_stream_labels ~context:e.context label_names
     in
     let ts       = unix_ns_string clock in
     let trace_id = trace_id_hex e.trace_ctx.Obs_trace.trace_id in

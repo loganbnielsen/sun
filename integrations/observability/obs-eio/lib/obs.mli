@@ -136,9 +136,15 @@ val metric_name : string -> string
     rules and returns it unchanged. Raises [Invalid_argument] on invalid
     names. *)
 
-val label_name : string -> string
+type label_name = private string
+(** Validated Prometheus label name. Construct with [label_name]. *)
+
+val label_name : string -> label_name
 (** [label_name name] validates [name] against Prometheus label naming rules
     and returns it unchanged. Raises [Invalid_argument] on invalid names. *)
+
+val label_name_to_string : label_name -> string
+(** [label_name_to_string name] returns the validated label name as a string. *)
 
 val register_counter
   :  t

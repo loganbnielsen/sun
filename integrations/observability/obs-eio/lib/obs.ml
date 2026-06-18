@@ -36,6 +36,8 @@ type backend = {
   emit_metric : metric_event -> unit;
 }
 
+type label_name = string
+
 (* ------------------------------------------------------------------ *)
 (* Handle and span                                                     *)
 (* ------------------------------------------------------------------ *)
@@ -220,6 +222,8 @@ let label_name name =
     ~is_initial:is_label_initial_char
     ~is_char:is_label_char
     name
+
+let label_name_to_string name = name
 
 let validate_label_names label_names =
   List.iter (fun name -> ignore (label_name name)) label_names;

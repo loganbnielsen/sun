@@ -444,7 +444,7 @@ Eio_main.run @@ fun env ->
 let log_backend = match loki_url with
   | None     -> Obs.stdout
   | Some url -> Obs_loki.create ~net:env#net ~clock:env#clock ~url
-                  ~label_names:["service"; "team"] ()
+                  ~label_names:[Obs_loki.stream_label "team"] ()
 in
 let prom, render = Obs_prometheus.create () in
 let ot = Obs.with_context

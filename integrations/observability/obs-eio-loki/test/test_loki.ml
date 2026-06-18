@@ -112,7 +112,8 @@ let test_context_fields_become_labels () =
   with_mock_loki_server env (fun ~port ~body_promise ->
     let loki = Obs_loki.create ~net:env#net ~clock:env#clock
                  ~url:(Printf.sprintf "http://localhost:%d" port)
-                 ~label_names:["env"; "region"] () in
+                 ~label_names:[Obs_loki.stream_label "env";
+                               Obs_loki.stream_label "region"] () in
     let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
     let ot = Obs.with_context ot [("env", "prod"); ("region", "eu-west-1")] in
     Obs.with_span ot "op" (fun _sp -> ());
@@ -121,6 +122,27 @@ let test_context_fields_become_labels () =
       (contains body "\"env\":\"prod\"");
     Alcotest.(check bool) "region label present" true
       (contains body "\"region\":\"eu-west-1\""))
+
+let test_selected_label_missing_from_context_warns_and_is_omitted () =
+  Eio_main.run @@ fun env ->
+  with_mock_loki_server env (fun ~port ~body_promise ->
+    let loki = Obs_loki.create ~net:env#net ~clock:env#clock
+                 ~url:(Printf.sprintf "http://localhost:%d" port)
+                 ~label_names:[Obs_loki.stream_label "env";
+                               Obs_loki.stream_label "region"] () in
+    let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:loki in
+    let ot = Obs.with_context ot [("env", "prod")] in
+    Obs.with_span ot "op" (fun _sp -> ());
+    let body = Eio.Promise.await body_promise in
+    Alcotest.(check bool) "present label included" true
+      (contains body "\"env\":\"prod\"");
+    Alcotest.(check bool) "missing label omitted" false
+      (contains body "\"region\""))
+
+let test_stream_label_rejects_invalid_name () =
+  match Obs_loki.stream_label "bad-label" with
+  | _ -> Alcotest.fail "invalid Loki stream label should raise Invalid_argument"
+  | exception Invalid_argument _ -> ()
 
 let test_multiple_log_calls () =
   Eio_main.run @@ fun env ->
@@ -316,6 +338,8 @@ let () =
       test_case "log message in push body"         `Quick test_log_message_in_payload;
       test_case "span name in push body"           `Quick test_span_name_in_payload;
       test_case "context fields become labels"     `Quick test_context_fields_become_labels;
+      test_case "missing selected label is omitted" `Quick test_selected_label_missing_from_context_warns_and_is_omitted;
+      test_case "stream label validates names"      `Quick test_stream_label_rejects_invalid_name;
       test_case "multiple log calls all present"   `Quick test_multiple_log_calls;
       test_case "unreachable Loki does not raise"  `Quick test_loki_unreachable_does_not_raise;
       test_case "payload JSON shape"               `Quick test_payload_json_shape;
