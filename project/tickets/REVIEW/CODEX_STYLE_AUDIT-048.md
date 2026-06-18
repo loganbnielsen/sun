@@ -9,6 +9,9 @@ Make `sun.toml` loading return Result instead of raising `Failure`.
 
 **Depends on:** none.
 
+branch: CODEX_STYLE_AUDIT-048/toml-load-result
+worktree: /home/lbendtly/Code/sun-CODEX-048
+
 **Problem:** `cli/sun/lib/sun_cli_toml.ml` parses finite domains and validation
 errors, but reports them with `failwith`. Callers cannot distinguish malformed
 TOML from other exceptions through the type.
