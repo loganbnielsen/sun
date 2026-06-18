@@ -7,10 +7,18 @@ workflow outputs are not ownership boundaries.
 
 For audit-oriented work, use these workflows as the entry points:
 
-- `/style-audit` for repository style and consistency work.
-- `/audit` for product and implementation correctness checks.
-- `/scaffold-audit` for generated workspace and service contract checks.
-- `/e2e` for end-to-end local workflow verification.
+- [`/style-audit`](../../project/tickets/READY_FOR_ENGINEERING/CODEX_STYLE_AUDIT-074.md)
+  for repository style and consistency work. This worktree does not currently
+  track `docs/audits/STYLE_AUDIT.md`; style-audit tickets identify that source
+  when the checklist is present.
+- [`/audit`](../audits/AUDIT.md) for product and implementation correctness
+  checks.
+- [`/scaffold-audit`](../audits/SCAFFOLD_AUDIT.md) for generated workspace and
+  service contract checks.
+- [`/e2e`](../../examples/local-demo/test/test_e2e.ml) for end-to-end local
+  workflow verification.
+  [`platform/local/scripts/run_tests.sh`](../../platform/local/scripts/run_tests.sh)
+  is the broader local test runner reference.
 
 ## Command Changes
 
