@@ -7,7 +7,7 @@ workflow outputs are not ownership boundaries.
 
 For audit-oriented work, use these workflows as the entry points:
 
-- [`/style-audit`](../../project/tickets/READY_FOR_ENGINEERING/CODEX_STYLE_AUDIT-074.md)
+- [`/style-audit`](../../project/tickets/)
   for repository style and consistency work. This worktree does not currently
   track `docs/audits/STYLE_AUDIT.md`; style-audit tickets identify that source
   when the checklist is present.
