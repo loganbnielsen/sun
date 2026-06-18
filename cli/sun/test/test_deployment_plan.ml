@@ -508,6 +508,38 @@ let test_to_json_consumer_groups_present () =
   assert (let re = Str.regexp "myworkspace.comms.notify_worker" in
           (contains re s))
 
+let test_of_services_result_surfaces_toml_parse_error () =
+  let tmp = Filename.temp_dir "sun_test_plan_toml_error" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "app/payments/charge_svc";
+    write_file "app/payments/charge_svc/sun.toml"
+      "[infra.deploy]\nrollout_strategy = \"Blue/Green\"\n";
+    let env : Sun_cli_deployment_plan.env_config = {
+      name = "local";
+      mode = Sun_cli_deployment_plan.Local;
+      registry = "sun-registry:5000";
+      image_tag = "dev";
+      region = None;
+      base_domain = None;
+      secret_backend = Sun_cli_manifest.Kubernetes_live;
+    } in
+    let service : Sun_cli_manifest.service = {
+      domain = "payments";
+      name = "charge_svc";
+      prim = Sun_cli_manifest.Svc;
+      dir = "app/payments/charge_svc";
+    } in
+    match Sun_cli_deployment_plan.of_services_result
+            ~workspace:"myworkspace" ~env [service] with
+    | Error (Sun_cli_toml.Validation { path; message }) ->
+      Alcotest.(check string) "error path"
+        "app/payments/charge_svc/sun.toml" path;
+      assert (contains (Str.regexp "unsupported rollout_strategy") message)
+    | Ok _ ->
+      Alcotest.fail "expected deployment-plan construction to return TOML error"
+    | Error (Sun_cli_toml.Toml_syntax _) ->
+      Alcotest.fail "expected validation error, got syntax error")
+
 let () =
   Alcotest.run "deployment_plan"
     [ "k8s_name", [
@@ -572,5 +604,8 @@ let () =
         Alcotest.test_case "derived from Worker spec"  `Quick test_consumer_groups_derived
       ; Alcotest.test_case "excludes Svc primitives"   `Quick test_consumer_groups_excludes_svc
       ; Alcotest.test_case "sorted"                    `Quick test_consumer_groups_sorted
+      ]
+    ; "of_services", [
+        Alcotest.test_case "returns typed TOML parse error" `Quick test_of_services_result_surfaces_toml_parse_error
       ]
     ]

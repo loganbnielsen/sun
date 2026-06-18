@@ -49,6 +49,8 @@ type t = {
   consumer_groups  : string list;
 }
 
+let ( let* ) = Result.bind
+
 let mode_to_string = function
   | Local          -> "local"
   | Customer_cloud -> "customer_cloud"
@@ -224,13 +226,13 @@ let render_primitive = function
   | Svc -> Sun_cli_deployment_render.Render_svc | Worker -> Sun_cli_deployment_render.Render_worker
   | Fn  -> Sun_cli_deployment_render.Render_fn
 
-let of_services ~workspace ~env services =
+let of_services_result ~workspace ~env services =
   let to_spec svc =
     let k8s_name  = k8s_name_of svc.Sun_cli_manifest.name in
     let namespace = namespace_of ~workspace ~domain:svc.Sun_cli_manifest.domain in
     let image     = image_ref ~registry:env.registry ~workspace ~k8s_name ~tag:env.image_tag in
     let primitive = prim_of_manifest svc.Sun_cli_manifest.prim in
-    let toml      = Sun_cli_toml.load (Filename.concat svc.Sun_cli_manifest.dir "sun.toml") in
+    let* toml     = Sun_cli_toml.load_result (Filename.concat svc.Sun_cli_manifest.dir "sun.toml") in
     let schedule  = match primitive with
       | Fn -> Some (Sun_cli_manifest.extract_schedule
                       ~dir:svc.Sun_cli_manifest.dir
@@ -255,17 +257,28 @@ let of_services ~workspace ~env services =
     ; ingress_path          = toml.Sun_cli_toml.ingress_path
     ; extra_labels          = toml.Sun_cli_toml.extra_labels
     ; progressive_delivery  = toml.Sun_cli_toml.progressive_delivery
-    }
+    } |> Result.ok
   in
-  let resolved_services = List.map to_spec services in
-  { workspace
-  ; environment    = env
-  ; services       = resolved_services
-  ; topics         = discover_topics ()
-  ; migrations     = discover_migrations ()
-  ; schema_subjects = discover_schema_subjects ()
-  ; consumer_groups = derive_consumer_groups workspace resolved_services
-  }
+  let rec collect acc = function
+    | [] -> Ok (List.rev acc)
+    | svc :: rest ->
+      let* spec = to_spec svc in
+      collect (spec :: acc) rest
+  in
+  let* resolved_services = collect [] services in
+  Ok { workspace
+     ; environment    = env
+     ; services       = resolved_services
+     ; topics         = discover_topics ()
+     ; migrations     = discover_migrations ()
+     ; schema_subjects = discover_schema_subjects ()
+     ; consumer_groups = derive_consumer_groups workspace resolved_services
+     }
+
+let of_services ~workspace ~env services =
+  match of_services_result ~workspace ~env services with
+  | Ok plan -> plan
+  | Error err -> failwith (Sun_cli_toml.parse_error_to_string err)
 
 let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) s =
   Sun_cli_deployment_render.render_spec ~image ~secret_backend ~namespace:s.namespace
