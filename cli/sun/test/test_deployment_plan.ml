@@ -410,6 +410,44 @@ let test_to_json_rollout_strategy_blue_green () =
   assert (let re = Str.regexp {|"rollout_strategy":"blue_green"|} in
           (contains re s))
 
+let check_effective_rollout_strategy label expected svc =
+  let strategy =
+    svc
+    |> Sun_cli_deployment_plan.effective_rollout_strategy
+    |> Sun_cli_deployment_plan.effective_rollout_strategy_to_string
+  in
+  check_string label expected strategy
+
+let test_effective_rollout_strategy_defaults_to_rolling_update () =
+  let svc = List.hd (sample_plan ()).services in
+  check_effective_rollout_strategy "default" "rolling_update" svc
+
+let test_effective_rollout_strategy_recreate () =
+  let svc =
+    { (List.hd (sample_plan ()).services) with
+      rollout_strategy = Some Sun_cli_toml.Recreate }
+  in
+  check_effective_rollout_strategy "recreate" "recreate" svc
+
+let test_effective_rollout_strategy_progressive_delivery_precedence () =
+  let svc =
+    { (List.hd (sample_plan ()).services) with
+      rollout_strategy = Some Sun_cli_toml.Recreate;
+      progressive_delivery = Some Sun_cli_toml.Blue_green }
+  in
+  check_effective_rollout_strategy "progressive precedence" "blue_green" svc
+
+let test_summary_uses_effective_rollout_strategy () =
+  let plan = sample_plan () in
+  let svc =
+    { (List.hd plan.services) with
+      progressive_delivery = Some (Sun_cli_toml.Canary { steps = [] }) }
+  in
+  let plan = { plan with services = [svc] } in
+  let summary = Format.asprintf "%a" Sun_cli_deployment_plan.pp_summary plan in
+  assert (let re = Str.regexp {|rollout=canary|} in
+          (contains re summary))
+
 let test_to_json_ingress_null_when_absent () =
   let plan = sample_plan () in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
@@ -476,6 +514,10 @@ let () =
       ; Alcotest.test_case "rollout_strategy recreate"       `Quick test_to_json_rollout_strategy_recreate
       ; Alcotest.test_case "rollout_strategy canary"         `Quick test_to_json_rollout_strategy_canary
       ; Alcotest.test_case "rollout_strategy blue_green"     `Quick test_to_json_rollout_strategy_blue_green
+      ; Alcotest.test_case "effective rollout default"       `Quick test_effective_rollout_strategy_defaults_to_rolling_update
+      ; Alcotest.test_case "effective rollout recreate"      `Quick test_effective_rollout_strategy_recreate
+      ; Alcotest.test_case "effective rollout precedence"    `Quick test_effective_rollout_strategy_progressive_delivery_precedence
+      ; Alcotest.test_case "summary rollout strategy"        `Quick test_summary_uses_effective_rollout_strategy
       ; Alcotest.test_case "ingress null when absent"        `Quick test_to_json_ingress_null_when_absent
       ; Alcotest.test_case "ingress host+path present"       `Quick test_to_json_ingress_present
       ; Alcotest.test_case "schema_subjects in json"         `Quick test_to_json_schema_subjects_present
