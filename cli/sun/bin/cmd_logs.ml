@@ -60,14 +60,27 @@ let deployment_exists ns k8s_name =
   Sys.command
     (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
 
+let namespace_or_exit ~workspace ~domain =
+  match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
+  | Ok namespace -> Sun_cli_deployment_plan.namespace_to_string namespace
+  | Error err ->
+    Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+    exit 1
+
 let run ~service_arg ~follow ~tail ~grafana_base_url : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
     | None -> exit 1
   in
-  let ns       = Sun_cli_deployment_plan.namespace_of ~workspace ~domain in
-  let k8s_name = String.map (fun c -> if c = '_' then '-' else c) name in
+  let ns = namespace_or_exit ~workspace ~domain in
+  let k8s_name =
+    match Sun_cli_deployment_plan.k8s_name_result name with
+    | Ok k8s_name -> Sun_cli_deployment_plan.k8s_name_to_string k8s_name
+    | Error err ->
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+      exit 1
+  in
 
   if not (deployment_exists ns k8s_name) then begin
     Printf.eprintf "Service %s not found in namespace %s.\n" name ns;

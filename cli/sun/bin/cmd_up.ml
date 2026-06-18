@@ -88,7 +88,7 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
     match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
     | Ok plan -> plan
     | Error err ->
-      Printf.eprintf "error: %s\n" (Sun_cli_toml.parse_error_to_string err);
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
       exit 1
   in
 
@@ -132,6 +132,8 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
 
   (try
     List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+      let k8s_name = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name in
+      let namespace = Sun_cli_deployment_plan.namespace_to_string spec.namespace in
       (* push_image is the host-accessible URL used for docker build/push and
          shown in dry-run output — it matches what actually gets written into the
          registry.  spec.image is the in-cluster URL baked into the manifest. *)
@@ -177,29 +179,29 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
          | Sun_cli_deployment_plan.Svc
          | Sun_cli_deployment_plan.Worker ->
            Printf.printf "  waiting for rollout...\n%!";
-           if wait_for_rollout ~namespace:spec.namespace ~name:spec.k8s_name <> 0 then
-             raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s" spec.namespace spec.k8s_name))
+           if wait_for_rollout ~namespace ~name:k8s_name <> 0 then
+             raise (Deploy_failed (Printf.sprintf "rollout failed: %s/%s" namespace k8s_name))
          | Sun_cli_deployment_plan.Fn -> ());
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc ->
            let local_port = 8080 in
-           if not (Sun_cli_port_forward.is_running spec.k8s_name) then begin
+           if not (Sun_cli_port_forward.is_running k8s_name) then begin
              (* Before binding the port, check whether a stale Sun-managed
                 port-forward from a different workspace/namespace already owns
                 it.  Give the old process ~400 ms to release the port. *)
              if Sun_cli_port_forward.detect_stale ~local_port
-                  ~namespace:spec.namespace ~target:("svc/" ^ spec.k8s_name)
+                  ~namespace ~target:("svc/" ^ k8s_name)
              then Unix.sleepf 0.4;
              Sun_cli_port_forward.start {
-               name        = spec.k8s_name;
-               namespace   = spec.namespace;
-               target      = "svc/" ^ spec.k8s_name;
+               name        = k8s_name;
+               namespace;
+               target      = "svc/" ^ k8s_name;
                local_port;
                remote_port = 80;
              }
            end;
-           let pf_alive = Sun_cli_port_forward.check_alive ~name:spec.k8s_name ~local_port in
-           Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
+           let pf_alive = Sun_cli_port_forward.check_alive ~name:k8s_name ~local_port in
+           Printf.printf "  ✓  namespace %s  image %s\n%!" namespace spec.image;
            if pf_alive then
              Printf.printf "  →  http://localhost:%d  (port-forward running in background)\n\n%!" local_port
            else begin
@@ -207,7 +209,7 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
              Printf.printf "\n%!"
            end
          | _ ->
-           Printf.printf "  ✓  namespace %s  image %s\n%!" spec.namespace spec.image;
+           Printf.printf "  ✓  namespace %s  image %s\n%!" namespace spec.image;
            Printf.printf "\n%!")
       end
 

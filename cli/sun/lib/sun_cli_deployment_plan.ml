@@ -18,11 +18,14 @@ type effective_rollout_strategy =
   | Effective_recreate
   | Effective_rolling_update
 
+type k8s_name = Sun_cli_kubernetes_name.k8s_name
+type namespace = Sun_cli_kubernetes_name.namespace
+
 type service_spec = {
   domain                : string;
   source_name           : string;
-  k8s_name              : string;
-  namespace             : string;
+  k8s_name              : k8s_name;
+  namespace             : namespace;
   primitive             : primitive;
   source_dir            : string;
   image                 : string;
@@ -48,6 +51,10 @@ type t = {
   schema_subjects  : string list;
   consumer_groups  : string list;
 }
+
+type plan_error =
+  | Toml_error of Sun_cli_toml.parse_error
+  | Invalid_kubernetes_name of { field : string; value : string; message : string }
 
 let ( let* ) = Result.bind
 
@@ -79,6 +86,9 @@ let effective_rollout_strategy_to_string = function
   | Effective_blue_green     -> "blue_green"
   | Effective_recreate       -> "recreate"
   | Effective_rolling_update -> "rolling_update"
+
+let k8s_name_to_string = Sun_cli_kubernetes_name.k8s_name_to_string
+let namespace_to_string = Sun_cli_kubernetes_name.namespace_to_string
 
 let canary_step_to_json = function
   | Sun_cli_toml.Weight n ->
@@ -120,10 +130,10 @@ let to_json t =
       |> effective_rollout_strategy_to_string
     in
     `Assoc [
-      "k8s_name",    `String s.k8s_name;
+      "k8s_name",    `String (k8s_name_to_string s.k8s_name);
       "domain",      `String s.domain;
       "source_name", `String s.source_name;
-      "namespace",   `String s.namespace;
+      "namespace",   `String (namespace_to_string s.namespace);
       "primitive",   `String (prim_to_string s.primitive);
       "image",       `String s.image;
       "config",      `Assoc (List.map (fun (k, v) -> (k, `String v)) s.config);
@@ -209,13 +219,36 @@ let derive_consumer_groups workspace services =
   |> Sun_cli_workspace_scan.derive_consumer_groups workspace
 
 let k8s_name_of name =
-  String.map (fun c -> if c = '_' then '-' else c) (String.lowercase_ascii name)
+  Sun_cli_kubernetes_name.normalize name
+
+let invalid_kubernetes_name ~field ~value message =
+  Invalid_kubernetes_name { field; value; message }
+
+let k8s_name_result name =
+  Sun_cli_kubernetes_name.k8s_name_of_source name
+  |> Result.map_error (invalid_kubernetes_name ~field:"k8s_name" ~value:name)
+
+let namespace_result ~workspace ~domain =
+  let value = Printf.sprintf "%s-%s" (k8s_name_of workspace) (k8s_name_of domain) in
+  Sun_cli_kubernetes_name.make_namespace value
+  |> Result.map_error (invalid_kubernetes_name ~field:"namespace" ~value)
 
 let namespace_of ~workspace ~domain =
-  Printf.sprintf "%s-%s" (k8s_name_of workspace) (k8s_name_of domain)
+  match namespace_result ~workspace ~domain with
+  | Ok namespace -> namespace
+  | Error err ->
+    failwith (match err with
+      | Invalid_kubernetes_name { field; value; message } ->
+        Printf.sprintf "invalid Kubernetes %s %S: %s" field value message
+      | Toml_error toml -> Sun_cli_toml.parse_error_to_string toml)
 
 let image_ref ~registry ~workspace ~k8s_name ~tag =
-  Printf.sprintf "%s/%s/%s:%s" registry workspace k8s_name tag
+  Printf.sprintf "%s/%s/%s:%s" registry workspace (k8s_name_to_string k8s_name) tag
+
+let plan_error_to_string = function
+  | Toml_error err -> Sun_cli_toml.parse_error_to_string err
+  | Invalid_kubernetes_name { field; value; message } ->
+    Printf.sprintf "invalid Kubernetes %s %S: %s" field value message
 
 let prim_of_manifest = function
   | Sun_cli_manifest.Svc    -> Svc
@@ -228,11 +261,14 @@ let render_primitive = function
 
 let of_services_result ~workspace ~env services =
   let to_spec svc =
-    let k8s_name  = k8s_name_of svc.Sun_cli_manifest.name in
-    let namespace = namespace_of ~workspace ~domain:svc.Sun_cli_manifest.domain in
+    let* k8s_name  = k8s_name_result svc.Sun_cli_manifest.name in
+    let* namespace = namespace_result ~workspace ~domain:svc.Sun_cli_manifest.domain in
     let image     = image_ref ~registry:env.registry ~workspace ~k8s_name ~tag:env.image_tag in
     let primitive = prim_of_manifest svc.Sun_cli_manifest.prim in
-    let* toml     = Sun_cli_toml.load_result (Filename.concat svc.Sun_cli_manifest.dir "sun.toml") in
+    let* toml     =
+      Sun_cli_toml.load_result (Filename.concat svc.Sun_cli_manifest.dir "sun.toml")
+      |> Result.map_error (fun err -> Toml_error err)
+    in
     let schedule  = match primitive with
       | Fn -> Some (Sun_cli_manifest.extract_schedule
                       ~dir:svc.Sun_cli_manifest.dir
@@ -278,7 +314,7 @@ let of_services_result ~workspace ~env services =
 let of_services ~workspace ~env services =
   match of_services_result ~workspace ~env services with
   | Ok plan -> plan
-  | Error err -> failwith (Sun_cli_toml.parse_error_to_string err)
+  | Error err -> failwith (plan_error_to_string err)
 
 let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) s =
   Sun_cli_deployment_render.render_spec ~image ~secret_backend ~namespace:s.namespace

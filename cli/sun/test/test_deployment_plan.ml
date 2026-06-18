@@ -2,6 +2,18 @@ let check_string = Alcotest.(check string)
 
 let contains re s = try ignore (Str.search_forward re s 0); true with Not_found -> false
 
+let k8s_name value =
+  match Sun_cli_deployment_plan.k8s_name_result value with
+  | Ok name -> name
+  | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
+
+let namespace ~workspace ~domain =
+  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+
+let namespace_string ~workspace ~domain =
+  namespace ~workspace ~domain
+  |> Sun_cli_deployment_plan.namespace_to_string
+
 let test_k8s_name_underscores () =
   check_string "underscore to hyphen" "charge-svc"
     (Sun_cli_deployment_plan.k8s_name_of "charge_svc")
@@ -16,37 +28,80 @@ let test_k8s_name_no_underscores () =
 
 let test_namespace () =
   check_string "namespace format" "myapp-payments"
-    (Sun_cli_deployment_plan.namespace_of ~workspace:"myapp" ~domain:"payments")
+    (namespace_string ~workspace:"myapp" ~domain:"payments")
 
 let test_namespace_comms () =
   check_string "namespace comms domain" "pluto-comms"
-    (Sun_cli_deployment_plan.namespace_of ~workspace:"pluto" ~domain:"comms")
+    (namespace_string ~workspace:"pluto" ~domain:"comms")
 
 let test_namespace_sanitizes_workspace () =
   check_string "namespace sanitizes workspace" "comet-kafka-comms"
-    (Sun_cli_deployment_plan.namespace_of ~workspace:"comet_kafka" ~domain:"comms")
+    (namespace_string ~workspace:"comet_kafka" ~domain:"comms")
 
 let test_namespace_uppercased_workspace () =
   check_string "uppercase workspace lowercased" "myapp-payments"
-    (Sun_cli_deployment_plan.namespace_of ~workspace:"MyApp" ~domain:"payments")
+    (namespace_string ~workspace:"MyApp" ~domain:"payments")
+
+let test_k8s_name_rejects_invalid_characters () =
+  match Sun_cli_deployment_plan.k8s_name_result "charge.svc" with
+  | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name { field; value; message }) ->
+    check_string "field" "k8s_name" field;
+    check_string "value" "charge.svc" value;
+    assert (contains (Str.regexp "lowercase alphanumeric") message)
+  | Ok _ -> Alcotest.fail "expected invalid k8s name"
+  | Error (Sun_cli_deployment_plan.Toml_error _) -> Alcotest.fail "expected name error"
+
+let test_k8s_name_rejects_empty () =
+  match Sun_cli_deployment_plan.k8s_name_result "" with
+  | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name { message; _ }) ->
+    assert (contains (Str.regexp "1 and 63") message)
+  | Ok _ -> Alcotest.fail "expected empty k8s name to fail"
+  | Error (Sun_cli_deployment_plan.Toml_error _) -> Alcotest.fail "expected name error"
+
+let test_k8s_name_rejects_overlong () =
+  let name = String.make 64 'a' in
+  match Sun_cli_deployment_plan.k8s_name_result name with
+  | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name { value; message; _ }) ->
+    check_string "value" name value;
+    assert (contains (Str.regexp "1 and 63") message)
+  | Ok _ -> Alcotest.fail "expected overlong k8s name to fail"
+  | Error (Sun_cli_deployment_plan.Toml_error _) -> Alcotest.fail "expected name error"
+
+let test_namespace_rejects_invalid_domain () =
+  match Sun_cli_deployment_plan.namespace_result ~workspace:"myapp" ~domain:"payments.api" with
+  | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name { field; value; message }) ->
+    check_string "field" "namespace" field;
+    check_string "value" "myapp-payments.api" value;
+    assert (contains (Str.regexp "lowercase alphanumeric") message)
+  | Ok _ -> Alcotest.fail "expected invalid namespace"
+  | Error (Sun_cli_deployment_plan.Toml_error _) -> Alcotest.fail "expected name error"
+
+let test_namespace_rejects_overlong () =
+  match Sun_cli_deployment_plan.namespace_result
+          ~workspace:(String.make 40 'a') ~domain:(String.make 30 'b') with
+  | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name { field; message; _ }) ->
+    check_string "field" "namespace" field;
+    assert (contains (Str.regexp "1 and 63") message)
+  | Ok _ -> Alcotest.fail "expected overlong namespace"
+  | Error (Sun_cli_deployment_plan.Toml_error _) -> Alcotest.fail "expected name error"
 
 let test_image_ref_local () =
   check_string "local k3d image ref" "sun-registry:5000/myapp/charge-svc:abc123"
     (Sun_cli_deployment_plan.image_ref
        ~registry:"sun-registry:5000" ~workspace:"myapp"
-       ~k8s_name:"charge-svc" ~tag:"abc123")
+       ~k8s_name:(k8s_name "charge-svc") ~tag:"abc123")
 
 let test_image_ref_ecr () =
   check_string "ECR image ref" "123456789.dkr.ecr.us-east-1.amazonaws.com/myapp/charge-svc:sha-deadbeef"
     (Sun_cli_deployment_plan.image_ref
        ~registry:"123456789.dkr.ecr.us-east-1.amazonaws.com"
-       ~workspace:"myapp" ~k8s_name:"charge-svc" ~tag:"sha-deadbeef")
+       ~workspace:"myapp" ~k8s_name:(k8s_name "charge-svc") ~tag:"sha-deadbeef")
 
 let test_image_ref_push_registry () =
   check_string "localhost push registry" "localhost:5000/myapp/charge-svc:dev"
     (Sun_cli_deployment_plan.image_ref
        ~registry:"localhost:5000" ~workspace:"myapp"
-       ~k8s_name:"charge-svc" ~tag:"dev")
+       ~k8s_name:(k8s_name "charge-svc") ~tag:"dev")
 
 (* ── to_json tests ─────────────────────────────────────────────────────── *)
 
@@ -64,8 +119,8 @@ let sample_plan () : Sun_cli_deployment_plan.t =
   let svc : Sun_cli_deployment_plan.service_spec = {
     domain      = "orders";
     source_name = "charge_svc";
-    k8s_name    = "charge-svc";
-    namespace   = "myworkspace-orders";
+    k8s_name    = k8s_name "charge-svc";
+    namespace   = namespace ~workspace:"myworkspace" ~domain:"orders";
     primitive   = Sun_cli_deployment_plan.Svc;
     source_dir  = "/tmp/app/orders/charge_svc";
     image       = "123.dkr.ecr.us-east-1.amazonaws.com/myworkspace/charge-svc:abc1234";
@@ -322,8 +377,8 @@ let test_schema_subjects_empty_when_no_dir () =
 let make_worker_spec name domain =
   { Sun_cli_deployment_plan.domain
   ; source_name           = name
-  ; k8s_name              = Sun_cli_deployment_plan.k8s_name_of name
-  ; namespace             = "ws-" ^ domain
+  ; k8s_name              = k8s_name name
+  ; namespace             = namespace ~workspace:"ws" ~domain
   ; primitive             = Sun_cli_deployment_plan.Worker
   ; source_dir            = domain ^ "/" ^ name
   ; image                 = "reg/ws/" ^ name ^ ":t"
@@ -531,14 +586,16 @@ let test_of_services_result_surfaces_toml_parse_error () =
     } in
     match Sun_cli_deployment_plan.of_services_result
             ~workspace:"myworkspace" ~env [service] with
-    | Error (Sun_cli_toml.Validation { path; message }) ->
+    | Error (Sun_cli_deployment_plan.Toml_error (Sun_cli_toml.Validation { path; message })) ->
       Alcotest.(check string) "error path"
         "app/payments/charge_svc/sun.toml" path;
       assert (contains (Str.regexp "unsupported rollout_strategy") message)
     | Ok _ ->
       Alcotest.fail "expected deployment-plan construction to return TOML error"
-    | Error (Sun_cli_toml.Toml_syntax _) ->
-      Alcotest.fail "expected validation error, got syntax error")
+    | Error (Sun_cli_deployment_plan.Toml_error (Sun_cli_toml.Toml_syntax _)) ->
+      Alcotest.fail "expected validation error, got syntax error"
+    | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name _) ->
+      Alcotest.fail "expected TOML error, got Kubernetes name error")
 
 let () =
   Alcotest.run "deployment_plan"
@@ -546,12 +603,17 @@ let () =
         Alcotest.test_case "underscore to hyphen" `Quick test_k8s_name_underscores
       ; Alcotest.test_case "worker suffix"        `Quick test_k8s_name_worker
       ; Alcotest.test_case "no underscores"       `Quick test_k8s_name_no_underscores
+      ; Alcotest.test_case "invalid characters rejected" `Quick test_k8s_name_rejects_invalid_characters
+      ; Alcotest.test_case "empty rejected"              `Quick test_k8s_name_rejects_empty
+      ; Alcotest.test_case "overlong rejected"           `Quick test_k8s_name_rejects_overlong
       ]
     ; "namespace", [
         Alcotest.test_case "workspace-domain"       `Quick test_namespace
       ; Alcotest.test_case "comms domain"           `Quick test_namespace_comms
       ; Alcotest.test_case "sanitize workspace"     `Quick test_namespace_sanitizes_workspace
       ; Alcotest.test_case "uppercase workspace"    `Quick test_namespace_uppercased_workspace
+      ; Alcotest.test_case "invalid domain rejected" `Quick test_namespace_rejects_invalid_domain
+      ; Alcotest.test_case "overlong rejected"       `Quick test_namespace_rejects_overlong
       ]
     ; "image_ref", [
         Alcotest.test_case "local k3d"         `Quick test_image_ref_local

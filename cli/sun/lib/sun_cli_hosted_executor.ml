@@ -41,7 +41,8 @@ let primitive_to_string = function
 let image_refs_of_plan (plan : Sun_cli_deployment_plan.t) =
   List.map
     (fun (s : Sun_cli_deployment_plan.service_spec) ->
-       { service_name = s.k8s_name; image = s.image })
+       { service_name = Sun_cli_deployment_plan.k8s_name_to_string s.k8s_name;
+         image = s.image })
     plan.services
 
 let normalize_id value =
@@ -79,31 +80,33 @@ let default_url_for (s : Sun_cli_deployment_plan.service_spec)
     (plan : Sun_cli_deployment_plan.t) =
   match s.primitive, plan.environment.base_domain with
   | Sun_cli_deployment_plan.Svc, Some base_domain ->
+    let service_name = Sun_cli_deployment_plan.k8s_name_to_string s.k8s_name in
     (match Sun_cli_hosted_url.generate_default_url
-             ~service_name:s.k8s_name
+             ~service_name
              ~workspace:plan.workspace
              ~environment_name:plan.environment.name
              ~base_domain with
      | Ok url -> Ok (Some url)
      | Error msg ->
        Error (Printf.sprintf "invalid hosted default URL for service %s: %s"
-                s.k8s_name msg))
+                service_name msg))
   | _ -> Ok None
 
 let service_summaries plan (image_refs : image_ref list) =
   let rec loop acc = function
     | [] -> Ok (List.rev acc)
     | (s : Sun_cli_deployment_plan.service_spec) :: rest ->
-      match find_image_ref s.k8s_name image_refs with
+      let service_name = Sun_cli_deployment_plan.k8s_name_to_string s.k8s_name in
+      match find_image_ref service_name image_refs with
       | None ->
-        Error (Printf.sprintf "missing hosted image ref for service %s" s.k8s_name)
+        Error (Printf.sprintf "missing hosted image ref for service %s" service_name)
       | Some ref ->
         match default_url_for s plan with
         | Error msg -> Error msg
         | Ok default_url ->
           let summary = {
-            service_name = s.k8s_name;
-            namespace = s.namespace;
+            service_name;
+            namespace = Sun_cli_deployment_plan.namespace_to_string s.namespace;
             primitive = s.primitive;
             image = ref.image;
             default_url;
@@ -124,9 +127,10 @@ let inspection_services plan (image_refs : image_ref list) =
   let rec loop acc = function
     | [] -> Ok (List.rev acc)
     | (s : Sun_cli_deployment_plan.service_spec) :: rest ->
-      match find_image_ref s.k8s_name image_refs with
+      let service_name = Sun_cli_deployment_plan.k8s_name_to_string s.k8s_name in
+      match find_image_ref service_name image_refs with
       | None ->
-        Error (Printf.sprintf "missing hosted image ref for service %s" s.k8s_name)
+        Error (Printf.sprintf "missing hosted image ref for service %s" service_name)
       | Some ref ->
         match default_url_for s plan with
         | Error msg -> Error msg

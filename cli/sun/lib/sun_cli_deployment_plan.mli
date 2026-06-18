@@ -18,11 +18,14 @@ type effective_rollout_strategy =
   | Effective_recreate
   | Effective_rolling_update
 
+type k8s_name = Sun_cli_kubernetes_name.k8s_name
+type namespace = Sun_cli_kubernetes_name.namespace
+
 type service_spec = {
   domain                : string;
   source_name           : string;
-  k8s_name              : string;
-  namespace             : string;
+  k8s_name              : k8s_name;
+  namespace             : namespace;
   primitive             : primitive;
   source_dir            : string;
   image                 : string;
@@ -48,6 +51,10 @@ type t = {
   schema_subjects  : string list;
   consumer_groups  : string list;
 }
+
+type plan_error =
+  | Toml_error of Sun_cli_toml.parse_error
+  | Invalid_kubernetes_name of { field : string; value : string; message : string }
 
 val discover_topics : unit -> string list
 (** Scan [events/*.ml] in the current directory for ['let topic_name = "..."']
@@ -83,13 +90,28 @@ val to_json : t -> Yojson.Safe.t
 val pp_summary : Format.formatter -> t -> unit
 (** Print a human-readable deployment plan summary. *)
 
+val plan_error_to_string : plan_error -> string
+(** Render a deployment-plan construction error for CLI output. *)
+
 val k8s_name_of : string -> string
-(** Convert a service source name to a k8s-safe name: underscores become hyphens. *)
+(** Legacy normalization helper: lowercase ASCII and convert underscores to hyphens.
+    Use [k8s_name_result] when constructing deployment artifacts. *)
 
-val namespace_of : workspace:string -> domain:string -> string
-(** [namespace_of ~workspace ~domain] returns ["<workspace>-<domain>"]. *)
+val k8s_name_result : string -> (k8s_name, plan_error) result
+(** Normalize and validate a service source name as a Kubernetes DNS label. *)
 
-val image_ref : registry:string -> workspace:string -> k8s_name:string -> tag:string -> string
+val k8s_name_to_string : k8s_name -> string
+
+val namespace_of : workspace:string -> domain:string -> namespace
+(** [namespace_of ~workspace ~domain] returns a validated namespace for
+    ["<workspace>-<domain>"]. Raises [Failure] if validation fails. *)
+
+val namespace_result : workspace:string -> domain:string -> (namespace, plan_error) result
+(** Normalize workspace/domain into a namespace and validate it as a Kubernetes DNS label. *)
+
+val namespace_to_string : namespace -> string
+
+val image_ref : registry:string -> workspace:string -> k8s_name:k8s_name -> tag:string -> string
 (** [image_ref ~registry ~workspace ~k8s_name ~tag] returns
     ["<registry>/<workspace>/<k8s_name>:<tag>"]. *)
 
@@ -105,10 +127,10 @@ val of_services_result :
   workspace:string ->
   env:env_config ->
   Sun_cli_manifest.service list ->
-  (t, Sun_cli_toml.parse_error) result
+  (t, plan_error) result
 (** Build a deployment plan from a discovered service list and an environment
-    config. Returns a typed error when a service [sun.toml] cannot be parsed or
-    validated. *)
+    config. Returns a typed error when a Kubernetes artifact name is invalid or
+    a service [sun.toml] cannot be parsed or validated. *)
 
 val render_spec :
   ?image:string ->

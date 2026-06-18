@@ -5,11 +5,19 @@
 
 (* ── fixtures ────────────────────────────────────────────────────────────── *)
 
+let k8s_name value =
+  match Sun_cli_deployment_plan.k8s_name_result value with
+  | Ok name -> name
+  | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
+
+let namespace ~workspace ~domain =
+  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+
 let svc_spec : Sun_cli_deployment_plan.service_spec = {
   domain      = "payments";
   source_name = "charge_svc";
-  k8s_name    = "charge-svc";
-  namespace   = "myapp-payments";
+  k8s_name    = k8s_name "charge-svc";
+  namespace   = namespace ~workspace:"myapp" ~domain:"payments";
   primitive   = Sun_cli_deployment_plan.Svc;
   source_dir  = "app/payments/charge_svc";
   image       = "sun-registry:5000/myapp/charge-svc:abc123";
@@ -29,8 +37,8 @@ let svc_spec : Sun_cli_deployment_plan.service_spec = {
 let worker_spec : Sun_cli_deployment_plan.service_spec = {
   domain      = "comms";
   source_name = "notify_worker";
-  k8s_name    = "notify-worker";
-  namespace   = "myapp-comms";
+  k8s_name    = k8s_name "notify-worker";
+  namespace   = namespace ~workspace:"myapp" ~domain:"comms";
   primitive   = Sun_cli_deployment_plan.Worker;
   source_dir  = "app/comms/notify_worker";
   image       = "sun-registry:5000/myapp/notify-worker:abc123";

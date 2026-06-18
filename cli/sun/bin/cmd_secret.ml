@@ -2,6 +2,13 @@ open Cmdliner
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
+let namespace_or_exit ~workspace ~domain =
+  match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
+  | Ok namespace -> Sun_cli_deployment_plan.namespace_to_string namespace
+  | Error err ->
+    Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+    exit 1
+
 let discover_namespaces () =
   let workspace = workspace_name () in
   let app_dir = "app" in
@@ -16,7 +23,7 @@ let discover_namespaces () =
       ) (Sys.readdir app_dir)
     with _ -> ());
     List.rev_map (fun domain ->
-      Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+      namespace_or_exit ~workspace ~domain
     ) !domains
 
 let read_stdin () =

@@ -22,3 +22,8 @@ the type.
   checks.
 - Use those types in deployment plans and manifest rendering.
 - Keep string conversion at kubectl/YAML output boundaries.
+
+**Completed:** Added validated Kubernetes DNS-label name/namespace types, wired
+deployment plans and manifest rendering to use typed names, and kept explicit
+string conversion at JSON, YAML, kubectl, control-plane, and file-output
+boundaries.

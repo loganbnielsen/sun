@@ -19,6 +19,13 @@ let get_ok_or_exit = function
     Printf.eprintf "error: %s\n" msg;
     exit 1
 
+let k8s_name_or_exit source_name =
+  match Sun_cli_deployment_plan.k8s_name_result source_name with
+  | Ok name -> name
+  | Error err ->
+    Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+    exit 1
+
 (* ── Builder adapter ─────────────────────────────────────────────────────── *)
 
 type builder_result = {
@@ -137,7 +144,9 @@ let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_r
       let services = Sun_cli_manifest.discover_services ~filter_path:None in
       let service_names =
         List.map (fun (s : Sun_cli_manifest.service) ->
-          Sun_cli_deployment_plan.k8s_name_of s.name)
+          s.name
+          |> k8s_name_or_exit
+          |> Sun_cli_deployment_plan.k8s_name_to_string)
           services
       in
       let release = ops.Sun_cli_control_plane.create_release
@@ -152,7 +161,11 @@ let cloud_deploy ?(builder = local_builder) environment image_tag registry dry_r
       let workspace_path = Sys.getcwd () in
       let built = ref [] in
       let all_ok = List.for_all (fun (svc : Sun_cli_manifest.service) ->
-        let svc_name = Sun_cli_deployment_plan.k8s_name_of svc.name in
+        let svc_name =
+          svc.name
+          |> k8s_name_or_exit
+          |> Sun_cli_deployment_plan.k8s_name_to_string
+        in
         let image_ref = Printf.sprintf "%s/%s/%s:%s" reg workspace svc_name sha in
         let log line = ops.Sun_cli_control_plane.append_log_line release_id line in
         match builder.build_and_push

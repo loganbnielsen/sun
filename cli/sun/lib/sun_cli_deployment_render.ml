@@ -6,8 +6,8 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
     ~namespace ~k8s_name ~primitive ~spec_image ~config ~secrets ~schedule
     ~replicas ~cpu ~memory ~rollout_strategy ~ingress_host ~ingress_path
     ~extra_labels ~progressive_delivery () =
-  let ns               = namespace in
-  let name             = k8s_name in
+  let ns               = Sun_cli_kubernetes_name.namespace_to_string namespace in
+  let name             = Sun_cli_kubernetes_name.k8s_name_to_string k8s_name in
   let img              = if image = "" then spec_image else image in
   let rollout_strategy = Option.value rollout_strategy
                            ~default:Sun_cli_toml.RollingUpdate in

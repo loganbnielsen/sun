@@ -11,7 +11,9 @@ type result = {
 (* ── helpers ─────────────────────────────────────────────────────────────── *)
 
 let make_result (spec : Sun_cli_deployment_plan.service_spec) =
-  { namespace = spec.namespace; name = spec.k8s_name; image = spec.image }
+  { namespace = Sun_cli_deployment_plan.namespace_to_string spec.namespace;
+    name = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name;
+    image = spec.image }
 
 (* ── executors ───────────────────────────────────────────────────────────── *)
 
@@ -27,6 +29,8 @@ let direct ~dry_run spec =
 
 let gitops ~dir ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) spec =
   let yaml = Sun_cli_deployment_plan.render_spec ~secret_backend spec in
+  let ns = Sun_cli_deployment_plan.namespace_to_string spec.namespace in
+  let name = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name in
   let _path = Sun_cli_manifest.emit_to_dir dir yaml
-    ~ns:spec.namespace ~name:spec.k8s_name in
+    ~ns ~name in
   make_result spec

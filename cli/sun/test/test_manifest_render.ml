@@ -28,6 +28,14 @@ let assert_absent label haystack needle =
   check_bool (Printf.sprintf "%s: absent %S" label needle) false
     (contains haystack needle)
 
+let k8s_name value =
+  match Sun_cli_deployment_plan.k8s_name_result value with
+  | Ok name -> name
+  | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
+
+let namespace ~workspace ~domain =
+  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+
 (* Extract the YAML document block that contains [kind_marker] (e.g. "kind: ConfigMap").
    Splits the full YAML on "---" separators and returns the first block that
    contains the marker, or the empty string if none is found. *)
@@ -56,8 +64,8 @@ let extract_kind_block yaml kind_marker =
 let svc_spec : Sun_cli_deployment_plan.service_spec = {
   domain                = "payments";
   source_name           = "charge_svc";
-  k8s_name              = "charge-svc";
-  namespace             = "myapp-payments";
+  k8s_name              = k8s_name "charge-svc";
+  namespace             = namespace ~workspace:"myapp" ~domain:"payments";
   primitive             = Sun_cli_deployment_plan.Svc;
   source_dir            = "app/payments/charge_svc";
   image                 = "sun-registry:5000/myapp/charge-svc:abc123";
@@ -77,8 +85,8 @@ let svc_spec : Sun_cli_deployment_plan.service_spec = {
 let worker_spec : Sun_cli_deployment_plan.service_spec = {
   domain                = "comms";
   source_name           = "notify_worker";
-  k8s_name              = "notify-worker";
-  namespace             = "myapp-comms";
+  k8s_name              = k8s_name "notify-worker";
+  namespace             = namespace ~workspace:"myapp" ~domain:"comms";
   primitive             = Sun_cli_deployment_plan.Worker;
   source_dir            = "app/comms/notify_worker";
   image                 = "sun-registry:5000/myapp/notify-worker:abc123";
@@ -98,8 +106,8 @@ let worker_spec : Sun_cli_deployment_plan.service_spec = {
 let fn_spec : Sun_cli_deployment_plan.service_spec = {
   domain                = "billing";
   source_name           = "invoice_fn";
-  k8s_name              = "invoice-fn";
-  namespace             = "myapp-billing";
+  k8s_name              = k8s_name "invoice-fn";
+  namespace             = namespace ~workspace:"myapp" ~domain:"billing";
   primitive             = Sun_cli_deployment_plan.Fn;
   source_dir            = "app/billing/invoice_fn";
   image                 = "sun-registry:5000/myapp/invoice-fn:abc123";
@@ -339,8 +347,8 @@ let test_svc_render_spec_matches_render () =
   let plain_spec : Sun_cli_deployment_plan.service_spec = {
     domain                = "payments";
     source_name           = "charge_svc";
-    k8s_name              = "charge-svc";
-    namespace             = "myapp-payments";
+    k8s_name              = k8s_name "charge-svc";
+    namespace             = namespace ~workspace:"myapp" ~domain:"payments";
     primitive             = Sun_cli_deployment_plan.Svc;
     source_dir            = "app/payments/charge_svc";
     image                 = "sun-registry:5000/myapp/charge-svc:abc123";

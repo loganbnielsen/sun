@@ -19,11 +19,16 @@ let get_ok = function
   | Ok v -> v
   | Error msg -> Alcotest.fail msg
 
+let k8s_name value =
+  match Sun_cli_deployment_plan.k8s_name_result value with
+  | Ok name -> name
+  | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
+
 let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc) () =
   { Sun_cli_deployment_plan.domain = "payments";
     source_name = name;
-    k8s_name = name;
-    namespace = "pluto-payments";
+    k8s_name = k8s_name name;
+    namespace = Sun_cli_deployment_plan.namespace_of ~workspace:"pluto" ~domain:"payments";
     primitive;
     source_dir = "payments/" ^ name;
     image = "registry.sun.dev/acct_123/pluto/" ^ name ^ ":abc123";
@@ -173,15 +178,16 @@ let test_no_base_domain_no_url () =
     (Option.is_none svc.default_url)
 
 let test_rejects_invalid_default_url_input () =
+  let base = hosted_plan () in
   let plan = {
-    (hosted_plan ()) with
-    services = [ service ~name:"..." () ];
+    base with
+    environment = { base.environment with base_domain = Some "bad_domain" };
   } in
   match Sun_cli_hosted_executor.submit_mock (request plan) with
   | Ok _ -> Alcotest.fail "expected invalid default URL rejection"
   | Error msg ->
     check_string "error"
-      "invalid hosted default URL for service ...: invalid DNS label: \"\""
+      "invalid hosted default URL for service charge-svc: invalid DNS domain: \"bad_domain\""
       msg
 
 let test_uses_supplied_image_refs () =

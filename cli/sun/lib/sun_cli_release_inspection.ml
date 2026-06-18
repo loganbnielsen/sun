@@ -120,8 +120,8 @@ let deployment_plan_summary (plan : Sun_cli_deployment_plan.t) =
 let affected_service ?(rollout_status = Rollout_unknown)
     ?(health_status = Health_unknown) ?error_reason ?default_url ~image
     (service : Sun_cli_deployment_plan.service_spec) =
-  { service_name = service.k8s_name;
-    namespace = service.namespace;
+  { service_name = Sun_cli_deployment_plan.k8s_name_to_string service.k8s_name;
+    namespace = Sun_cli_deployment_plan.namespace_to_string service.namespace;
     primitive = service.primitive;
     image;
     rollout_status;
@@ -184,7 +184,7 @@ let rendered_manifests_of_service service =
   split_manifest_docs (namespace_yaml ^ "\n" ^ workload_yaml)
   |> List.map (fun yaml ->
        { name = manifest_name yaml;
-         namespace = service.namespace;
+         namespace = Sun_cli_deployment_plan.namespace_to_string service.namespace;
          kind = manifest_kind yaml;
          yaml;
        })

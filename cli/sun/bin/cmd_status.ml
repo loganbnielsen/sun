@@ -17,6 +17,13 @@ let discover_domains () =
     List.rev !domains
   end
 
+let namespace_or_exit ~workspace ~domain =
+  match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
+  | Ok namespace -> Sun_cli_deployment_plan.namespace_to_string namespace
+  | Error err ->
+    Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+    exit 1
+
 let run filter_domain =
   let workspace = workspace_name () in
   let all_domains = discover_domains () in
@@ -35,7 +42,7 @@ let run filter_domain =
   end;
   Printf.printf "\n%!";
   List.iter (fun domain ->
-    let ns = Sun_cli_deployment_plan.namespace_of ~workspace ~domain in
+    let ns = namespace_or_exit ~workspace ~domain in
     Printf.printf "Namespace: %s\n%!" ns;
     if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kubectl get ns %s" (Filename.quote ns)) = 0 then begin
       ignore (Sys.command (Printf.sprintf "kubectl get pods -n %s 2>&1" (Filename.quote ns)));

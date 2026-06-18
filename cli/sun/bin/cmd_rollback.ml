@@ -13,6 +13,13 @@ let argo_plugin_available () =
   Sys.command "kubectl-argo-rollouts version >/dev/null 2>&1" = 0
   || Sys.command "kubectl argo rollouts version >/dev/null 2>&1" = 0
 
+let namespace_or_exit ~workspace ~domain =
+  match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
+  | Ok namespace -> Sun_cli_deployment_plan.namespace_to_string namespace
+  | Error err ->
+    Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+    exit 1
+
 let run filter_path =
   let workspace = workspace_name () in
   let services  = discover_services ~filter_path in
@@ -27,8 +34,14 @@ let run filter_path =
   let errors = ref 0 in
 
   List.iter (fun svc ->
-    let ns       = Sun_cli_deployment_plan.namespace_of ~workspace ~domain:svc.domain in
-    let k8s_name = String.map (fun c -> if c = '_' then '-' else c) svc.name in
+    let ns = namespace_or_exit ~workspace ~domain:svc.domain in
+    let k8s_name =
+      match Sun_cli_deployment_plan.k8s_name_result svc.name with
+      | Ok k8s_name -> Sun_cli_deployment_plan.k8s_name_to_string k8s_name
+      | Error err ->
+        Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+        exit 1
+    in
 
     Printf.printf "[%s] %s/%s\n%!" (prim_label svc.prim) svc.domain svc.name;
 

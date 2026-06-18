@@ -82,7 +82,7 @@ let run cfg =
     match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
     | Ok plan -> plan
     | Error err ->
-      Printf.eprintf "error: %s\n" (Sun_cli_toml.parse_error_to_string err);
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
       exit 1
   in
 

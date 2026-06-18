@@ -15,12 +15,17 @@ let contains_substring ~needle s =
     in
     go 0
 
+let k8s_name value =
+  match Sun_cli_deployment_plan.k8s_name_result value with
+  | Ok name -> name
+  | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
+
 let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc)
     ?progressive_delivery () =
   { Sun_cli_deployment_plan.domain = "payments";
     source_name = name;
-    k8s_name = name;
-    namespace = "pluto-payments";
+    k8s_name = k8s_name name;
+    namespace = Sun_cli_deployment_plan.namespace_of ~workspace:"pluto" ~domain:"payments";
     primitive;
     source_dir = "payments/" ^ name;
     image = "registry.sun.dev/acct_123/pluto/" ^ name ^ ":abc123";
