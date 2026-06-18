@@ -8,7 +8,7 @@ let load_deployed_groups workspace =
       ["kubectl"; "get"; "configmap"; name; "-n"; "default"; "-o";
        "jsonpath={.data.consumer_groups}"]
   in
-  if result.exit_code <> 0 then []
+  if not (Sun_process.succeeded result) then []
   else
     String.split_on_char '\n' result.stdout
     |> List.map String.trim
