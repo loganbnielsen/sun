@@ -188,7 +188,10 @@ let test_workspace_generated_json_decoders_are_result_based () =
   let handler = read_file "testapp/app/payments/charge_svc/lib/handler.ml" in
   assert_contains "event" event "let required_string fields name";
   assert_contains "event" event "let required_int fields name";
-  assert_contains "event" event "Result.bind (required_string fields \"id\")";
+  assert_contains "event" event "let ( let* ) = Result.bind";
+  assert_contains "event" event "let* id = required_string fields \"id\"";
+  assert_contains "event" event "let* amount_cents = required_int fields \"amount_cents\"";
+  assert_contains "event" event "Error (name ^ \" must be an integer\")";
   assert_contains "handler" handler "let decode_charge json";
   assert_contains "handler" handler "Response.bad_request msg";
   check_bool "handler has no default string fallback" false
