@@ -23,6 +23,23 @@ module type SCHEMA = sig
   val get_id   : t -> id
 end
 
+(** Validated LIMIT value for table listing. *)
+module Limit : sig
+  type t = private int
+
+  val max_value : int
+  val of_int : int -> (t, Storage_error.t) result
+  val to_int : t -> int
+end
+
+(** Validated OFFSET value for table listing. *)
+module Offset : sig
+  type t = private int
+
+  val of_int : int -> (t, Storage_error.t) result
+  val to_int : t -> int
+end
+
 (** Generate standard CRUD operations for a table from its schema. *)
 module Make (S : SCHEMA) : sig
   val find   : Db.pool -> S.id  -> (S.t option, Storage_error.t) result

@@ -46,6 +46,33 @@ let test_migration_parse_filename () =
     Alcotest.(check (option (pair int string))) filename expected got
   ) cases
 
+let test_table_limit_rejects_non_positive () =
+  let cases = [0; -1] in
+  List.iter (fun limit ->
+    match Table.Limit.of_int limit with
+    | Ok _ ->
+      Alcotest.failf "expected invalid table list limit: %d" limit
+    | Error (Storage_error.Query_error msg) ->
+      Alcotest.(check string)
+        "limit error"
+        "table list limit must be positive"
+        msg
+    | Error err ->
+      Alcotest.failf "unexpected error: %s" (Storage_error.to_string err)
+  ) cases
+
+let test_table_offset_rejects_negative () =
+  match Table.Offset.of_int (-1) with
+  | Ok _ ->
+    Alcotest.fail "expected invalid table list offset"
+  | Error (Storage_error.Query_error msg) ->
+    Alcotest.(check string)
+      "offset error"
+      "table list offset must be non-negative"
+      msg
+  | Error err ->
+    Alcotest.failf "unexpected error: %s" (Storage_error.to_string err)
+
 (* ── Integration tests (require POSTGRES_URL) ───────────────────────────── *)
 
 let test_pool_create () =
@@ -426,6 +453,12 @@ let () =
     ];
     "migration_parse", [
       test_case "parse_filename" `Quick test_migration_parse_filename;
+    ];
+    "table_pagination", [
+      test_case "rejects_non_positive_limit" `Quick
+        test_table_limit_rejects_non_positive;
+      test_case "rejects_negative_offset"    `Quick
+        test_table_offset_rejects_negative;
     ];
     "integration", [
       test_case "pool_create"         `Quick test_pool_create;
