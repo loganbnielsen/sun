@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-037
 type: refactor
 severity: low
 source: style audit
+branch: CODEX_STYLE_AUDIT-037/trace-header-lookup
+worktree: /home/lbendtly/Code/sun-CODEX-037
 ---
 
 Centralize trace header names and make extraction case-insensitive.
