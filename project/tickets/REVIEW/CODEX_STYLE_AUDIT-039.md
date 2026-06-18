@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-039
 type: refactor
 severity: medium
 source: style audit
+branch: CODEX_STYLE_AUDIT-039/bounded-table-pagination
+worktree: /home/lbendtly/Code/sun-CODEX-039
 ---
 
 Use bounded pagination types for storage table listing.
