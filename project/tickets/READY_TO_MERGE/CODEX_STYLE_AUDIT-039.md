@@ -23,3 +23,6 @@ or extreme limits compile and depend on database behavior.
   offset.
 - Keep ergonomic defaults for existing callers.
 - Add tests for negative offset and non-positive limit.
+
+## Review — automated checks passed
+Implementation satisfies the acceptance criteria. It adds validated Limit and Offset constructors, preserves the existing ergonomic ?limit:int/?offset:int list API and defaults, and adds tests for non-positive limits and negative offsets. The added Limit.max_value = 10000 is within ticket scope because the problem statement explicitly calls out extreme limits depending on database behavior. Focused storage tests and dune build passed.
