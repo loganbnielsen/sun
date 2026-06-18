@@ -23,3 +23,6 @@ TOML from other exceptions through the type.
 - Change or add a `load_result : string -> (t, parse_error) result`.
 - Keep `load` as a compatibility wrapper if needed.
 - Update deployment-plan creation paths to surface parse errors cleanly.
+
+## Review — automated checks passed
+Implementation satisfies CODEX_STYLE_AUDIT-048: Sun_cli_toml exposes load_result returning typed Toml_syntax/Validation errors, load remains a compatibility wrapper, deployment-plan construction has of_services_result and deploy/up commands surface parse errors cleanly, and focused CLI build plus deployment-plan/manifest-render tests passed. No baseline changes accepted.
