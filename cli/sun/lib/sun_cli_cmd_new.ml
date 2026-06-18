@@ -131,16 +131,22 @@ NOTE: Sun framework source not found — vendor/ links were not created.
 
 let parse_domain_name arg =
   match String.split_on_char '/' arg with
-  | [domain; name] -> (norm domain, norm name)
+  | [domain; name] when domain <> "" && name <> "" -> Ok (norm domain, norm name)
   | _ ->
-    Printf.eprintf "error: expected domain/name (e.g. payments/charge), got %S\n" arg;
+    Error (Printf.sprintf "expected domain/name (e.g. payments/charge), got %S" arg)
+
+let domain_name_or_exit arg =
+  match parse_domain_name arg with
+  | Ok parsed -> parsed
+  | Error msg ->
+    Printf.eprintf "error: %s\n" msg;
     exit 1
 
 let ws_of_cwd () = norm (Filename.basename (Sys.getcwd ()))
 
 let new_svc arg =
   let ws = ws_of_cwd () in
-  let domain, name = parse_domain_name arg in
+  let domain, name = domain_name_or_exit arg in
   let dir      = Printf.sprintf "app/%s/%s_svc" domain name in
   let repo_dir = dir in
   let lib      = Printf.sprintf "%s_%s_%s_svc" ws domain name in
@@ -157,7 +163,7 @@ let new_svc arg =
 
 let new_worker arg =
   let ws = ws_of_cwd () in
-  let domain, name = parse_domain_name arg in
+  let domain, name = domain_name_or_exit arg in
   let dir      = Printf.sprintf "app/%s/%s_worker" domain name in
   let repo_dir = dir in
   let lib      = Printf.sprintf "%s_%s_%s_worker" ws domain name in
@@ -177,7 +183,7 @@ let new_worker arg =
 
 let new_fn arg =
   let ws = ws_of_cwd () in
-  let domain, name = parse_domain_name arg in
+  let domain, name = domain_name_or_exit arg in
   let dir      = Printf.sprintf "app/%s/%s_fn" domain name in
   let repo_dir = dir in
   let lib      = Printf.sprintf "%s_%s_%s_fn" ws domain name in
@@ -232,7 +238,7 @@ let patch_modules_stanza path new_mod =
 
 let new_event arg =
   let ws = ws_of_cwd () in
-  let team, name = parse_domain_name arg in
+  let team, name = domain_name_or_exit arg in
   let file    = Printf.sprintf "events/%s/%s.ml" team name in
   let dune_f  = Printf.sprintf "events/%s/dune"  team in
   let mod_    = cap name in

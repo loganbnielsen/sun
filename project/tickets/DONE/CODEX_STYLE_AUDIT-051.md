@@ -20,3 +20,8 @@ type and makes the parser hard to test independently.
 - Change `parse_domain_name` to return `(domain * name, string) result`.
 - Keep process exit at the command boundary.
 - Add tests for malformed names.
+
+Completion: `parse_domain_name` now returns a typed `Result`, command handlers
+exit through `domain_name_or_exit`, malformed names are covered in scaffold
+tests, and focused scaffold tests plus the affected CLI build pass. No baseline
+changes accepted.

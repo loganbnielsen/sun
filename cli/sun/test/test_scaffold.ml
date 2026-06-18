@@ -219,6 +219,28 @@ let test_workspace_startup_helpers_are_flattened () =
     "worker main", worker_main;
   ]
 
+let test_parse_domain_name_normalizes_valid_name () =
+  Alcotest.(check (result (pair string string) string))
+    "normalized domain/name"
+    (Ok ("payments", "charge_svc"))
+    (Sun_cli_cmd_new.parse_domain_name "Payments/Charge-Svc")
+
+let test_parse_domain_name_rejects_malformed_names () =
+  List.iter (fun arg ->
+    match Sun_cli_cmd_new.parse_domain_name arg with
+    | Ok (domain, name) ->
+      Alcotest.failf "expected %S to be rejected, got (%S, %S)" arg domain name
+    | Error msg ->
+      assert_contains ("error for " ^ arg) msg "expected domain/name";
+      assert_contains ("error for " ^ arg) msg arg
+  ) [
+    "";
+    "payments";
+    "payments/";
+    "/charge";
+    "payments/charge/extra";
+  ]
+
 (* ── bundle source resolution tests ──────────────────────────────────────── *)
 
 (* Verify that infer_sun_home resolves correctly when SUN_HOME points to a
@@ -496,6 +518,10 @@ let () =
       ]
     ; "worker_ack_order", [
         Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect
+      ]
+    ; "domain_name_parser", [
+        Alcotest.test_case "normalizes valid domain/name" `Quick test_parse_domain_name_normalizes_valid_name
+      ; Alcotest.test_case "rejects malformed names"      `Quick test_parse_domain_name_rejects_malformed_names
       ]
     ; "bundle_resolution", [
         Alcotest.test_case "complete bundle layout resolves sun_home" `Quick test_bundle_layout_resolves_sun_home

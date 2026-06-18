@@ -14,6 +14,8 @@ val find_ancestor : (string -> bool) -> string -> string option
     2. Otherwise walks up from the directory containing the running binary. *)
 val infer_sun_home : unit -> string option
 
+val parse_domain_name : string -> ((string * string), string) result
+
 val new_workspace : string -> unit
 val new_svc       : string -> unit
 val new_worker    : string -> unit
