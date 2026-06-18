@@ -4,16 +4,16 @@ let read_file path =
   close_in ic; s
 
 let run_cmd ?(echo = true) cmd =
-  Sun_process.run_rc ~echo cmd
+  Sun_process.run_shell_rc ~echo cmd
 
 let run_cmd_ok ?(echo = true) cmd =
-  Sun_process.run_ok ~echo cmd
+  Sun_process.run_shell_ok ~echo cmd
 
 let run_cmd_lines ?(echo = false) cmd =
-  Sun_process.lines ~echo cmd
+  Sun_process.lines_shell ~echo cmd
 
 let run_cmd_to_string cmd =
-  Sun_process.output ~echo:false cmd
+  Sun_process.output_shell ~echo:false cmd
 
 let string_contains ~needle haystack =
   let nl = String.length needle and hl = String.length haystack in

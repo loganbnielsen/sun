@@ -10,10 +10,10 @@ let write_file path content =
   close_out oc
 
 let current_branch () =
-  Sun_process.output ~echo:false "git rev-parse --abbrev-ref HEAD 2>/dev/null"
+  Sun_process.output_shell ~echo:false "git rev-parse --abbrev-ref HEAD 2>/dev/null"
 
 let git_branch_exists branch =
-  Sun_process.run_rc ~echo:false
+  Sun_process.run_shell_rc ~echo:false
     (Printf.sprintf "git rev-parse --verify %s >/dev/null 2>&1" (Filename.quote branch)) = 0
 
 let commit_dirty_baseline () =

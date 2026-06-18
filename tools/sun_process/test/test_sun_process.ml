@@ -5,26 +5,26 @@ let check_bool = Alcotest.(check bool)
 (* ── run / structured result ─────────────────────────────────────────────── *)
 
 let test_run_success () =
-  let r = Sun_process.run ~echo:false "echo hello" in
+  let r = Sun_process.run_shell ~echo:false "echo hello" in
   check_int  "exit code 0"   0       r.exit_code;
   check_str  "stdout"        "hello" r.stdout
 
 let test_run_nonzero () =
-  let r = Sun_process.run ~echo:false "exit 42" in
+  let r = Sun_process.run_shell ~echo:false "exit 42" in
   check_int  "exit code 42" 42 r.exit_code
 
 let test_run_stderr_captured () =
-  let r = Sun_process.run ~echo:false "echo bar >&2" in
+  let r = Sun_process.run_shell ~echo:false "echo bar >&2" in
   check_str  "stdout empty"  ""    r.stdout;
   check_str  "stderr"        "bar" r.stderr
 
 let test_run_both_streams () =
-  let r = Sun_process.run ~echo:false "echo out; echo err >&2" in
+  let r = Sun_process.run_shell ~echo:false "echo out; echo err >&2" in
   check_str  "stdout" "out" r.stdout;
   check_str  "stderr" "err" r.stderr
 
 let test_run_command_not_found () =
-  let r = Sun_process.run ~echo:false "nonexistent_command_sun_process_test_abc123" in
+  let r = Sun_process.run_shell ~echo:false "nonexistent_command_sun_process_test_abc123" in
   check_bool "exit code non-zero" true (r.exit_code <> 0)
 
 (* ── run_argv ────────────────────────────────────────────────────────────── *)
@@ -39,48 +39,61 @@ let test_run_argv_special_chars () =
   let r = Sun_process.run_argv ~echo:false ["printf"; "%s"; "a b"] in
   check_str "stdout with space" "a b" r.stdout
 
+let test_run_argv_no_shell_interpretation () =
+  let r = Sun_process.run_argv ~echo:false ["printf"; "%s"; "a; echo injected"] in
+  check_int "exit code 0" 0 r.exit_code;
+  check_str "metacharacters are literal" "a; echo injected" r.stdout
+
+let test_run_argv_command_not_found () =
+  let r =
+    Sun_process.run_argv ~echo:false
+      ["nonexistent_command_sun_process_test_abc123"]
+  in
+  check_bool "exit code non-zero" true (r.exit_code <> 0);
+  check_str "stdout empty" "" r.stdout
+
 (* ── lines ──────────────────────────────────────────────────────────────── *)
 
 let test_lines_basic () =
-  let ls = Sun_process.lines ~echo:false "printf 'a\\nb\\nc'" in
+  let ls = Sun_process.lines_shell ~echo:false "printf 'a\\nb\\nc'" in
   check_bool "three lines" true (List.length ls = 3);
   check_str  "first line"  "a" (List.nth ls 0);
   check_str  "last line"   "c" (List.nth ls 2)
 
 let test_lines_empty_filtered () =
   (* Blank lines should be omitted from the result *)
-  let ls = Sun_process.lines ~echo:false "printf 'a\\n\\nb'" in
+  let ls = Sun_process.lines_shell ~echo:false "printf 'a\\n\\nb'" in
   check_bool "blank line filtered" true (List.length ls = 2)
 
 let test_lines_stderr_not_captured () =
   (* stderr must not bleed into the stdout lines *)
-  let ls = Sun_process.lines ~echo:false "echo out; echo err >&2" in
+  let ls = Sun_process.lines_shell ~echo:false "echo out; echo err >&2" in
   check_bool "only one line"          true (List.length ls = 1);
   check_str  "line is from stdout"    "out" (List.nth ls 0)
 
 (* ── output ─────────────────────────────────────────────────────────────── *)
 
 let test_output_trimmed () =
-  let s = Sun_process.output ~echo:false "printf '  hello  '" in
+  let s = Sun_process.output_shell ~echo:false "printf '  hello  '" in
   check_str "trimmed" "hello" s
 
 (* ── run_rc ─────────────────────────────────────────────────────────────── *)
 
 let test_run_rc_success () =
-  check_int "rc 0" 0 (Sun_process.run_rc ~echo:false "true")
+  check_int "rc 0" 0 (Sun_process.run_shell_rc ~echo:false "true")
 
 let test_run_rc_failure () =
-  check_bool "rc non-zero" true (Sun_process.run_rc ~echo:false "false" <> 0)
+  check_bool "rc non-zero" true (Sun_process.run_shell_rc ~echo:false "false" <> 0)
 
 (* ── run_ok ─────────────────────────────────────────────────────────────── *)
 
 let test_run_ok_success () =
   (* Should not raise *)
-  Sun_process.run_ok ~echo:false "true"
+  Sun_process.run_shell_ok ~echo:false "true"
 
 let test_run_ok_failure () =
   let raised =
-    try Sun_process.run_ok ~echo:false "false"; false
+    try Sun_process.run_shell_ok ~echo:false "false"; false
     with Failure _ -> true
   in
   check_bool "raises Failure on non-zero" true raised
@@ -99,6 +112,8 @@ let () =
     ; "run_argv", [
         Alcotest.test_case "basic argv"             `Quick test_run_argv_basic
       ; Alcotest.test_case "special chars quoted"   `Quick test_run_argv_special_chars
+      ; Alcotest.test_case "no shell interpretation" `Quick test_run_argv_no_shell_interpretation
+      ; Alcotest.test_case "command not found"       `Quick test_run_argv_command_not_found
       ]
     ; "lines", [
         Alcotest.test_case "basic lines"            `Quick test_lines_basic
