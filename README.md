@@ -568,6 +568,7 @@ sun/
     bin/run.ml            # orchestration runner
   examples/local-demo/          # legacy single-team demo
   docs/                   # architecture, guides, planning, audit checklists
+    architecture/contributing-map.md  # contributor ownership and extension map
   project/
     audits/               # dated audit outputs
     test/                 # hooks and performance baselines
