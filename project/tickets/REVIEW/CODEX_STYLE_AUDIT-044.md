@@ -9,6 +9,9 @@ Replace deployment-plan `secret_backend : string` with the existing backend vari
 
 **Depends on:** none.
 
+branch: CODEX_STYLE_AUDIT-044/typed-secret-backend-plan
+worktree: /home/lbendtly/Code/sun-CODEX-044
+
 **Problem:** `cli/sun/lib/sun_cli_deployment_plan.ml:7-15` defines
 `env_config.secret_backend : string`, even though `Sun_cli_manifest.secret_backend`
 is a variant. The plan serializes a finite deployment behavior as raw text.
