@@ -24,3 +24,6 @@ context. A typo silently omits the intended label.
 - Consider returning a warning or error for requested labels missing from
   context.
 - Update Loki tests to cover label selection.
+
+## Review — automated checks passed
+Implementation satisfies CODEX_STYLE_AUDIT-034: Loki label selection now uses typed Obs_loki.stream_label values backed by validated Obs.label_name, invalid selectors raise before backend creation, missing selected context labels are warned and omitted, call sites/docs were updated, and focused obs-eio/obs-eio-loki tests plus dune build passed. No baseline changes accepted.
