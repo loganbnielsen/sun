@@ -24,3 +24,6 @@ is represented by several optional fields.
 - Derive it once from `service_spec`.
 - Use a single `effective_rollout_strategy_to_string` function for JSON and
   summaries.
+
+## Review — automated checks passed
+Implementation satisfies the ticket: it adds an effective_rollout_strategy variant, centralizes derivation from service_spec, routes both JSON and summary rendering through effective_rollout_strategy_to_string, and updates summary output with rollout=<strategy>. Targeted deployment plan tests and dune build passed. No correctness, regression, scope, or test adequacy violations found.
