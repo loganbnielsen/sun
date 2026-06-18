@@ -21,3 +21,8 @@ Secret manifests.
 - Build Secret manifests from a typed record and a YAML-safe emitter.
 - Reuse existing manifest helpers where possible.
 - Add tests for values containing quotes, backslashes, and newlines.
+
+Completion: Kubernetes Secret manifests are now rendered from a typed internal
+record using a scoped YAML-safe scalar emitter for `data` and `stringData`.
+Focused tests cover quotes, backslashes, and newlines, and the affected secret
+build/tests pass. No baseline changes accepted.

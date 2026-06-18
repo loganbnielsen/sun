@@ -69,9 +69,26 @@ let test_secret_manifest_contains_value_boundary () =
   check_bool "manifest names Secret" true (contains yaml "kind: Secret");
   check_bool "manifest has runtime secret name" true (contains yaml "name: sun-secrets");
   check_bool "manifest preserves existing encoded key" true
-    (contains yaml "API_TOKEN: ZXhpc3Rpbmc=");
+    (contains yaml {|API_TOKEN: "ZXhpc3Rpbmc="|});
   check_bool "manifest has value for k8s materialization" true
     (contains yaml {|DATABASE_URL: "postgres://secret"|})
+
+let test_secret_manifest_yaml_escapes_special_values () =
+  let yaml =
+    Sun_cli_secret.secret_manifest
+      ~existing_data:[ "OLD_VALUE", "base64/with+symbols=" ]
+      ~namespace:"myapp-payments"
+      ~key:"SPECIAL_VALUE"
+      ~value:"quote: \"value\", path: C:\\tmp\\db\nnext line"
+  in
+  check_bool "quotes are escaped" true
+    (contains yaml {|SPECIAL_VALUE: "quote: \"value\"|});
+  check_bool "backslashes are escaped" true
+    (contains yaml {|path: C:\\tmp\\db|});
+  check_bool "newlines are escaped" true
+    (contains yaml {|db\nnext line"|});
+  check_bool "existing data is quoted safely" true
+    (contains yaml {|OLD_VALUE: "base64/with+symbols="|})
 
 let test_redacted_result_hides_value () =
   let out = Sun_cli_secret.redacted_result (Sun_cli_secret.Applied [ "myapp-payments" ]) in
@@ -118,6 +135,7 @@ let () =
       ]
     ; "rendering", [
         Alcotest.test_case "k8s materialization manifest" `Quick test_secret_manifest_contains_value_boundary
+      ; Alcotest.test_case "yaml escapes special values" `Quick test_secret_manifest_yaml_escapes_special_values
       ; Alcotest.test_case "redacted result" `Quick test_redacted_result_hides_value
       ]
     ; "hosted", [

@@ -34,34 +34,73 @@ let validate_key key =
     Error "secret key may contain only uppercase letters, digits, and underscores"
   else Ok ()
 
-let yaml_quote s =
-  "\"" ^ String.escaped s ^ "\""
+type object_metadata = {
+  name      : string;
+  namespace : string;
+}
 
-let render_data existing_data key =
-  let data = List.filter (fun (k, _) -> k <> key) existing_data in
-  match data with
-  | [] -> ""
-  | pairs ->
-    "data:\n" ^
-    String.concat "\n" (List.map (fun (k, v) ->
-      Printf.sprintf "  %s: %s" k v
-    ) pairs) ^
-    "\n"
+type kubernetes_secret = {
+  api_version : string;
+  kind        : string;
+  metadata    : object_metadata;
+  secret_type : string;
+  data        : (string * string) list;
+  string_data : (string * string) list;
+}
+
+let yaml_quote s =
+  let b = Buffer.create (String.length s + 2) in
+  Buffer.add_char b '"';
+  String.iter
+    (function
+      | '"' -> Buffer.add_string b "\\\""
+      | '\\' -> Buffer.add_string b "\\\\"
+      | '\n' -> Buffer.add_string b "\\n"
+      | '\r' -> Buffer.add_string b "\\r"
+      | '\t' -> Buffer.add_string b "\\t"
+      | c when Char.code c < 0x20 ->
+        Buffer.add_string b (Printf.sprintf "\\x%02X" (Char.code c))
+      | c -> Buffer.add_char b c)
+    s;
+  Buffer.add_char b '"';
+  Buffer.contents b
+
+let render_mapping ~indent pairs =
+  pairs
+  |> List.map (fun (k, v) ->
+       Printf.sprintf "%s%s: %s" indent k (yaml_quote v))
+  |> String.concat "\n"
+
+let render_optional_mapping ~name pairs =
+  match pairs with
+  | [] -> []
+  | _ -> [ name ^ ":"; render_mapping ~indent:"  " pairs ]
+
+let render_secret_manifest secret =
+  let lines =
+    [ "---"
+    ; "apiVersion: " ^ secret.api_version
+    ; "kind: " ^ secret.kind
+    ; "metadata:"
+    ; "  name: " ^ secret.metadata.name
+    ; "  namespace: " ^ secret.metadata.namespace
+    ; "type: " ^ secret.secret_type
+    ]
+    @ render_optional_mapping ~name:"data" secret.data
+    @ [ "stringData:"; render_mapping ~indent:"  " secret.string_data ]
+  in
+  String.concat "\n" lines ^ "\n"
 
 let named_secret_manifest ~secret_name ~existing_data ~namespace ~key ~value =
-  Printf.sprintf {|---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: %s
-  namespace: %s
-type: Opaque
-%s
-stringData:
-  %s: %s
-|} secret_name namespace
-    (render_data existing_data key)
-    key (yaml_quote value)
+  let data = List.filter (fun (k, _) -> k <> key) existing_data in
+  render_secret_manifest
+    { api_version = "v1"
+    ; kind = "Secret"
+    ; metadata = { name = secret_name; namespace }
+    ; secret_type = "Opaque"
+    ; data
+    ; string_data = [ key, value ]
+    }
 
 let secret_manifest ~existing_data ~namespace ~key ~value =
   named_secret_manifest ~secret_name:Sun_cli_manifest.runtime_secret_name
