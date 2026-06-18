@@ -78,7 +78,13 @@ let run cfg =
      exit 1);
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
                Sun_cli_deployment_plan.secret_backend = cfg.secret_backend } in
-  let plan = Sun_cli_deployment_plan.of_services ~workspace ~env services in
+  let plan =
+    match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
+    | Ok plan -> plan
+    | Error err ->
+      Printf.eprintf "error: %s\n" (Sun_cli_toml.parse_error_to_string err);
+      exit 1
+  in
 
   (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
      since that path does not touch the cluster directly). *)

@@ -98,7 +98,17 @@ val of_services :
   env:env_config ->
   Sun_cli_manifest.service list ->
   t
-(** Build a deployment plan from a discovered service list and an environment config. *)
+(** Compatibility wrapper around [of_services_result]. Raises [Failure] if a
+    service [sun.toml] cannot be parsed or validated. *)
+
+val of_services_result :
+  workspace:string ->
+  env:env_config ->
+  Sun_cli_manifest.service list ->
+  (t, Sun_cli_toml.parse_error) result
+(** Build a deployment plan from a discovered service list and an environment
+    config. Returns a typed error when a service [sun.toml] cannot be parsed or
+    validated. *)
 
 val render_spec :
   ?image:string ->

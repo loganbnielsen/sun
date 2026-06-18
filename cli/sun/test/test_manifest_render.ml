@@ -665,6 +665,36 @@ let test_toml_rejects_malformed () =
   Sys.remove path;
   check_bool "malformed TOML raises Failure" true raised
 
+let test_toml_load_result_validation_error () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc "[infra.deploy]\nrollout_strategy = \"Blue/Green\"\n";
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Validation { path = _; message }) ->
+    assert_contains "typed validation error" message "unsupported rollout_strategy"
+  | Ok _ ->
+    Alcotest.fail "expected typed validation error"
+  | Error (Sun_cli_toml.Toml_syntax _) ->
+    Alcotest.fail "expected validation error, got syntax error"
+
+let test_toml_load_result_syntax_error () =
+  let path = Filename.temp_file "sun-toml-test-" ".toml" in
+  let oc = open_out path in
+  output_string oc "replicas = \n";
+  close_out oc;
+  let result = Sun_cli_toml.load_result path in
+  Sys.remove path;
+  match result with
+  | Error (Sun_cli_toml.Toml_syntax { path = _; message }) ->
+    assert_contains "typed syntax error" message "sun.toml:"
+  | Ok _ ->
+    Alcotest.fail "expected typed syntax error"
+  | Error (Sun_cli_toml.Validation _) ->
+    Alcotest.fail "expected syntax error, got validation error"
+
 let test_toml_multiline_array_secrets () =
   (* Standard TOML multi-line array — old line-oriented parser couldn't handle this *)
   let path = Filename.temp_file "sun-toml-test-" ".toml" in
@@ -913,6 +943,8 @@ let () =
       ; Alcotest.test_case "canary requires steps"         `Quick test_toml_canary_requires_steps
       ; Alcotest.test_case "canary rejects bad weight"     `Quick test_toml_canary_rejects_bad_weight
       ; Alcotest.test_case "malformed TOML raises"         `Quick test_toml_rejects_malformed
+      ; Alcotest.test_case "load_result validation error"  `Quick test_toml_load_result_validation_error
+      ; Alcotest.test_case "load_result syntax error"      `Quick test_toml_load_result_syntax_error
       ; Alcotest.test_case "multi-line secrets array"      `Quick test_toml_multiline_array_secrets
       ; Alcotest.test_case "dotted section headers"        `Quick test_toml_dotted_section_headers
       ; Alcotest.test_case "canary pause steps"            `Quick test_toml_canary_pause_steps

@@ -84,7 +84,13 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
   let push_registry = "localhost:5000" in
 
   let env  = Sun_cli_env_target.to_env_config ~name:workspace env_target in
-  let plan = Sun_cli_deployment_plan.of_services ~workspace ~env services in
+  let plan =
+    match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
+    | Ok plan -> plan
+    | Error err ->
+      Printf.eprintf "error: %s\n" (Sun_cli_toml.parse_error_to_string err);
+      exit 1
+  in
 
   (* Consumer group rename/removal guard.  Skipped in dry-run — no state is
      loaded or written, and no blocking question is asked. *)

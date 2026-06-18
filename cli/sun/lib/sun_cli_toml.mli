@@ -30,8 +30,20 @@ type t = {
 
 val empty : t
 
+(** Typed errors returned by [load_result]. *)
+type parse_error =
+  | Toml_syntax of { path : string; message : string }
+  | Validation  of { path : string; message : string }
+
+val parse_error_to_string : parse_error -> string
+
+(** Load and parse a sun.toml file. Returns [Ok empty] if the file does not
+    exist. Returns [Error _] for malformed TOML or validation errors. *)
+val load_result : string -> (t, parse_error) result
+
 (** Load and parse a sun.toml file. Returns [empty] if the file does not exist.
-    Raises [Failure] with a descriptive message on validation errors:
+    Compatibility wrapper around [load_result]. Raises [Failure] with a
+    descriptive message on parse or validation errors:
     - Unknown rollout_strategy values (only "Recreate" and "RollingUpdate" accepted).
     - extra_labels keys starting with "sun.dev/" (reserved namespace).
     - Unknown [infra.rollout] strategy values (only "canary" and "blue-green" accepted).
