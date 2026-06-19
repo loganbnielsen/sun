@@ -35,6 +35,28 @@ type family =
       f_series : (label_key, hist_state) Hashtbl.t;
     }
 
+type metric_kind =
+  | Counter
+  | Gauge
+  | Histogram
+
+let string_of_metric_kind = function
+  | Counter -> "counter"
+  | Gauge -> "gauge"
+  | Histogram -> "histogram"
+
+let family_kind = function
+  | FCounter _ -> Counter
+  | FGauge _ -> Gauge
+  | FHistogram _ -> Histogram
+
+let log_kind_conflict ~name ~existing ~incoming =
+  Printf.eprintf
+    "obs-prometheus: metric family kind conflict for %s: existing %s, incoming %s; dropping metric\n%!"
+    name
+    (string_of_metric_kind existing)
+    (string_of_metric_kind incoming)
+
 type registry = {
   r_families : (string, family) Hashtbl.t;
   r_mutex    : Mutex.t;
@@ -66,7 +88,8 @@ let emit reg (e : Obs.metric_event) =
        | FCounter { f_series; _ } ->
          let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
          s.c_value <- s.c_value +. float_of_int delta
-       | _ -> ())
+       | other ->
+         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Counter)
     | `Gauge v ->
       let fam =
         get_or_create reg.r_families e.name (fun () ->
@@ -76,7 +99,8 @@ let emit reg (e : Obs.metric_event) =
        | FGauge { f_series; _ } ->
          let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
          s.g_value <- v
-       | _ -> ())
+       | other ->
+         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Gauge)
     | `Histogram obs ->
       let fam =
         get_or_create reg.r_families e.name (fun () ->
@@ -104,7 +128,8 @@ let emit reg (e : Obs.metric_event) =
          s.h_counts.(n_bounds) <- s.h_counts.(n_bounds) + 1;  (* +Inf always *)
          s.h_sum   <- s.h_sum +. obs;
          s.h_count <- s.h_count + 1
-       | _ -> ()))
+       | other ->
+         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
 
 (* ------------------------------------------------------------------ *)
 (* Renderer                                                            *)
