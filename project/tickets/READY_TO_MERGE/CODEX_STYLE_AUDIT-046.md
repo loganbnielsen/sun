@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-046
 type: refactor
 severity: medium
 source: style audit
+branch: codex/style-audit-046
+worktree: /home/lbendtly/Code/sun-CODEX-046
 ---
 
 Pass deployment render inputs as a typed spec instead of a long labeled argument list.
@@ -22,3 +24,9 @@ delivery. Labels help, but the function still permits invalid cross-field states
   function workloads.
 - Move schedule requirements into the `Render_fn` variant.
 - Update `Sun_cli_deployment_plan.render_spec` to construct the spec.
+
+## Review — automated checks passed
+
+Focused deployment plan and manifest render tests pass. Deployment rendering now
+accepts a typed spec with common fields plus service/worker/function workload
+variants, and `Render_fn` carries the resolved schedule.
