@@ -225,31 +225,71 @@ let label_name name =
 
 let label_name_to_string name = name
 
+let duplicate_name names =
+  let rec loop seen = function
+    | [] -> None
+    | name :: rest ->
+      if List.mem name seen then Some name else loop (name :: seen) rest
+  in
+  loop [] names
+
 let validate_label_names label_names =
   List.iter (fun name -> ignore (label_name name)) label_names;
+  (match duplicate_name label_names with
+   | None -> ()
+   | Some name ->
+     invalid_arg
+       (Printf.sprintf "Obs.register_metric: duplicate label name %S" name));
   label_names
+
+let validate_metric_labels ~name ~label_names labels =
+  let emitted_label_names = List.map fst labels in
+  match duplicate_name emitted_label_names with
+  | Some label ->
+    invalid_arg
+      (Printf.sprintf "Obs.emit_metric %S: duplicate label %S" name label)
+  | None ->
+    let missing =
+      List.filter (fun label -> not (List.mem_assoc label labels)) label_names
+    in
+    let extra =
+      List.filter
+        (fun label -> not (List.mem label label_names))
+        emitted_label_names
+    in
+    match missing, extra with
+    | [], [] -> ()
+    | label :: _, _ ->
+      invalid_arg
+        (Printf.sprintf "Obs.emit_metric %S: missing label %S" name label)
+    | [], label :: _ ->
+      invalid_arg
+        (Printf.sprintf "Obs.emit_metric %S: extra label %S" name label)
 
 let register_counter t ~name ~help ~label_names : Obs_metrics.counter_fn =
   let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+  let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
+    validate_metric_labels ~name ~label_names labels;
     t.backend.emit_metric {
       name; help; kind = `Counter value; labels; context = t.context; service = t.service;
     }
 
 let register_gauge t ~name ~help ~label_names : Obs_metrics.gauge_fn =
   let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+  let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
+    validate_metric_labels ~name ~label_names labels;
     t.backend.emit_metric {
       name; help; kind = `Gauge value; labels; context = t.context; service = t.service;
     }
 
 let register_histogram t ~name ~help ~label_names ?(buckets = []) : Obs_metrics.histogram_fn =
   let name = metric_name name in
-  let _label_names = validate_label_names label_names in
+  let label_names = validate_label_names label_names in
   ignore buckets;
   fun ?(labels = []) value ->
+    validate_metric_labels ~name ~label_names labels;
     t.backend.emit_metric {
       name; help; kind = `Histogram value; labels; context = t.context; service = t.service;
     }

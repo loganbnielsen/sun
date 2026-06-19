@@ -276,6 +276,53 @@ let check_invalid_arg label f =
   | () -> Alcotest.fail (label ^ " should raise Invalid_argument")
   | exception Invalid_argument _ -> ()
 
+let test_emit_accepts_declared_labels_any_order () =
+  Eio_main.run @@ fun env ->
+  let metrics = ref [] in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun e -> metrics := e :: !metrics) } in
+  let g =
+    Obs.register_gauge ot
+      ~name:"http_inflight_requests" ~help:"desc"
+      ~label_names:["method"; "status"]
+  in
+  g ~labels:[("status", "200"); ("method", "GET")] 3.0;
+  match !metrics with
+  | [metric] ->
+    Alcotest.(check string) "method" "GET" (List.assoc "method" metric.Obs.labels);
+    Alcotest.(check string) "status" "200" (List.assoc "status" metric.Obs.labels)
+  | _ -> Alcotest.fail "expected exactly one metric event"
+
+let test_emit_rejects_missing_extra_duplicate_labels () =
+  Eio_main.run @@ fun env ->
+  let emitted = ref 0 in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ());
+               emit_metric = (fun _ -> incr emitted) } in
+  let c =
+    Obs.register_counter ot
+      ~name:"http_requests_total" ~help:"desc"
+      ~label_names:["method"; "status"]
+  in
+  let g =
+    Obs.register_gauge ot
+      ~name:"queue_depth" ~help:"desc"
+      ~label_names:["queue"]
+  in
+  let h =
+    Obs.register_histogram ot
+      ~name:"request_duration_seconds" ~help:"desc"
+      ~label_names:["route"; "status"]
+  in
+  check_invalid_arg "missing label" (fun () ->
+    c ~labels:[("method", "GET")] 1);
+  check_invalid_arg "extra label" (fun () ->
+    g ~labels:[("queue", "jobs"); ("host", "api-1")] 1.0);
+  check_invalid_arg "duplicate label" (fun () ->
+    h ~labels:[("route", "/"); ("route", "/health"); ("status", "200")] 0.1);
+  Alcotest.(check int) "backend not called for invalid labels" 0 !emitted
+
 let test_metric_name_validation () =
   Alcotest.(check string) "valid metric name"
     "http_requests_total" (Obs.metric_name "http_requests_total");
@@ -334,6 +381,17 @@ let test_register_rejects_invalid_label_name () =
       ~name:"request_duration_seconds" ~help:"desc"
       ~label_names:["bad.label"]
       1.0)
+
+let test_register_rejects_duplicate_label_names () =
+  Eio_main.run @@ fun env ->
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
+  check_invalid_arg "duplicate registered label" (fun () ->
+    let _emit : Obs_metrics.counter_fn =
+      Obs.register_counter ot
+        ~name:"requests_total" ~help:"desc"
+        ~label_names:["method"; "method"]
+    in
+    ())
 
 let test_noop_compiles_and_runs () =
   Eio_main.run @@ fun env ->
@@ -426,10 +484,13 @@ let () =
       test_case "counter emits metric event"   `Quick test_counter_emits_event;
       test_case "histogram emits metric event" `Quick test_histogram_emits_event;
       test_case "counter and histogram helper emits both" `Quick test_counter_and_histogram_helper_emits_both;
+      test_case "emit accepts declared labels in any order" `Quick test_emit_accepts_declared_labels_any_order;
+      test_case "emit rejects missing extra duplicate labels" `Quick test_emit_rejects_missing_extra_duplicate_labels;
       test_case "metric name validation"       `Quick test_metric_name_validation;
       test_case "label name validation"        `Quick test_label_name_validation;
       test_case "register rejects invalid metric names" `Quick test_register_rejects_invalid_metric_name;
       test_case "register rejects invalid label names" `Quick test_register_rejects_invalid_label_name;
+      test_case "register rejects duplicate label names" `Quick test_register_rejects_duplicate_label_names;
       test_case "noop backend runs silently"   `Quick test_noop_compiles_and_runs;
     ];
     "compose", [
