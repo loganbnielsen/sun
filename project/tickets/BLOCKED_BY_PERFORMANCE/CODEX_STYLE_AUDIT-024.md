@@ -25,3 +25,6 @@ the flag means.
 - Make unsafe mode visually explicit at call sites and in tests.
 - Preserve current behavior for existing tests by updating them to the explicit
   constructor.
+
+## Review — automated checks passed
+Focused auth/service tests pass. The boolean trap is replaced by explicit jwt_verification constructors, unsafe call sites now use Unverified_dev_only, and existing HTTP behavior is preserved.
