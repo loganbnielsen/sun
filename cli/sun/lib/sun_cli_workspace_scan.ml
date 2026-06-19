@@ -37,12 +37,14 @@ let derive_consumer_groups workspace workers =
   ) workers
   |> List.sort_uniq String.compare
 
-(** Scan [events/] for OCaml files containing [let topic_name = "..."] declarations.
+(** Scan [events/] for OCaml files containing topic declarations.
     Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
     so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
 let discover_topics () =
-  let marker = {|let topic_name = "|} in
-  let ml = String.length marker in
+  let markers = [
+    {|let topic_name = "|};
+    {|let topic_name = Kafka_service.topic_name_exn "|};
+  ] in
   let scan_file path =
     try
       let ic = open_in path in
@@ -50,14 +52,17 @@ let discover_topics () =
       close_in ic;
       let sl = String.length content in
       let acc = ref [] in
-      for i = 0 to sl - ml - 1 do
-        if String.sub content i ml = marker then begin
-          let j = ref (i + ml) in
-          while !j < sl && content.[!j] <> '"' do incr j done;
-          let name = String.sub content (i + ml) (!j - i - ml) in
-          if name <> "" then acc := name :: !acc
-        end
-      done;
+      List.iter (fun marker ->
+        let ml = String.length marker in
+        for i = 0 to sl - ml do
+          if String.sub content i ml = marker then begin
+            let j = ref (i + ml) in
+            while !j < sl && content.[!j] <> '"' do incr j done;
+            let name = String.sub content (i + ml) (!j - i - ml) in
+            if name <> "" then acc := name :: !acc
+          end
+        done
+      ) markers;
       !acc
     with _ -> []
   in

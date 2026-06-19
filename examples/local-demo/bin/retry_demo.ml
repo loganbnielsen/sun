@@ -32,7 +32,7 @@
 module Job = struct
   type t = { id : string; payload : string }
 
-  let topic_name = "sun-demo-jobs"
+  let topic_name = Kafka_service.topic_name_exn "sun-demo-jobs"
 
   let schema = {|{
     "type": "object",
@@ -112,7 +112,7 @@ let () =
     | Ok t    -> t
     | Error e -> failwith ("kafka_service.register: " ^ e)
   in
-  say "topic %S registered." Job.topic_name;
+  say "topic %S registered." (Kafka_service.topic_name_to_string Job.topic_name);
 
   (* ── Worker ────────────────────────────────────────────────────────────── *)
   let worker_ready_p, worker_ready_r = Eio.Promise.create () in

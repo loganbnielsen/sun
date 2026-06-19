@@ -1,13 +1,50 @@
+type topic_name = string
+
+let validate_topic_name name =
+  let len = String.length name in
+  if len = 0 then
+    Error "topic name must not be empty"
+  else if len > 249 then
+    Error "topic name must be at most 249 bytes"
+  else if name = "." || name = ".." then
+    Error "topic name must not be '.' or '..'"
+  else
+    let is_valid_char = function
+      | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '.' | '_' | '-' -> true
+      | _ -> false
+    in
+    let rec loop i =
+      if i = len then Ok ()
+      else if is_valid_char name.[i] then loop (i + 1)
+      else
+        Error (Printf.sprintf
+          "topic name contains invalid character %C at byte %d"
+          name.[i] i)
+    in
+    loop 0
+
+let topic_name name =
+  match validate_topic_name name with
+  | Ok () -> Ok name
+  | Error e -> Error e
+
+let topic_name_exn name =
+  match topic_name name with
+  | Ok topic -> topic
+  | Error e -> invalid_arg ("invalid Kafka topic name " ^ Printf.sprintf "%S" name ^ ": " ^ e)
+
+let topic_name_to_string topic_name = topic_name
+
 module type MESSAGE = sig
   type t
-  val topic_name : string
+  val topic_name : topic_name
   val schema : string
   val encode : t -> Yojson.Safe.t
   val decode : Yojson.Safe.t -> (t, string) result
 end
 
 type 'a topic = {
-  name      : string;
+  name      : topic_name;
   schema_id : int;
   encode    : 'a -> Yojson.Safe.t;
   decode    : Yojson.Safe.t -> ('a, string) result;
@@ -32,6 +69,7 @@ type t = {
 }
 
 let ensure_topic rk ~topic_name ~partitions =
+  let topic_name = topic_name_to_string topic_name in
   let err = Kafka_raw.create_topic rk ~topic_name ~partitions ~replication_factor:1 in
   if err <> 0 then
     Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_raw.err2str err))
@@ -67,6 +105,7 @@ let decode_topic_partitions body =
     Error (Topic_admin_malformed_response body)
 
 let query_topic_partitions net ~clock ~admin_url ~topic_name =
+  let topic_name = topic_name_to_string topic_name in
   match Kafka_service_http.http_get net ~clock ~base_url:admin_url
           ~path:(Printf.sprintf "/v1/topics/%s" topic_name) with
   | Error e -> Error (Topic_admin_request_failed e)
@@ -75,6 +114,7 @@ let query_topic_partitions net ~clock ~admin_url ~topic_name =
   | Ok (status, body) -> Error (Topic_admin_unexpected_status (status, body))
 
 let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
+  let topic_name = topic_name_to_string topic_name in
   let decode_err_count = match ot with
     | None -> None
     | Some o ->

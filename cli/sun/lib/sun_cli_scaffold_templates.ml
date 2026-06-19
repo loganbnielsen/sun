@@ -415,7 +415,7 @@ let ws_charged_ml = {tpl|type t = {
   correlation_id : string;
 }
 
-let topic_name = "{{name}}-payments-charges"
+let topic_name = Kafka_service.topic_name_exn "{{name}}-payments-charges"
 
 let schema = {|{
   "type": "object",
@@ -813,7 +813,7 @@ let worker_lib_ml = {tpl|(* Replace Message with your event module, e.g.:
      module Message = My_team_events.My_event *)
 module Message = struct
   type t = { id : string }
-  let topic_name = "{{domain}}-{{name}}-events"
+  let topic_name = Kafka_service.topic_name_exn "{{domain}}-{{name}}-events"
   let schema = {|{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}|}
   let encode t = `Assoc [("id", `String t.id)]
   let required_string fields name =
@@ -893,7 +893,7 @@ let event_ml = {tpl|type t = {
   payload : string;
 }
 
-let topic_name = "{{team}}-{{name}}s"
+let topic_name = Kafka_service.topic_name_exn "{{team}}-{{name}}s"
 
 let schema = {|{
   "type": "object",

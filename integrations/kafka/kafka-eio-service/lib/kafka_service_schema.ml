@@ -42,7 +42,8 @@ let decode_registration_response resp_body =
 
 module Schema = struct
   let check ~net ~clock ~registry_url (module M : Kafka_service_intf.MESSAGE) =
-    let subject = M.topic_name ^ "-value" in
+    let topic_name = Kafka_service_intf.topic_name_to_string M.topic_name in
+    let subject = topic_name ^ "-value" in
     let body = Yojson.Safe.to_string (`Assoc [
       ("schemaType", `String "JSON");
       ("schema",     `String M.schema);
@@ -59,7 +60,7 @@ module Schema = struct
        | Ok { is_compatible = false } ->
          Error (Printf.sprintf
            "schema for topic '%s' is not compatible with the registered version"
-           M.topic_name))
+           topic_name))
     | Ok (404, _) ->
       Ok ()
     | Ok (status, body) ->
@@ -74,6 +75,7 @@ module Schema = struct
 end
 
 let set_subject_compatibility net ~clock ~registry_url ~topic_name =
+  let topic_name = Kafka_service_intf.topic_name_to_string topic_name in
   let subject = topic_name ^ "-value" in
   let body = {|{"compatibility":"FULL"}|} in
   match Kafka_service_http.http_put net ~clock ~base_url:registry_url
@@ -86,6 +88,7 @@ let set_subject_compatibility net ~clock ~registry_url ~topic_name =
     Error (Printf.sprintf "set compatibility: HTTP %d: %s" status resp_body)
 
 let register_schema net ~clock ~registry_url ~topic_name ~schema =
+  let topic_name = Kafka_service_intf.topic_name_to_string topic_name in
   let subject = topic_name ^ "-value" in
   let body =
     Yojson.Safe.to_string (`Assoc [

@@ -89,7 +89,7 @@ let optional_db_pool ~sw ~stdenv = function
     Some pool
 
 let create_registered_topic ~sw ~net ~clock () =
-  say "registering topic %S ..." Charged.topic_name;
+  say "registering topic %S ..." (Kafka_service.topic_name_to_string Charged.topic_name);
   let svc = Kafka_service.create kafka_config ~sw |> require_kafka "kafka create" in
   let topic =
     Kafka_service.register svc ~net ~clock (module Charged)

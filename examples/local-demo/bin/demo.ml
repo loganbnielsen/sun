@@ -186,7 +186,8 @@ let () =
   in
 
   (* ── Shared Kafka handle ────────────────────────────────────────────────── *)
-  say "registering topic %S ..." Events.OrderPlaced.topic_name;
+  say "registering topic %S ..."
+    (Kafka_service.topic_name_to_string Events.OrderPlaced.topic_name);
   let svc =
     match Kafka_service.create kafka_config ~sw with
     | Ok s    -> s
