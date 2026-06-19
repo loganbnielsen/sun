@@ -51,10 +51,7 @@ let make_jwt ?(sub="user1") ?(scopes=["read"]) ?(exp_offset=3600.0) () =
   header ^ "." ^ payload_b64 ^ ".fakesig"
 
 let jwt_cfg scopes =
-  `Jwt Auth.{ scopes; verification = Unverified_dev_only }
-
-let verified_jwt_cfg scopes =
-  `Jwt Auth.{ scopes; verification = Verified_signature_required }
+  `Jwt Auth.{ scopes; allow_unverified_v1_unsafe = true }
 
 let test_jwt_valid () =
   let tok = make_jwt ~scopes:["read";"write"] () in
@@ -98,8 +95,9 @@ let test_jwt_missing_header () =
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
-let test_jwt_verified_required_not_implemented () =
-  match Auth.validate (verified_jwt_cfg []) (bearer (make_jwt ())) with
+let test_jwt_unsafe_false () =
+  let cfg = `Jwt Auth.{ scopes = []; allow_unverified_v1_unsafe = false } in
+  match Auth.validate cfg (bearer (make_jwt ())) with
   | Error (`Not_implemented _) -> ()
   | _ -> Alcotest.fail "expected Not_implemented"
 
@@ -120,6 +118,6 @@ let () =
       Alcotest.test_case "expired → 401"        `Quick test_jwt_expired;
       Alcotest.test_case "malformed → 401"      `Quick test_jwt_malformed;
       Alcotest.test_case "missing header → 401" `Quick test_jwt_missing_header;
-      Alcotest.test_case "verified mode → 501"  `Quick test_jwt_verified_required_not_implemented;
+      Alcotest.test_case "unsafe=false → 501"   `Quick test_jwt_unsafe_false;
     ];
   ]

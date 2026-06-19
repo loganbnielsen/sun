@@ -1,10 +1,6 @@
-type jwt_verification =
-  | Verified_signature_required
-  | Unverified_dev_only
-
 type jwt_config =
-  { scopes       : string list
-  ; verification : jwt_verification
+  { scopes                     : string list
+  ; allow_unverified_v1_unsafe : bool
   }
 
 type level =

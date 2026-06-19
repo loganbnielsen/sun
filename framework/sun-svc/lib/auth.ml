@@ -1,10 +1,6 @@
-type jwt_verification =
-  | Verified_signature_required
-  | Unverified_dev_only
-
 type jwt_config =
-  { scopes       : string list
-  ; verification : jwt_verification
+  { scopes                     : string list
+  ; allow_unverified_v1_unsafe : bool
   }
 
 type level =
@@ -103,12 +99,11 @@ let token_scopes json =
 let ( let* ) = Result.bind
 
 let validate_jwt config headers =
-  match config.verification with
-  | Verified_signature_required ->
+  if not config.allow_unverified_v1_unsafe then
     Error (`Not_implemented
       "JWT signature verification not implemented; \
-       use Unverified_dev_only only for local development")
-  | Unverified_dev_only ->
+       set allow_unverified_v1_unsafe=true to opt in to v1 behaviour")
+  else
     let* auth =
       Http.Header.get headers "authorization"
       |> Option.to_result ~none:(`Unauthorized "Missing Authorization header")
