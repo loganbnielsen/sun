@@ -153,7 +153,8 @@ val register_counter
   -> label_names:string list
   -> Obs_metrics.counter_fn
 (** Register a counter metric family. Returns an emitter function. Call it once
-    at startup, then call the returned function per event.
+    at startup, then call the returned function per event. [label_names] must
+    be unique; emitted labels must match the declared names exactly.
     {[
       let reqs = Obs.register_counter ot ~name:"http_requests_total"
                    ~help:"Total HTTP requests" ~label_names:["method";"status"] in
