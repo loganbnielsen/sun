@@ -50,6 +50,12 @@ let make_jwt ?(sub="user1") ?(scopes=["read"]) ?(exp_offset=3600.0) () =
   let payload_b64 = Base64.encode_exn ~pad:false ~alphabet:Base64.uri_safe_alphabet payload in
   header ^ "." ^ payload_b64 ^ ".fakesig"
 
+let make_jwt_with_payload payload =
+  let header  = Base64.encode_exn ~pad:false ~alphabet:Base64.uri_safe_alphabet
+                  {|{"alg":"HS256","typ":"JWT"}|} in
+  let payload_b64 = Base64.encode_exn ~pad:false ~alphabet:Base64.uri_safe_alphabet payload in
+  header ^ "." ^ payload_b64 ^ ".fakesig"
+
 let jwt_cfg scopes =
   `Jwt Auth.{ scopes; verification = Unverified_dev_only }
 
@@ -93,6 +99,21 @@ let test_jwt_malformed () =
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
+let test_jwt_wrong_bearer_scheme () =
+  match Auth.validate (jwt_cfg []) (headers_of ["authorization", "Token abc"]) with
+  | Error (`Unauthorized _) -> ()
+  | _ -> Alcotest.fail "expected Unauthorized"
+
+let test_jwt_payload_not_base64 () =
+  match Auth.validate (jwt_cfg []) (bearer "header.%.signature") with
+  | Error (`Unauthorized _) -> ()
+  | _ -> Alcotest.fail "expected Unauthorized"
+
+let test_jwt_payload_not_json () =
+  match Auth.validate (jwt_cfg []) (bearer (make_jwt_with_payload "not json")) with
+  | Error (`Unauthorized _) -> ()
+  | _ -> Alcotest.fail "expected Unauthorized"
+
 let test_jwt_missing_header () =
   match Auth.validate (jwt_cfg []) (headers_of []) with
   | Error (`Unauthorized _) -> ()
@@ -119,6 +140,9 @@ let () =
       Alcotest.test_case "missing scope → 403"  `Quick test_jwt_missing_scope;
       Alcotest.test_case "expired → 401"        `Quick test_jwt_expired;
       Alcotest.test_case "malformed → 401"      `Quick test_jwt_malformed;
+      Alcotest.test_case "wrong bearer → 401"   `Quick test_jwt_wrong_bearer_scheme;
+      Alcotest.test_case "bad payload b64 → 401" `Quick test_jwt_payload_not_base64;
+      Alcotest.test_case "bad payload JSON → 401" `Quick test_jwt_payload_not_json;
       Alcotest.test_case "missing header → 401" `Quick test_jwt_missing_header;
       Alcotest.test_case "verified mode → 501"  `Quick test_jwt_verified_required_not_implemented;
     ];

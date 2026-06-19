@@ -102,6 +102,74 @@ let token_scopes json =
 
 let ( let* ) = Result.bind
 
+type jwt_parts =
+  { header_b64    : string
+  ; payload_b64   : string
+  ; signature_b64 : string
+  }
+
+let bearer_token headers =
+  let* auth =
+    Http.Header.get headers "authorization"
+    |> Option.to_result ~none:(`Unauthorized "Missing Authorization header")
+  in
+  let prefix = "Bearer " in
+  let plen   = String.length prefix in
+  if String.length auth < plen || String.sub auth 0 plen <> prefix then
+    Error (`Unauthorized "Authorization header must be 'Bearer <token>'")
+  else
+    Ok (String.sub auth plen (String.length auth - plen))
+
+let split_jwt token =
+  match String.split_on_char '.' token with
+  | [header_b64; payload_b64; signature_b64] ->
+    Ok { header_b64; payload_b64; signature_b64 }
+  | _ ->
+    Error (`Unauthorized "Malformed JWT: expected header.payload.signature")
+
+let decode_jwt_payload parts =
+  base64url_decode parts.payload_b64
+  |> Option.to_result ~none:(`Unauthorized "Malformed JWT: cannot decode payload")
+
+let parse_jwt_payload payload_str =
+  match Yojson.Safe.from_string payload_str with
+  | exception _ ->
+    Error (`Unauthorized "Malformed JWT: payload is not valid JSON")
+  | json ->
+    Ok json
+
+let jwt_expired ~now json =
+  match Yojson.Safe.Util.member "exp" json with
+  | `Int   n -> float_of_int n < now
+  | `Float f -> f < now
+  | _        -> false
+
+let check_jwt_expiry json =
+  if jwt_expired ~now:(Unix.gettimeofday ()) json then
+    Error (`Unauthorized "JWT expired")
+  else
+    Ok ()
+
+let validate_required_scopes ~required ~actual =
+  match List.filter (fun scope -> not (List.mem scope actual)) required with
+  | [] -> Ok ()
+  | scope :: _ -> Error (`Forbidden ("Missing required scope: " ^ scope))
+
+let token_sub json =
+  match Yojson.Safe.Util.member "sub" json with
+  | `String s -> s
+  | _         -> ""
+
+let validate_unverified_jwt config headers =
+  let* token       = bearer_token headers in
+  let* parts       = split_jwt token in
+  let* payload_str = decode_jwt_payload parts in
+  let* json        = parse_jwt_payload payload_str in
+  let* ()          = check_jwt_expiry json in
+  let scopes       = token_scopes json in
+  let* ()          = validate_required_scopes ~required:config.scopes ~actual:scopes in
+  Ok { principal = User { sub = token_sub json; scopes; claims = json } }
+
 let validate_jwt config headers =
   match config.verification with
   | Verified_signature_required ->
@@ -109,51 +177,7 @@ let validate_jwt config headers =
       "JWT signature verification not implemented; \
        use Unverified_dev_only only for local development")
   | Unverified_dev_only ->
-    let* auth =
-      Http.Header.get headers "authorization"
-      |> Option.to_result ~none:(`Unauthorized "Missing Authorization header")
-    in
-    let prefix = "Bearer " in
-    let plen   = String.length prefix in
-    let* token =
-      if String.length auth < plen || String.sub auth 0 plen <> prefix
-      then Error (`Unauthorized "Authorization header must be 'Bearer <token>'")
-      else Ok (String.sub auth plen (String.length auth - plen))
-    in
-    let* (_, payload_b64, _) =
-      match String.split_on_char '.' token with
-      | [hdr; p; sg] -> Ok (hdr, p, sg)
-      | _ -> Error (`Unauthorized "Malformed JWT: expected header.payload.signature")
-    in
-    let* payload_str =
-      base64url_decode payload_b64
-      |> Option.to_result ~none:(`Unauthorized "Malformed JWT: cannot decode payload")
-    in
-    let* json =
-      match Yojson.Safe.from_string payload_str with
-      | exception _ -> Error (`Unauthorized "Malformed JWT: payload is not valid JSON")
-      | json -> Ok json
-    in
-    let now = Unix.gettimeofday () in
-    let expired = match Yojson.Safe.Util.member "exp" json with
-      | `Int   n -> float_of_int n < now
-      | `Float f -> f < now
-      | _        -> false
-    in
-    let* () =
-      if expired then Error (`Unauthorized "JWT expired") else Ok ()
-    in
-    let scopes  = token_scopes json in
-    let missing = List.filter (fun s -> not (List.mem s scopes)) config.scopes in
-    match missing with
-    | [] ->
-      let sub = match Yojson.Safe.Util.member "sub" json with
-        | `String s -> s
-        | _         -> ""
-      in
-      Ok { principal = User { sub; scopes; claims = json } }
-    | s :: _ ->
-      Error (`Forbidden ("Missing required scope: " ^ s))
+    validate_unverified_jwt config headers
 
 let validate level headers =
   match level with
