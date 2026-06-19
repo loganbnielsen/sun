@@ -6,7 +6,7 @@
 module TestMsg = struct
   type t = { id : string }
 
-  let topic_name = "sun-worker-unit-test"
+  let topic_name = Kafka_service.topic_name_exn "sun-worker-unit-test"
 
   let schema = {|{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}|}
 

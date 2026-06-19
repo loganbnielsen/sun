@@ -279,6 +279,18 @@ let () = ()
     Alcotest.(check (list string)) "subdirectory topic found" ["payments.charged"] topics
   )
 
+let test_discover_topics_typed_constructor () =
+  let tmp = Filename.temp_dir "sun_test_topics_typed" "" in
+  with_cwd tmp (fun () ->
+    mkdirs "events/payments";
+    write_file "events/payments/charged.ml"
+      {|let topic_name = Kafka_service.topic_name_exn "payments.charged"
+let () = ()
+|};
+    let topics = Sun_cli_deployment_plan.discover_topics () in
+    Alcotest.(check (list string)) "typed constructor topic found" ["payments.charged"] topics
+  )
+
 let test_discover_topics_mixed_levels () =
   let tmp = Filename.temp_dir "sun_test_topics_mixed" "" in
   with_cwd tmp (fun () ->
@@ -648,6 +660,7 @@ let () =
       ; Alcotest.test_case "multiple files sorted"   `Quick test_discover_topics_multiple_files
       ; Alcotest.test_case "deduplicates"            `Quick test_discover_topics_deduplicates
       ; Alcotest.test_case "subdirectory discovery"  `Quick test_discover_topics_subdirectory
+      ; Alcotest.test_case "typed constructor discovery" `Quick test_discover_topics_typed_constructor
       ; Alcotest.test_case "mixed top-level and subdir" `Quick test_discover_topics_mixed_levels
       ]
     ; "discover_migrations", [

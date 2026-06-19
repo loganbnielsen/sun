@@ -6,7 +6,7 @@ type t = {
   correlation_id : string;
 }
 
-let topic_name = "pluto-payments-charges"
+let topic_name = Kafka_service.topic_name_exn "pluto-payments-charges"
 
 let schema = {|{
   "type": "object",

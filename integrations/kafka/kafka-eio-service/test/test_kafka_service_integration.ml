@@ -23,7 +23,8 @@ let run_id = Random.int 99999
 module PaymentEvent = struct
   type t = { payment_id : string; amount_cents : int }
 
-  let topic_name = Printf.sprintf "sun-svc-payment-%05d" run_id
+  let topic_name =
+    Kafka_service.topic_name_exn (Printf.sprintf "sun-svc-payment-%05d" run_id)
 
   let schema = {|{
     "type": "object",
@@ -84,7 +85,8 @@ end
 module RawTestEvent = struct
   type t = { id : string }
 
-  let topic_name = Printf.sprintf "sun-svc-raw-%05d" run_id
+  let topic_name =
+    Kafka_service.topic_name_exn (Printf.sprintf "sun-svc-raw-%05d" run_id)
 
   let schema = {|{
     "type": "object",
@@ -125,7 +127,8 @@ let test_schema_check_new_topic () =
     let fresh_id = Random.int 99999 in
     let module Fresh = struct
       type t = unit
-      let topic_name = Printf.sprintf "sun-svc-fresh-%05d" fresh_id
+      let topic_name =
+        Kafka_service.topic_name_exn (Printf.sprintf "sun-svc-fresh-%05d" fresh_id)
       let schema = {|{"type":"object","properties":{"x":{"type":"string"}}}|}
       let encode () = `Assoc []
       let decode _ = Ok ()
@@ -289,7 +292,8 @@ let test_decode_error_callback () =
              let raw = Bytes.of_string {|{"id":"raw-no-wire-format"}|} in
              (match Eio.Promise.await
                       (Kafka_producer.produce_await producer
-                         ~topic:RawTestEvent.topic_name ~value:raw ()) with
+                         ~topic:(Kafka_service.topic_name_to_string RawTestEvent.topic_name)
+                         ~value:raw ()) with
               | Error e ->
                 Alcotest.failf "raw publish failed: %s" (Kafka_error.to_string e)
               | Ok () -> ());

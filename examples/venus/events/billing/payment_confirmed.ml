@@ -6,7 +6,7 @@ type t = {
   currency     : string;
 }
 
-let topic_name = "venus-billing-payment-confirmed"
+let topic_name = Kafka_service.topic_name_exn "venus-billing-payment-confirmed"
 
 let schema = {|{
   "type": "object",

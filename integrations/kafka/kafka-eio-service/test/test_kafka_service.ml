@@ -116,6 +116,40 @@ let test_config_of_env_rejects_unknown_security_protocol () =
         (contains msg "KAFKA_SECURITY_PROTOCOL"))
 
 (* ------------------------------------------------------------------ *)
+(* Topic names                                                         *)
+(* ------------------------------------------------------------------ *)
+
+let test_topic_name_accepts_kafka_compatible_names () =
+  let check name =
+    match Kafka_service.topic_name name with
+    | Ok topic ->
+      Alcotest.(check string) name name (Kafka_service.topic_name_to_string topic)
+    | Error e -> Alcotest.failf "%s should be valid: %s" name e
+  in
+  List.iter check [
+    "orders";
+    "sun-demo-orders";
+    "payments.charges_v1";
+    "__consumer_offsets";
+  ]
+
+let test_topic_name_rejects_invalid_names () =
+  let long_name = String.make 250 'a' in
+  let check name =
+    match Kafka_service.topic_name name with
+    | Ok _ -> Alcotest.failf "%S should be invalid" name
+    | Error _ -> ()
+  in
+  List.iter check [
+    "";
+    ".";
+    "..";
+    "orders/v1";
+    "orders v1";
+    long_name;
+  ]
+
+(* ------------------------------------------------------------------ *)
 (* Schema Registry response decoding                                  *)
 (* ------------------------------------------------------------------ *)
 
@@ -207,6 +241,10 @@ let () =
     ];
     "config", [
       test_case "unknown security protocol fails clearly" `Quick test_config_of_env_rejects_unknown_security_protocol;
+    ];
+    "topic_name", [
+      test_case "accepts Kafka-compatible names" `Quick test_topic_name_accepts_kafka_compatible_names;
+      test_case "rejects invalid names" `Quick test_topic_name_rejects_invalid_names;
     ];
     "schema_registry_decoding", [
       test_case "compatibility response" `Quick test_decode_compatibility_response;

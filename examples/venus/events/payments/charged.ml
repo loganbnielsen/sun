@@ -10,7 +10,7 @@ type t = {
   correlation_id : string;
 }
 
-let topic_name = "venus-payments-charges"
+let topic_name = Kafka_service.topic_name_exn "venus-payments-charges"
 
 let schema = {|{
   "type": "object",

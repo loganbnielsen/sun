@@ -1,7 +1,13 @@
 module type MESSAGE = Kafka_service_intf.MESSAGE
 
+type topic_name = Kafka_service_intf.topic_name
+
+let topic_name = Kafka_service_intf.topic_name
+let topic_name_exn = Kafka_service_intf.topic_name_exn
+let topic_name_to_string = Kafka_service_intf.topic_name_to_string
+
 type 'a topic = 'a Kafka_service_intf.topic = {
-  name      : string;
+  name      : topic_name;
   schema_id : int;
   encode    : 'a -> Yojson.Safe.t;
   decode    : Yojson.Safe.t -> ('a, string) result;
@@ -54,13 +60,14 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
   fun svc ~net ~clock (module M) ->
   let ( let* ) = Result.bind in
   let rk = Kafka_producer.raw_handle svc.producer in
+  let raw_topic_name = topic_name_to_string M.topic_name in
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
             ~admin_url:svc.admin_url ~topic_name:M.topic_name with
     | Error e ->
       Error (Printf.sprintf
         "could not query topic '%s' metadata: %s"
-        M.topic_name
+        raw_topic_name
         (Kafka_service_intf.topic_partition_error_to_string e))
     | Ok Kafka_service_intf.Topic_not_found -> Ok ()
     | Ok (Kafka_service_intf.Topic_partitions current) when current <= svc.partitions -> Ok ()
@@ -68,7 +75,7 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
       Error (Printf.sprintf
         "partition count for topic '%s' cannot be reduced from %d to %d; \
          delete the topic first if this change is intentional"
-        M.topic_name current svc.partitions)
+        raw_topic_name current svc.partitions)
   in
   let* () = partition_guard () in
   let* () = Kafka_service_intf.ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions in
@@ -81,7 +88,7 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
            ~registry_url:svc.schema_registry_url
            ~topic_name:M.topic_name with
    | Error e ->
-     Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" M.topic_name e
+     Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" raw_topic_name e
    | Ok () -> ());
   Ok { Kafka_service_intf.name = M.topic_name; schema_id; encode = M.encode; decode = M.decode }
 
@@ -91,7 +98,8 @@ let publish svc topic ?trace_ctx msg =
     | Some ctx -> Obs_trace.inject_to_headers ctx []
   in
   let payload = encode_wire ~schema_id:topic.schema_id (topic.encode msg) in
-  Kafka_producer.produce_await svc.producer ~topic:topic.name ~value:payload ~headers ()
+  Kafka_producer.produce_await svc.producer
+    ~topic:(topic_name_to_string topic.name) ~value:payload ~headers ()
 
 type retry_strategy =
   | In_memory    of Kafka_consumer.retry_policy
@@ -115,7 +123,7 @@ let consume svc topic ~group_id ~sw
   let consumer_cfg : Kafka_consumer.config = {
     brokers      = svc.brokers;
     group_id;
-    topics       = [topic.name];
+    topics       = [topic_name_to_string topic.name];
     offset_reset = Kafka_consumer.Latest;
     auto_commit  = false;
     on_rebalance = None;
@@ -148,7 +156,7 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     let consumer_cfg : Kafka_consumer.config = {
       brokers      = svc.brokers;
       group_id;
-      topics       = [topic.name];
+      topics       = [topic_name_to_string topic.name];
       offset_reset = Kafka_consumer.Latest;
       auto_commit  = false;
       on_rebalance = None;

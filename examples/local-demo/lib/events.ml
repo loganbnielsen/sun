@@ -10,7 +10,7 @@ module OrderPlaced = struct
     correlation_id : string;  (* propagated from the HTTP X-Correlation-Id header *)
   }
 
-  let topic_name = "sun-demo-orders"
+  let topic_name = Kafka_service.topic_name_exn "sun-demo-orders"
 
   let schema = {|{
     "type": "object",
