@@ -22,6 +22,38 @@ let contains s sub =
 let make_event ?(labels = []) ?(context = []) ~name ~help kind =
   { Obs.name; help; kind; labels; context; service = "svc" }
 
+let capture_stderr f =
+  let old_stderr = Unix.dup Unix.stderr in
+  let read_fd, write_fd = Unix.pipe () in
+  Unix.dup2 write_fd Unix.stderr;
+  Unix.close write_fd;
+  let restored = ref false in
+  let restore () =
+    if not !restored then begin
+      Unix.dup2 old_stderr Unix.stderr;
+      Unix.close old_stderr;
+      restored := true
+    end
+  in
+  match f () with
+  | result ->
+    flush stderr;
+    restore ();
+    let ic = Unix.in_channel_of_descr read_fd in
+    let buf = Buffer.create 128 in
+    (try
+       while true do
+         Buffer.add_string buf (input_line ic);
+         Buffer.add_char buf '\n'
+       done
+     with End_of_file -> ());
+    close_in ic;
+    (result, Buffer.contents buf)
+  | exception exn ->
+    restore ();
+    Unix.close read_fd;
+    raise exn
+
 (* ------------------------------------------------------------------ *)
 (* Counter                                                             *)
 (* ------------------------------------------------------------------ *)
@@ -148,6 +180,55 @@ let test_label_value_escaping () =
   let out = render () in
   Alcotest.(check bool) "backslash-escaped label value"
     true (has_line out {|g{msg="hello \"world\"\nnewline"} 1|})
+
+let test_kind_conflicts_are_logged () =
+  let (out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs.emit_metric
+        (make_event ~name:"same_metric" ~help:"counter" (`Counter 1));
+      backend.Obs.emit_metric
+        (make_event ~name:"same_metric" ~help:"gauge" (`Gauge 2.0));
+      backend.Obs.emit_metric
+        (make_event ~name:"same_metric" ~help:"histogram" (`Histogram 0.5));
+      render ())
+  in
+  Alcotest.(check bool) "original counter family remains"
+    true (has_line out "# TYPE same_metric counter");
+  Alcotest.(check bool) "gauge conflict logged"
+    true (contains err
+      "metric family kind conflict for same_metric: existing counter, incoming gauge");
+  Alcotest.(check bool) "histogram conflict logged"
+    true (contains err
+      "metric family kind conflict for same_metric: existing counter, incoming histogram")
+
+let test_kind_conflicts_for_each_registered_kind () =
+  let (_out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs.emit_metric
+        (make_event ~name:"counter_first" ~help:"counter" (`Counter 1));
+      backend.Obs.emit_metric
+        (make_event ~name:"counter_first" ~help:"histogram" (`Histogram 0.5));
+      backend.Obs.emit_metric
+        (make_event ~name:"gauge_first" ~help:"gauge" (`Gauge 2.0));
+      backend.Obs.emit_metric
+        (make_event ~name:"gauge_first" ~help:"counter" (`Counter 1));
+      backend.Obs.emit_metric
+        (make_event ~name:"histogram_first" ~help:"histogram" (`Histogram 0.5));
+      backend.Obs.emit_metric
+        (make_event ~name:"histogram_first" ~help:"gauge" (`Gauge 2.0));
+      render ())
+  in
+  Alcotest.(check bool) "counter rejects histogram"
+    true (contains err
+      "metric family kind conflict for counter_first: existing counter, incoming histogram");
+  Alcotest.(check bool) "gauge rejects counter"
+    true (contains err
+      "metric family kind conflict for gauge_first: existing gauge, incoming counter");
+  Alcotest.(check bool) "histogram rejects gauge"
+    true (contains err
+      "metric family kind conflict for histogram_first: existing histogram, incoming gauge")
 
 (* ------------------------------------------------------------------ *)
 (* Concurrency                                                         *)
@@ -370,6 +451,8 @@ let () =
       test_case "empty string when no events"           `Quick test_renderer_empty_when_no_events;
       test_case "# HELP and # TYPE lines present"       `Quick test_renderer_includes_help_and_type;
       test_case "label values are escaped"              `Quick test_label_value_escaping;
+      test_case "conflicting metric kinds are logged"   `Quick test_kind_conflicts_are_logged;
+      test_case "each family kind rejects conflicts"    `Quick test_kind_conflicts_for_each_registered_kind;
     ];
     "concurrency", [
       test_case "no lost updates under concurrent emit" `Quick test_concurrent_emit;
