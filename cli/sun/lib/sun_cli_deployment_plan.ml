@@ -255,10 +255,6 @@ let prim_of_manifest = function
   | Sun_cli_manifest.Worker -> Worker
   | Sun_cli_manifest.Fn     -> Fn
 
-let render_primitive = function
-  | Svc -> Sun_cli_deployment_render.Render_svc | Worker -> Sun_cli_deployment_render.Render_worker
-  | Fn  -> Sun_cli_deployment_render.Render_fn
-
 let of_services_result ~workspace ~env services =
   let to_spec svc =
     let* k8s_name  = k8s_name_result svc.Sun_cli_manifest.name in
@@ -316,9 +312,39 @@ let of_services ~workspace ~env services =
   | Ok plan -> plan
   | Error err -> failwith (plan_error_to_string err)
 
+let render_common_fields (s : service_spec) : Sun_cli_deployment_render.common_fields =
+  { namespace  = s.namespace
+  ; k8s_name   = s.k8s_name
+  ; spec_image = s.image
+  ; config     = s.config
+  ; secrets    = s.secrets
+  }
+
+let render_deployment_fields (s : service_spec) : Sun_cli_deployment_render.deployment_fields =
+  { replicas             = s.replicas
+  ; cpu                  = s.cpu
+  ; memory               = s.memory
+  ; rollout_strategy     = s.rollout_strategy
+  ; extra_labels         = s.extra_labels
+  ; progressive_delivery = s.progressive_delivery
+  }
+
+let render_workload (s : service_spec) : Sun_cli_deployment_render.workload =
+  let deployment = render_deployment_fields s in
+  match s.primitive with
+  | Svc ->
+    Sun_cli_deployment_render.Render_svc
+      { deployment; ingress_host = s.ingress_host; ingress_path = s.ingress_path }
+  | Worker ->
+    Sun_cli_deployment_render.Render_worker { deployment }
+  | Fn ->
+    let schedule = Option.value s.schedule ~default:"0 * * * *" in
+    Sun_cli_deployment_render.Render_fn { schedule }
+
 let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live) s =
-  Sun_cli_deployment_render.render_spec ~image ~secret_backend ~namespace:s.namespace
-    ~k8s_name:s.k8s_name ~primitive:(render_primitive s.primitive) ~spec_image:s.image
-    ~config:s.config ~secrets:s.secrets ~schedule:s.schedule ~replicas:s.replicas
-    ~cpu:s.cpu ~memory:s.memory ~rollout_strategy:s.rollout_strategy
-    ~ingress_host:s.ingress_host ~ingress_path:s.ingress_path ~extra_labels:s.extra_labels ~progressive_delivery:s.progressive_delivery ()
+  let spec : Sun_cli_deployment_render.spec =
+    { common   = render_common_fields s
+    ; workload = render_workload s
+    }
+  in
+  Sun_cli_deployment_render.render_spec ~image ~secret_backend spec
