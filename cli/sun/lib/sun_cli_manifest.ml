@@ -84,15 +84,11 @@ let write_tmp content =
   close_out oc;
   tmp
 
-let kubectl_apply tmp =
-  match Sun_cli_process.run_ok (Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; tmp]) with
-  | Ok () -> ()
-  | Error e -> raise (Deploy_failed ("kubectl apply failed: " ^ Sun_cli_process.error_to_string e))
-
 let apply_live yaml =
   let tmp = write_tmp yaml in
-  (try kubectl_apply tmp with e -> (try Sys.remove tmp with _ -> ()); raise e);
-  Sys.remove tmp
+  let rc = Sys.command (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
+  Sys.remove tmp;
+  if rc <> 0 then raise (Deploy_failed "kubectl apply failed")
 
 let apply (ns_yaml, workload_yaml) ~dry_run =
   if dry_run then
@@ -101,12 +97,11 @@ let apply (ns_yaml, workload_yaml) ~dry_run =
     apply_live ns_yaml;
     let tmp = write_tmp workload_yaml in
     (try
-      (match Sun_cli_process.run_ok
-          (Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; tmp; "--dry-run=server"]) with
-       | Ok () -> ()
-       | Error e ->
-         raise (Deploy_failed ("kubectl server-side dry-run failed: " ^ Sun_cli_process.error_to_string e)));
-      kubectl_apply tmp
+      let rc = Sys.command (Printf.sprintf "kubectl apply -f %s --dry-run=server 2>&1" (Filename.quote tmp)) in
+      if rc <> 0 then
+        raise (Deploy_failed "kubectl server-side dry-run failed (invalid manifest)");
+      let rc = Sys.command (Printf.sprintf "kubectl apply -f %s" (Filename.quote tmp)) in
+      if rc <> 0 then raise (Deploy_failed "kubectl apply failed")
     with e ->
       (try Sys.remove tmp with _ -> ());
       raise e);

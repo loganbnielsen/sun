@@ -12,10 +12,14 @@ type spec = {
 
 
 let read_cmdline pid =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["ps"; "-p"; string_of_int pid; "-o"; "args="]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
-  | _ -> ""
+  let tmp = Filename.temp_file "sun-ps-" ".tmp" in
+  ignore (Sys.command
+    (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  s
 
 let read_last_lines path n =
   try
@@ -48,14 +52,16 @@ let extract_after_prefix s prefix =
   go 0
 
 let pid_owning_port local_port =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["ss"; "-tlnp"; Printf.sprintf "sport = :%d" local_port]) with
-  | Ok r ->
-    let digits = extract_after_prefix r.Sun_cli_process.stdout "pid=" in
-    if digits = "" then None
-    else (try Some (int_of_string digits) with _ -> None)
-  | Error _ -> None
+  let tmp = Filename.temp_file "sun-ss-" ".tmp" in
+  ignore (Sys.command
+    (Printf.sprintf "ss -tlnp 'sport = :%d' > %s 2>/dev/null" local_port (Filename.quote tmp)));
+  let ic = open_in tmp in
+  let content = In_channel.input_all ic in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  let digits = extract_after_prefix content "pid=" in
+  if digits = "" then None
+  else (try Some (int_of_string digits) with _ -> None)
 
 let read_proc_cmdline pid =
   let path = Printf.sprintf "/proc/%d/cmdline" pid in
@@ -65,11 +71,14 @@ let read_proc_cmdline pid =
     close_in ic;
     List.filter (fun s -> s <> "") (String.split_on_char '\x00' raw)
   with _ ->
-    match Sun_cli_process.run
-        (Sun_cli_process.cmd ["ps"; "-p"; string_of_int pid; "-o"; "args="]) with
-    | Ok r when r.Sun_cli_process.exit_code = 0 ->
-      String.split_on_char ' ' r.Sun_cli_process.stdout
-    | _ -> []
+    let tmp = Filename.temp_file "sun-ps-" ".tmp" in
+    ignore (Sys.command
+      (Printf.sprintf "ps -p %d -o args= > %s 2>/dev/null" pid (Filename.quote tmp)));
+    let ic = open_in tmp in
+    let s = String.trim (In_channel.input_all ic) in
+    close_in ic;
+    (try Sys.remove tmp with _ -> ());
+    String.split_on_char ' ' s
 
 let parse_kubectl_pf_args args =
   let rec find_ns = function
@@ -101,11 +110,7 @@ let is_running name =
     close_in ic;
     try
       let pid = int_of_string pid_s in
-      let alive =
-        (try Unix.kill pid 0; true
-         with Unix.Unix_error (Unix.ESRCH, _, _) -> false
-            | Unix.Unix_error _ -> true)
-      in
+      let alive = Sys.command (Printf.sprintf "kill -0 %d 2>/dev/null" pid) = 0 in
       let args = if alive then read_cmdline pid else "" in
       let ok = alive && Sun_cli_shell.string_contains ~needle:(Printf.sprintf "sun-pf-%s.sh" name) args in
       if not ok then (try Sys.remove pf with _ -> ());
@@ -133,8 +138,8 @@ let start (pf : spec) =
   let oc = open_out sf in
   output_string oc content;
   close_out oc;
-  ignore (Sun_cli_process.run (Sun_cli_process.cmd ["chmod"; "+x"; sf]));
-  ignore (Sun_cli_process.run_shell
+  ignore (Sys.command (Printf.sprintf "chmod +x %s" (Filename.quote sf)));
+  ignore (Sun_cli_shell.run_cmd ~echo:false
     (Printf.sprintf "setsid %s </dev/null >/dev/null 2>&1 &" (Filename.quote sf)))
 
 let stop_all () =
@@ -149,7 +154,8 @@ let stop_all () =
           close_in ic;
           (match int_of_string_opt pid_s with
            | Some pid ->
-             (try Unix.kill pid Sys.sigterm with Unix.Unix_error _ -> ())
+             ignore (Sun_cli_shell.run_cmd ~echo:false
+               (Printf.sprintf "kill %d 2>/dev/null" pid))
            | None -> ());
           Sys.remove path
         with _ -> ())

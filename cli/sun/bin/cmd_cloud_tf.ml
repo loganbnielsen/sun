@@ -5,12 +5,11 @@
 open Cmdliner
 
 let check_tool name install_url =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["which"; name]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> ()
-  | _ ->
+  if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "which %s" name) <> 0 then begin
     Printf.eprintf "error: %S not found in PATH.\n" name;
     Printf.eprintf "  Install: %s\n" install_url;
     exit 1
+  end
 
 (* ── Sun home resolution ─────────────────────────────────────────────────── *)
 
@@ -28,15 +27,22 @@ let resolve_sun_home () =
 
 (* Read terraform output -json from a temp file and print key endpoints.
    We only print non-sensitive string/list values. *)
-let print_outputs infra_dir =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["terraform"; "output"; "-json"; "-chdir=" ^ infra_dir]) with
-  | Error _ | Ok { Sun_cli_process.exit_code = (1 | 2 | 127 | 128); _ } ->
-    Printf.printf "  (could not retrieve terraform outputs)\n%!"
-  | Ok r when r.Sun_cli_process.exit_code <> 0 ->
-    Printf.printf "  (could not retrieve terraform outputs)\n%!"
-  | Ok r ->
+let print_outputs chdir_arg =
+  let tmp = Filename.temp_file "sun-tf-out-" ".json" in
+  let rc = Sys.command (Printf.sprintf "terraform output -json %s > %s 2>/dev/null"
+    chdir_arg (Filename.quote tmp))
+  in
+  if rc <> 0 then begin
+    Printf.printf "  (could not retrieve terraform outputs)\n%!";
+    (try Sys.remove tmp with _ -> ())
+  end else begin
     (try
+      let ic = open_in tmp in
+      let raw = In_channel.input_all ic in
+      close_in ic;
+      Sys.remove tmp;
+      (* Very lightweight JSON parse: find "key": { "sensitive": false,
+         "value": "..." } entries and print them. We use Yojson. *)
       let print_output_field key obj =
         match obj with
         | `Assoc fields ->
@@ -57,12 +63,13 @@ let print_outputs infra_dir =
              | _ -> ())
         | _ -> ()
       in
-      let json = Yojson.Safe.from_string r.Sun_cli_process.stdout in
+      let json = Yojson.Safe.from_string raw in
       (match json with
        | `Assoc pairs -> List.iter (fun (key, obj) -> print_output_field key obj) pairs
        | _ -> ())
     with _ ->
       Printf.printf "  (error parsing terraform outputs)\n%!")
+  end
 
 (* ── cloud init ─────────────────────────────────────────────────────────── *)
 
@@ -85,24 +92,17 @@ let cloud_init ~provider ~var_file ~dry_run () =
     exit 1
   end;
 
-  let chdir_flag = "-chdir=" ^ infra_dir in
-  let varfile_argv = match var_file with
-    | None -> []
-    | Some path -> ["-var-file=" ^ path]
+  let chdir_arg = Printf.sprintf "-chdir=%s" (Filename.quote infra_dir) in
+  let varfile_args = match var_file with
+    | None -> ""
+    | Some path -> Printf.sprintf " -var-file=%s" (Filename.quote path)
   in
 
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
-  let terraform argv =
-    match Sun_cli_process.run ~echo:true
-        (Sun_cli_process.cmd (["terraform"] @ argv)) with
-    | Ok r -> r.Sun_cli_process.exit_code
-    | Error _ -> 1
-  in
-
   (* Step 1: terraform init *)
   Printf.printf "\n[1/3] terraform init\n%!";
-  let rc = terraform ["init"; chdir_flag] in
+  let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform init %s" chdir_arg) in
   if rc <> 0 then begin
     Printf.eprintf "error: terraform init failed (exit %d).\n" rc;
     exit 1
@@ -111,7 +111,8 @@ let cloud_init ~provider ~var_file ~dry_run () =
   (* Step 2: terraform plan or apply *)
   if dry_run then begin
     Printf.printf "\n[2/3] terraform plan  (--dry-run)\n%!";
-    let rc = terraform (["plan"; chdir_flag] @ varfile_argv) in
+    let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform plan %s%s"
+      chdir_arg varfile_args) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform plan failed (exit %d).\n" rc;
       exit 1
@@ -119,7 +120,8 @@ let cloud_init ~provider ~var_file ~dry_run () =
     Printf.printf "\n[3/3] (skipping apply in --dry-run mode)\n%!";
   end else begin
     Printf.printf "\n[2/3] terraform apply\n%!";
-    let rc = terraform (["apply"; "-auto-approve"; chdir_flag] @ varfile_argv) in
+    let rc = Sun_cli_shell.run_cmd (Printf.sprintf "terraform apply -auto-approve %s%s"
+      chdir_arg varfile_args) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform apply failed (exit %d).\n" rc;
       exit 1
@@ -127,7 +129,7 @@ let cloud_init ~provider ~var_file ~dry_run () =
 
     (* Step 3: print outputs *)
     Printf.printf "\n[3/3] Provisioned endpoints:\n%!";
-    print_outputs infra_dir;
+    print_outputs chdir_arg;
   end;
 
   Printf.printf "\nDone.\n%!"

@@ -8,10 +8,13 @@ open Sun_cli_manifest
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 && r.Sun_cli_process.stdout <> "" ->
-    r.Sun_cli_process.stdout
-  | _ -> "dev"
+  let tmp = Filename.temp_file "sun-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  if s = "" then "dev" else s
 
 let run (req : Sun_cli_command_request.deploy_request) =
   let workspace = workspace_name () in

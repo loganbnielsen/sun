@@ -5,10 +5,13 @@ open Cmdliner
 (* ── cloud deploy ────────────────────────────────────────────────────────── *)
 
 let git_sha () =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 && r.Sun_cli_process.stdout <> "" ->
-    r.Sun_cli_process.stdout
-  | _ -> "dev"
+  let tmp = Filename.temp_file "sun-" ".tmp" in
+  ignore (Sys.command (Printf.sprintf "git rev-parse --short HEAD > %s 2>/dev/null" tmp));
+  let ic = open_in tmp in
+  let s = String.trim (In_channel.input_all ic) in
+  close_in ic;
+  (try Sys.remove tmp with _ -> ());
+  if s = "" then "dev" else s
 
 let get_ok_or_exit = function
   | Ok v -> v
@@ -39,58 +42,69 @@ type builder_adapter = {
     (builder_result, string) result;
 }
 
-let run_argv_streaming argv log =
-  match Sun_cli_process.run (Sun_cli_process.cmd argv) with
-  | Error e -> Error (Sun_cli_process.error_to_string e)
-  | Ok r ->
-    if r.Sun_cli_process.stdout <> "" then
-      String.split_on_char '\n' r.Sun_cli_process.stdout
-      |> List.iter (fun line -> if line <> "" then log line);
-    if r.Sun_cli_process.exit_code = 0 then Ok ()
-    else Error (Printf.sprintf "command exited %d" r.Sun_cli_process.exit_code)
+let run_streaming cmd log =
+  let ic = Unix.open_process_in cmd in
+  (try
+    while true do
+      log (input_line ic)
+    done
+  with End_of_file -> ());
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> Ok ()
+  | Unix.WEXITED n -> Error (Printf.sprintf "command exited %d: %s" n cmd)
+  | _ -> Error (Printf.sprintf "command failed: %s" cmd)
 
 let get_digest image_ref =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["docker"; "inspect"; "--format"; "{{index .RepoDigests 0}}"; image_ref]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0
-           && r.Sun_cli_process.stdout <> ""
-           && r.Sun_cli_process.stdout <> "<no value>" ->
-    r.Sun_cli_process.stdout
-  | _ -> image_ref
+  let cmd = Printf.sprintf
+    "docker inspect --format '{{index .RepoDigests 0}}' %s 2>/dev/null"
+    (Filename.quote image_ref) in
+  let ic = Unix.open_process_in cmd in
+  let s = String.trim (In_channel.input_all ic) in
+  (match Unix.close_process_in ic with _ -> ());
+  if s = "" || s = "<no value>" then image_ref
+  else s
 
 let ( let* ) = Result.bind
 
 let copy_workspace src dst =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["cp"; "-rL"; src; dst]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 ->
-    ignore (Sun_cli_process.run
-      (Sun_cli_process.cmd ["rm"; "-rf"; dst ^ "/_build"; dst ^ "/.git"]));
+  let rc = Sys.command (Printf.sprintf "cp -rL %s %s 2>&1"
+    (Filename.quote src) (Filename.quote dst)) in
+  if rc <> 0 then Error "failed to copy workspace for docker build context"
+  else begin
+    ignore (Sys.command (Printf.sprintf "rm -rf %s/_build %s/.git 2>/dev/null; true"
+      (Filename.quote dst) (Filename.quote dst)));
     Ok ()
-  | _ -> Error "failed to copy workspace for docker build context"
+  end
 
 let check_dockerfile ctx_dir service_dir =
   let path = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
   if Sys.file_exists path then Ok ()
   else Error (Printf.sprintf "Dockerfile not found: %s" path)
 
+let build_cmd ctx_dir service_dir image_ref =
+  Printf.sprintf "docker build -t %s -f %s %s 2>&1"
+    (Filename.quote image_ref)
+    (Filename.quote (Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir))
+    (Filename.quote ctx_dir)
+
+let push_cmd image_ref =
+  Printf.sprintf "docker push %s 2>&1" (Filename.quote image_ref)
+
 let local_builder = {
   build_and_push = fun ~workspace_path ~service_dir ~image_ref ~log ->
     let ctx_dir = workspace_path ^ ".cloud-ctx" in
     let cleanup () =
-      ignore (Sun_cli_process.run (Sun_cli_process.cmd ["rm"; "-rf"; ctx_dir]))
+      try ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)))
+      with _ -> ()
     in
     cleanup ();
     Fun.protect ~finally:cleanup (fun () ->
       let* () = copy_workspace workspace_path ctx_dir in
       let* () = check_dockerfile ctx_dir service_dir in
       log (Printf.sprintf "[build] building %s" image_ref);
-      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
-      let* () = run_argv_streaming
-          ["docker"; "build"; "-t"; image_ref; "-f"; dockerfile; ctx_dir] log in
+      let* () = run_streaming (build_cmd ctx_dir service_dir image_ref) log in
       log (Printf.sprintf "[push] pushing %s" image_ref);
-      let* () = run_argv_streaming ["docker"; "push"; image_ref] log in
+      let* () = run_streaming (push_cmd image_ref) log in
       let digest = get_digest image_ref in
       log (Printf.sprintf "[deploy] image digest: %s" digest);
       Ok { image_tag = image_ref; digest }

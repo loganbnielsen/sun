@@ -2,28 +2,22 @@ open Cmdliner
 open Sun_cli_manifest
 
 let wait_for_rollout ~namespace ~name =
-  match Sun_cli_process.run
-    (Sun_cli_process.cmd
-       ["kubectl"; "rollout"; "status";
-        "deployment/" ^ name; "-n"; namespace; "--timeout=60s"]) with
-  | Ok r -> r.Sun_cli_process.exit_code
-  | Error _ -> 1
+  let cmd = Printf.sprintf
+    "kubectl rollout status deployment/%s -n %s --timeout=60s"
+    (Filename.quote name) (Filename.quote namespace)
+  in
+  Sun_cli_shell.run_cmd ~echo:false cmd
 
 (* ── Workspace / git helpers ─────────────────────────────────────────────── *)
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 && r.Sun_cli_process.stdout <> "" ->
-    r.Sun_cli_process.stdout
-  | _ -> "dev"
+  let s = Sun_cli_shell.run_cmd_to_string "git rev-parse --short HEAD" in
+  if s = "" then "dev" else s
 
 let current_kube_context () =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "config"; "current-context"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
-  | _ -> ""
+  Sun_cli_shell.run_cmd_to_string "kubectl config current-context"
 
 let is_known_local_dev_context () =
   current_kube_context () = "k3d-sun-local"

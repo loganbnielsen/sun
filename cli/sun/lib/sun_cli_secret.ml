@@ -115,10 +115,9 @@ let redacted_result = function
     String.concat "\n" keys
   | Hosted_unavailable msg -> msg
 
-let run_kubectl argv =
-  match Sun_cli_process.run_ok (Sun_cli_process.cmd argv) with
-  | Ok () -> Ok ()
-  | Error e -> Error (Sun_cli_process.error_to_string e)
+let run_command cmd =
+  let rc = Sys.command cmd in
+  if rc = 0 then Ok () else Error "kubectl command failed"
 
 let validation_error = function
   | Ok () -> Ok ()
@@ -133,18 +132,33 @@ let write_tmp content =
 
 let apply_manifest yaml =
   let path = write_tmp yaml in
-  let result = run_kubectl ["kubectl"; "apply"; "-f"; path] in
+  let cmd = Printf.sprintf "kubectl apply -f %s >/dev/null" (Filename.quote path) in
+  let result =
+    match run_command cmd with
+    | Ok () -> Ok ()
+    | Error _ as e -> e
+  in
   (try Sys.remove path with _ -> ());
   result
 
 let get_named_secret_json ~name namespace =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "get"; "secret"; name; "-n"; namespace; "-o"; "json"]) with
-  | Error _ -> Ok None
-  | Ok r when r.Sun_cli_process.exit_code <> 0 -> Ok None
-  | Ok r ->
-    (try Ok (Some (Yojson.Safe.from_string r.Sun_cli_process.stdout))
-     with _ -> Ok None)
+  let path = Filename.temp_file "sun-secret-get-" ".json" in
+  let cmd = Printf.sprintf
+    "kubectl get secret %s -n %s -o json > %s 2>/dev/null"
+    (Filename.quote name)
+    (Filename.quote namespace)
+    (Filename.quote path)
+  in
+  let result =
+    if Sys.command cmd <> 0 then Ok None
+    else
+      let ic = open_in path in
+      let json = In_channel.input_all ic in
+      close_in ic;
+      Ok (Some (Yojson.Safe.from_string json))
+  in
+  (try Sys.remove path with _ -> ());
+  result
 
 let get_secret_json namespace =
   get_named_secret_json ~name:Sun_cli_manifest.runtime_secret_name namespace
@@ -168,22 +182,32 @@ let existing_data = function
    except the shared sun-secrets object, which is patched separately for
    Argo Rollout compatibility. *)
 let list_workload_secrets namespace =
-  let jsonpath = "{range .items[*]}{.metadata.name}{\"\\n\"}{end}" in
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["kubectl"; "get"; "secrets"; "-n"; namespace; "-o"; "jsonpath=" ^ jsonpath]) with
-  | Error _ -> []
-  | Ok r when r.Sun_cli_process.exit_code <> 0 -> []
-  | Ok r ->
-    let suffix = "-secrets" in
-    let slen = String.length suffix in
-    String.split_on_char '\n' r.Sun_cli_process.stdout
-    |> List.map String.trim
-    |> List.filter (fun name ->
-         name <> "" &&
-         name <> Sun_cli_manifest.runtime_secret_name &&
-         String.length name >= slen &&
-         String.sub name (String.length name - slen) slen = suffix)
+  let path = Filename.temp_file "sun-secret-ls-" ".txt" in
+  let cmd = Printf.sprintf
+    "kubectl get secrets -n %s \
+     -o jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}' \
+     2>/dev/null > %s"
+    (Filename.quote namespace) (Filename.quote path)
+  in
+  let secrets =
+    if Sys.command cmd <> 0 then []
+    else begin
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      let suffix = "-secrets" in
+      let slen = String.length suffix in
+      String.split_on_char '\n' content
+      |> List.map String.trim
+      |> List.filter (fun name ->
+           name <> "" &&
+           name <> Sun_cli_manifest.runtime_secret_name &&
+           String.length name >= slen &&
+           String.sub name (String.length name - slen) slen = suffix)
+    end
+  in
+  (try Sys.remove path with _ -> ());
+  secrets
 
 let apply_to_named_secret ~secret_name ~namespace ~key ~value =
   let* existing = get_named_secret_json ~name:secret_name namespace in
@@ -192,8 +216,12 @@ let apply_to_named_secret ~secret_name ~namespace ~key ~value =
   apply_manifest yaml
 
 let rollout_restart namespace =
-  ignore (Sun_cli_process.run
-    (Sun_cli_process.cmd ["kubectl"; "rollout"; "restart"; "deployment"; "-n"; namespace]))
+  let cmd = Printf.sprintf
+    "kubectl rollout restart deployment -n %s >/dev/null 2>/dev/null || true"
+    (Filename.quote namespace)
+  in
+  let _ = Sys.command cmd in
+  ()
 
 let hosted_stub _env =
   Error "hosted secret management will use the Sun control-plane API; no hosted endpoint is configured yet"
@@ -277,11 +305,13 @@ let delete ~env ~workspace:_ ~namespaces ~key =
     key
   in
   let remove_from namespace name =
-    ignore (Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["kubectl"; "patch"; "secret"; name; "-n"; namespace;
-          "--type"; "json"; "-p"; patch]));
-    Ok ()
+    let cmd = Printf.sprintf
+      "kubectl patch secret %s -n %s --type json -p %s >/dev/null 2>/dev/null || true"
+      (Filename.quote name)
+      (Filename.quote namespace)
+      (Filename.quote patch)
+    in
+    run_command cmd
   in
   let* () =
     iter_namespaces namespaces ~f:(fun namespace ->
