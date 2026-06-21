@@ -15,7 +15,10 @@ let default_table_name =
   Printf.sprintf "sun_%s_schema_migrations" (Buffer.contents buf)
 
 let cluster_pg_exists () =
-  Sys.command "kubectl get svc postgresql -n postgresql >/dev/null 2>&1" = 0
+  match Sun_cli_process.run
+      (Sun_cli_process.cmd ["kubectl"; "get"; "svc"; "postgresql"; "-n"; "postgresql"]) with
+  | Ok r -> r.Sun_cli_process.exit_code = 0
+  | Error _ -> false
 
 (* Start a background port-forward to cluster postgres and return the local URL.
    Registers at_exit cleanup so the forward is killed when the process exits. *)

@@ -3,6 +3,7 @@
  (wrapped false)
  (libraries unix yojson cmdliner otoml sun_process)
  (modules
+  Sun_cli_process
   Sun_cli_shell
   Sun_cli_scaffold
   Sun_cli_scaffold_templates
