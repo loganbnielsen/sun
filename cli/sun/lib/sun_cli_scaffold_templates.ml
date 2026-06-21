@@ -89,6 +89,32 @@ let tpl_sun_toml = {tpl|# Sun service configuration — all fields are optional.
 # steps    = [10, 40, 100]  # canary only
 |tpl}
 
+(* sun.toml for a scheduled function (-fn) service.
+   The [service] section carries the cron schedule so sun deploy can read it
+   without scanning OCaml source for "schedule = ..." string literals. *)
+let tpl_fn_sun_toml = {tpl|# Sun service configuration — all fields are optional.
+
+[service]
+schedule = "0 * * * *"   # cron schedule (default: every hour)
+
+[infra.scale]
+# cpu    = "100m"
+# memory = "128Mi"
+
+[infra.env]
+# secrets = []
+# config  = {}
+|tpl}
+
+(* sun.toml for an event directory (events/<team>/<name>/).
+   The [service] section carries the topic name so sun deploy can discover
+   topics without scanning OCaml source for topic_name string literals. *)
+let tpl_event_sun_toml = {tpl|# Sun event metadata.
+
+[service]
+topics = ["{{team}}-{{name}}s"]
+|tpl}
+
 (* Three-job pipeline:
      1. build-and-test  - dune build + dune runtest.  No cluster credentials.
      2. build-images    - dune build + docker build/push per service.
