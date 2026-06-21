@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-050
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-050/structured-workspace-scan
+worktree: ../sun-CODEX_STYLE_AUDIT-050-structured-workspace-scan
 ---
 
 Replace workspace scan source-text parsing with structured discovery.
