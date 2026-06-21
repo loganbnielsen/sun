@@ -85,7 +85,7 @@ let write_tmp content =
   tmp
 
 let kubectl_apply tmp =
-  match Sun_cli_process.run_ok (Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; tmp]) with
+  match Sun_cli_kubectl.apply ~file:tmp with
   | Ok () -> ()
   | Error e -> raise (Deploy_failed ("kubectl apply failed: " ^ Sun_cli_process.error_to_string e))
 
@@ -101,8 +101,7 @@ let apply (ns_yaml, workload_yaml) ~dry_run =
     apply_live ns_yaml;
     let tmp = write_tmp workload_yaml in
     (try
-      (match Sun_cli_process.run_ok
-          (Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; tmp; "--dry-run=server"]) with
+      (match Sun_cli_kubectl.apply_dry_run ~file:tmp with
        | Ok () -> ()
        | Error e ->
          raise (Deploy_failed ("kubectl server-side dry-run failed: " ^ Sun_cli_process.error_to_string e)));

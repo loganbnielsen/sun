@@ -4,14 +4,6 @@
 
 open Cmdliner
 
-let check_tool name install_url =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["which"; name]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> ()
-  | _ ->
-    Printf.eprintf "error: %S not found in PATH.\n" name;
-    Printf.eprintf "  Install: %s\n" install_url;
-    exit 1
-
 (* ── Sun home resolution ─────────────────────────────────────────────────── *)
 
 (* Resolve the Sun monorepo root so we can locate platform/infra/<provider>/. *)
@@ -29,8 +21,7 @@ let resolve_sun_home () =
 (* Read terraform output -json from a temp file and print key endpoints.
    We only print non-sensitive string/list values. *)
 let print_outputs infra_dir =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["terraform"; "output"; "-json"; "-chdir=" ^ infra_dir]) with
+  match Sun_cli_terraform.output_json ~chdir:infra_dir with
   | Error _ | Ok { Sun_cli_process.exit_code = (1 | 2 | 127 | 128); _ } ->
     Printf.printf "  (could not retrieve terraform outputs)\n%!"
   | Ok r when r.Sun_cli_process.exit_code <> 0 ->
@@ -74,7 +65,11 @@ let cloud_init ~provider ~var_file ~dry_run () =
   let pname = provider_name provider in
 
   (* Check prerequisites *)
-  check_tool "terraform" "https://developer.hashicorp.com/terraform/install";
+  if not (Sun_cli_terraform.which_check ()) then begin
+    Printf.eprintf "error: %S not found in PATH.\n" "terraform";
+    Printf.eprintf "  Install: %s\n" "https://developer.hashicorp.com/terraform/install";
+    exit 1
+  end;
 
   (* Locate terraform module directory *)
   let sun_home = resolve_sun_home () in
@@ -85,24 +80,16 @@ let cloud_init ~provider ~var_file ~dry_run () =
     exit 1
   end;
 
-  let chdir_flag = "-chdir=" ^ infra_dir in
-  let varfile_argv = match var_file with
-    | None -> []
-    | Some path -> ["-var-file=" ^ path]
-  in
-
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
-  let terraform argv =
-    match Sun_cli_process.run ~echo:true
-        (Sun_cli_process.cmd (["terraform"] @ argv)) with
+  let exit_code_of r = match r with
     | Ok r -> r.Sun_cli_process.exit_code
     | Error _ -> 1
   in
 
   (* Step 1: terraform init *)
   Printf.printf "\n[1/3] terraform init\n%!";
-  let rc = terraform ["init"; chdir_flag] in
+  let rc = exit_code_of (Sun_cli_terraform.init ~chdir:infra_dir) in
   if rc <> 0 then begin
     Printf.eprintf "error: terraform init failed (exit %d).\n" rc;
     exit 1
@@ -111,7 +98,8 @@ let cloud_init ~provider ~var_file ~dry_run () =
   (* Step 2: terraform plan or apply *)
   if dry_run then begin
     Printf.printf "\n[2/3] terraform plan  (--dry-run)\n%!";
-    let rc = terraform (["plan"; chdir_flag] @ varfile_argv) in
+    let var_files = match var_file with None -> [] | Some f -> [f] in
+    let rc = exit_code_of (Sun_cli_terraform.plan ~chdir:infra_dir ~var_files) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform plan failed (exit %d).\n" rc;
       exit 1
@@ -119,7 +107,8 @@ let cloud_init ~provider ~var_file ~dry_run () =
     Printf.printf "\n[3/3] (skipping apply in --dry-run mode)\n%!";
   end else begin
     Printf.printf "\n[2/3] terraform apply\n%!";
-    let rc = terraform (["apply"; "-auto-approve"; chdir_flag] @ varfile_argv) in
+    let var_files = match var_file with None -> [] | Some f -> [f] in
+    let rc = exit_code_of (Sun_cli_terraform.apply ~chdir:infra_dir ~var_files) in
     if rc <> 0 then begin
       Printf.eprintf "error: terraform apply failed (exit %d).\n" rc;
       exit 1

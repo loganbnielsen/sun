@@ -3,14 +3,12 @@ let deploy_state_configmap_name workspace =
 
 let load_deployed_groups workspace =
   let name = deploy_state_configmap_name workspace in
-  let result =
-    Sun_process.run_argv ~echo:false
-      ["kubectl"; "get"; "configmap"; name; "-n"; "default"; "-o";
-       "jsonpath={.data.consumer_groups}"]
-  in
-  if not (Sun_process.succeeded result) then []
-  else
-    String.split_on_char '\n' result.stdout
+  match Sun_cli_kubectl.get ~resource:"configmap" ~name ~namespace:"default"
+          ~output:"jsonpath={.data.consumer_groups}" with
+  | Error _ -> []
+  | Ok r when r.Sun_cli_process.exit_code <> 0 -> []
+  | Ok r ->
+    String.split_on_char '\n' r.Sun_cli_process.stdout
     |> List.map String.trim
     |> List.filter (fun s -> s <> "")
 
@@ -25,7 +23,7 @@ let save_deployed_groups workspace groups =
   let oc = open_out path in
   output_string oc apply_json;
   close_out oc;
-  ignore (Sun_process.run_argv ~echo:false ["kubectl"; "apply"; "-f"; path]);
+  ignore (Sun_cli_kubectl.apply ~file:path);
   (try Sys.remove path with _ -> ())
 
 let removed_consumer_groups ~prev ~next =

@@ -29,4 +29,9 @@
   Sun_cli_deployment_state
   Sun_cli_state
   Sun_cli_port_forward
-  Sun_cli_command_request))
+  Sun_cli_command_request
+  Sun_cli_kubectl
+  Sun_cli_docker
+  Sun_cli_helm
+  Sun_cli_terraform
+  Sun_cli_git))

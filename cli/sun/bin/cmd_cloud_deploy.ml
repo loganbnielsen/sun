@@ -4,11 +4,7 @@ open Cmdliner
 
 (* ── cloud deploy ────────────────────────────────────────────────────────── *)
 
-let git_sha () =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 && r.Sun_cli_process.stdout <> "" ->
-    r.Sun_cli_process.stdout
-  | _ -> "dev"
+let git_sha () = Sun_cli_git.rev_parse_short ()
 
 let get_ok_or_exit = function
   | Ok v -> v
@@ -49,15 +45,7 @@ let run_argv_streaming argv log =
     if r.Sun_cli_process.exit_code = 0 then Ok ()
     else Error (Printf.sprintf "command exited %d" r.Sun_cli_process.exit_code)
 
-let get_digest image_ref =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["docker"; "inspect"; "--format"; "{{index .RepoDigests 0}}"; image_ref]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0
-           && r.Sun_cli_process.stdout <> ""
-           && r.Sun_cli_process.stdout <> "<no value>" ->
-    r.Sun_cli_process.stdout
-  | _ -> image_ref
+let get_digest image_ref = Sun_cli_docker.inspect_digest ~image_ref
 
 let ( let* ) = Result.bind
 
@@ -87,10 +75,13 @@ let local_builder = {
       let* () = check_dockerfile ctx_dir service_dir in
       log (Printf.sprintf "[build] building %s" image_ref);
       let dockerfile = Printf.sprintf "%s/%s/Dockerfile" ctx_dir service_dir in
-      let* () = run_argv_streaming
-          ["docker"; "build"; "-t"; image_ref; "-f"; dockerfile; ctx_dir] log in
+      let* () = (match Sun_cli_docker.build ~tag:image_ref ~dockerfile ~context:ctx_dir with
+        | Ok () -> Ok ()
+        | Error e -> Error (Sun_cli_process.error_to_string e)) in
       log (Printf.sprintf "[push] pushing %s" image_ref);
-      let* () = run_argv_streaming ["docker"; "push"; image_ref] log in
+      let* () = (match Sun_cli_docker.push ~image_ref with
+        | Ok () -> Ok ()
+        | Error e -> Error (Sun_cli_process.error_to_string e)) in
       let digest = get_digest image_ref in
       log (Printf.sprintf "[deploy] image digest: %s" digest);
       Ok { image_tag = image_ref; digest }

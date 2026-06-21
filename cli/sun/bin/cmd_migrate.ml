@@ -15,8 +15,8 @@ let default_table_name =
   Printf.sprintf "sun_%s_schema_migrations" (Buffer.contents buf)
 
 let cluster_pg_exists () =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "get"; "svc"; "postgresql"; "-n"; "postgresql"]) with
+  match Sun_cli_kubectl.get ~resource:"svc" ~name:"postgresql"
+          ~namespace:"postgresql" ~output:"name" with
   | Ok r -> r.Sun_cli_process.exit_code = 0
   | Error _ -> false
 

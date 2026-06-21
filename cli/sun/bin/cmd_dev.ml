@@ -22,18 +22,12 @@ let registry_port = 5000
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
 let helm_install release chart ~namespace ?(values = []) () =
-  let set_flags = values |> List.concat_map (fun (k, v) -> match v with
-    | Bool  b -> ["--set"; Printf.sprintf "%s=%s" k (string_of_bool b)]
-    | Float f -> ["--set"; Printf.sprintf "%s=%g" k f]
-    | Str   s -> ["--set-string"; Printf.sprintf "%s=%s" k s])
+  let helm_values = List.map (fun (k, v) -> k, match v with
+    | Bool  b -> Sun_cli_helm.Bool b
+    | Float f -> Sun_cli_helm.Float f
+    | Str   s -> Sun_cli_helm.Str s) values
   in
-  let argv =
-    ["helm"; "upgrade"; "--install"; release; chart]
-    @ ["--namespace"; namespace; "--create-namespace"]
-    @ set_flags
-    @ ["--wait"; "--timeout"; "3m"]
-  in
-  match Sun_cli_process.run ~echo:true (Sun_cli_process.cmd argv) with
+  match Sun_cli_helm.upgrade_install ~release ~chart ~namespace ~values:helm_values () with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
@@ -79,12 +73,11 @@ let dev_up () =
   Printf.printf "\n[3/4] Deploying infra...\n%!";
   let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
   if need_any then begin
-    let helm argv = ignore (Sun_cli_process.run (Sun_cli_process.cmd (["helm"] @ argv))) in
-    helm ["repo"; "add"; "redpanda";             "https://charts.redpanda.com"];
-    helm ["repo"; "add"; "grafana";              "https://grafana.github.io/helm-charts"];
-    helm ["repo"; "add"; "bitnami";              "https://charts.bitnami.com/bitnami"];
-    helm ["repo"; "add"; "prometheus-community"; "https://prometheus-community.github.io/helm-charts"];
-    helm ["repo"; "update"];
+    ignore (Sun_cli_helm.repo_add ~name:"redpanda"             ~url:"https://charts.redpanda.com");
+    ignore (Sun_cli_helm.repo_add ~name:"grafana"              ~url:"https://grafana.github.io/helm-charts");
+    ignore (Sun_cli_helm.repo_add ~name:"bitnami"              ~url:"https://charts.bitnami.com/bitnami");
+    ignore (Sun_cli_helm.repo_add ~name:"prometheus-community" ~url:"https://prometheus-community.github.io/helm-charts");
+    ignore (Sun_cli_helm.repo_update ());
   end;
 
   if req.kafka then begin

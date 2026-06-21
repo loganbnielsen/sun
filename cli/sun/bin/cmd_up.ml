@@ -2,10 +2,8 @@ open Cmdliner
 open Sun_cli_manifest
 
 let wait_for_rollout ~namespace ~name =
-  match Sun_cli_process.run
-    (Sun_cli_process.cmd
-       ["kubectl"; "rollout"; "status";
-        "deployment/" ^ name; "-n"; namespace; "--timeout=60s"]) with
+  match Sun_cli_kubectl.rollout_status
+          ~kind_name:("deployment/" ^ name) ~namespace with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
@@ -13,15 +11,10 @@ let wait_for_rollout ~namespace ~name =
 
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
-let git_sha () =
-  match Sun_cli_process.run (Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 && r.Sun_cli_process.stdout <> "" ->
-    r.Sun_cli_process.stdout
-  | _ -> "dev"
+let git_sha () = Sun_cli_git.rev_parse_short ()
 
 let current_kube_context () =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "config"; "current-context"]) with
+  match Sun_cli_kubectl.config_current_context () with
   | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
   | _ -> ""
 
@@ -161,14 +154,13 @@ let run (req : Sun_cli_command_request.up_request) =
 
       if not req.dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
-        if not (Sun_process.succeeded
-              (Sun_process.run_argv ~echo:false
-                 ["docker"; "build"; "-t"; push_image; "-f"; dockerfile; ctx_dir])) then
-          raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir));
+        (match Sun_cli_docker.build ~tag:push_image ~dockerfile ~context:ctx_dir with
+         | Error _ -> raise (Deploy_failed (Printf.sprintf "docker build failed: %s" spec.source_dir))
+         | Ok () -> ());
         Printf.printf "  pushing...\n%!";
-        if not (Sun_process.succeeded
-              (Sun_process.run_argv ~echo:false ["docker"; "push"; push_image])) then
-          raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
+        (match Sun_cli_docker.push ~image_ref:push_image with
+         | Error _ -> raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
+         | Ok () -> ())
       end;
 
       (* dry-run shows push_image (what actually gets pushed);

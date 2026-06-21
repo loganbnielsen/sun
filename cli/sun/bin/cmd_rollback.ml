@@ -9,14 +9,11 @@ let workspace_name () = Filename.basename (Sys.getcwd ())
 (** Check whether the kubectl-argo-rollouts plugin is available.
     Tries both the hyphenated binary name (kubectl-argo-rollouts) and
     the sub-command form (kubectl argo rollouts version). *)
-let probe argv =
-  match Sun_cli_process.run (Sun_cli_process.cmd argv) with
-  | Ok r -> r.Sun_cli_process.exit_code = 0
-  | Error _ -> false
-
 let argo_plugin_available () =
-  probe ["kubectl-argo-rollouts"; "version"]
-  || probe ["kubectl"; "argo"; "rollouts"; "version"]
+  (match Sun_cli_process.run (Sun_cli_process.cmd ["kubectl-argo-rollouts"; "version"]) with
+   | Ok r -> r.Sun_cli_process.exit_code = 0
+   | Error _ -> false)
+  || Sun_cli_kubectl.probe ~args:["argo"; "rollouts"; "version"]
 
 let namespace_or_exit ~workspace ~domain =
   match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
@@ -53,7 +50,7 @@ let run filter_path =
     (* Load sun.toml from the service directory to detect progressive delivery. *)
     let toml = Sun_cli_toml.load (Filename.concat svc.dir "sun.toml") in
 
-    let kubectl argv =
+    let run_kubectl argv =
       match Sun_cli_process.run ~echo:true (Sun_cli_process.cmd argv) with
       | Ok r -> r.Sun_cli_process.exit_code
       | Error _ -> 1
@@ -62,7 +59,7 @@ let run filter_path =
     | Some _ ->
       (* Service uses Argo Rollouts — use the kubectl-argo-rollouts plugin. *)
       if argo_plugin_available () then begin
-        let rc = kubectl ["kubectl"; "argo"; "rollouts"; "undo"; k8s_name; "-n"; ns] in
+        let rc = run_kubectl ["kubectl"; "argo"; "rollouts"; "undo"; k8s_name; "-n"; ns] in
         if rc <> 0 then begin
           Printf.eprintf "  error: kubectl argo rollouts undo failed for %s/%s (exit %d)\n%!"
             svc.domain svc.name rc;
@@ -79,7 +76,10 @@ let run filter_path =
       end
     | None ->
       (* Standard Deployment — use kubectl rollout undo. *)
-      let rc = kubectl ["kubectl"; "rollout"; "undo"; "deployment/" ^ k8s_name; "-n"; ns] in
+      let rc = (match Sun_cli_kubectl.rollout_undo
+                    ~kind_name:("deployment/" ^ k8s_name) ~namespace:ns with
+        | Ok r -> r.Sun_cli_process.exit_code
+        | Error _ -> 1) in
       if rc <> 0 then begin
         Printf.eprintf "  error: kubectl rollout undo failed for %s/%s (exit %d)\n%!"
           svc.domain svc.name rc;
@@ -88,8 +88,10 @@ let run filter_path =
         Printf.printf "  ✓  rolled back %s/%s\n%!" svc.domain svc.name;
 
         (* Wait for the rolled-back revision to become healthy *)
-        let src = kubectl ["kubectl"; "rollout"; "status";
-                           "deployment/" ^ k8s_name; "-n"; ns] in
+        let src = (match Sun_cli_kubectl.rollout_status
+                       ~kind_name:("deployment/" ^ k8s_name) ~namespace:ns with
+          | Ok r -> r.Sun_cli_process.exit_code
+          | Error _ -> 1) in
         if src <> 0 then begin
           Printf.eprintf "  warning: rollout status check failed for %s/%s (exit %d)\n%!"
             svc.domain svc.name src;

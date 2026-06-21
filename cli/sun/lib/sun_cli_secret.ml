@@ -115,7 +115,7 @@ let redacted_result = function
     String.concat "\n" keys
   | Hosted_unavailable msg -> msg
 
-let run_kubectl argv =
+let run_kubectl_ok argv =
   match Sun_cli_process.run_ok (Sun_cli_process.cmd argv) with
   | Ok () -> Ok ()
   | Error e -> Error (Sun_cli_process.error_to_string e)
@@ -133,13 +133,12 @@ let write_tmp content =
 
 let apply_manifest yaml =
   let path = write_tmp yaml in
-  let result = run_kubectl ["kubectl"; "apply"; "-f"; path] in
+  let result = run_kubectl_ok ["kubectl"; "apply"; "-f"; path] in
   (try Sys.remove path with _ -> ());
   result
 
 let get_named_secret_json ~name namespace =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "get"; "secret"; name; "-n"; namespace; "-o"; "json"]) with
+  match Sun_cli_kubectl.get ~resource:"secret" ~name ~namespace ~output:"json" with
   | Error _ -> Ok None
   | Ok r when r.Sun_cli_process.exit_code <> 0 -> Ok None
   | Ok r ->
@@ -169,9 +168,8 @@ let existing_data = function
    Argo Rollout compatibility. *)
 let list_workload_secrets namespace =
   let jsonpath = "{range .items[*]}{.metadata.name}{\"\\n\"}{end}" in
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["kubectl"; "get"; "secrets"; "-n"; namespace; "-o"; "jsonpath=" ^ jsonpath]) with
+  match Sun_cli_kubectl.get_raw
+      ~args:["get"; "secrets"; "-n"; namespace; "-o"; "jsonpath=" ^ jsonpath] with
   | Error _ -> []
   | Ok r when r.Sun_cli_process.exit_code <> 0 -> []
   | Ok r ->
@@ -192,8 +190,7 @@ let apply_to_named_secret ~secret_name ~namespace ~key ~value =
   apply_manifest yaml
 
 let rollout_restart namespace =
-  ignore (Sun_cli_process.run
-    (Sun_cli_process.cmd ["kubectl"; "rollout"; "restart"; "deployment"; "-n"; namespace]))
+  ignore (Sun_cli_kubectl.rollout_restart ~kind:"deployment" ~namespace)
 
 let hosted_stub _env =
   Error "hosted secret management will use the Sun control-plane API; no hosted endpoint is configured yet"
@@ -277,10 +274,8 @@ let delete ~env ~workspace:_ ~namespaces ~key =
     key
   in
   let remove_from namespace name =
-    ignore (Sun_cli_process.run
-      (Sun_cli_process.cmd
-         ["kubectl"; "patch"; "secret"; name; "-n"; namespace;
-          "--type"; "json"; "-p"; patch]));
+    ignore (Sun_cli_kubectl.patch ~resource:"secret" ~name ~namespace
+              ~patch_type:"json" ~patch);
     Ok ()
   in
   let* () =

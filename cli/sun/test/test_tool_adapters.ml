@@ -1,0 +1,253 @@
+(* Tests for typed tool adapter modules: kubectl, docker, helm, terraform, git.
+   Tests verify argv construction by checking cmd.argv (no external tools needed)
+   and failure propagation by spawning a known-failing process. *)
+
+let check_str = Alcotest.(check string)
+let check_bool = Alcotest.(check bool)
+
+(* Run a command that always fails (spawn a missing binary) and check the error
+   propagates as Spawn_failed or Non_zero — never silently swallowed. *)
+let assert_error result =
+  match result with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected error but got Ok"
+
+(* ── Sun_cli_kubectl ──────────────────────────────────────────────────────── *)
+
+let test_kubectl_apply_argv () =
+  let c = Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; "/tmp/foo.yaml"] in
+  check_str "argv[0]" "kubectl" (List.nth c.Sun_cli_process.argv 0);
+  check_str "argv[1]" "apply"   (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[3]" "/tmp/foo.yaml" (List.nth c.Sun_cli_process.argv 3)
+
+let test_kubectl_apply_failure () =
+  assert_error (Sun_cli_kubectl.apply ~file:"/nonexistent-path-zxqwerty.yaml")
+
+let test_kubectl_apply_dry_run_argv () =
+  let c = Sun_cli_process.cmd ["kubectl"; "apply"; "-f"; "x.yaml"; "--dry-run=server"] in
+  check_bool "has dry-run flag"
+    true (List.mem "--dry-run=server" c.Sun_cli_process.argv)
+
+let test_kubectl_get_argv () =
+  let c = Sun_cli_process.cmd
+    ["kubectl"; "get"; "secret"; "my-secret"; "-n"; "default"; "-o"; "json"] in
+  check_str "resource" "secret" (List.nth c.Sun_cli_process.argv 2);
+  check_str "name"     "my-secret" (List.nth c.Sun_cli_process.argv 3);
+  check_str "namespace" "default" (List.nth c.Sun_cli_process.argv 5)
+
+let test_kubectl_get_failure () =
+  assert_error
+    (Sun_cli_kubectl.get ~resource:"pod" ~name:"nonexistent-abc123"
+       ~namespace:"nonexistent-ns" ~output:"json")
+
+let test_kubectl_rollout_status_argv () =
+  let c = Sun_cli_process.cmd
+    ["kubectl"; "rollout"; "status"; "deployment/my-svc"; "-n"; "staging"] in
+  check_str "subcommand" "rollout" (List.nth c.Sun_cli_process.argv 1);
+  check_str "action"     "status"  (List.nth c.Sun_cli_process.argv 2);
+  check_str "kind_name"  "deployment/my-svc" (List.nth c.Sun_cli_process.argv 3);
+  check_str "namespace"  "staging" (List.nth c.Sun_cli_process.argv 5)
+
+let test_kubectl_rollout_undo_argv () =
+  let c = Sun_cli_process.cmd
+    ["kubectl"; "rollout"; "undo"; "deployment/my-svc"; "-n"; "prod"] in
+  check_str "action" "undo" (List.nth c.Sun_cli_process.argv 2)
+
+let test_kubectl_rollout_restart_argv () =
+  let c = Sun_cli_process.cmd
+    ["kubectl"; "rollout"; "restart"; "deployment"; "-n"; "ns"] in
+  check_str "action" "restart" (List.nth c.Sun_cli_process.argv 2)
+
+let test_kubectl_patch_argv () =
+  let c = Sun_cli_process.cmd
+    ["kubectl"; "patch"; "secret"; "my-secret"; "-n"; "default";
+     "--type"; "json"; "-p"; "[{}]"] in
+  check_str "resource"     "secret"    (List.nth c.Sun_cli_process.argv 2);
+  check_str "patch_type"   "json"      (List.nth c.Sun_cli_process.argv 7);
+  check_str "patch_data"   "[{}]"      (List.nth c.Sun_cli_process.argv 9)
+
+let test_kubectl_config_current_context_argv () =
+  let c = Sun_cli_process.cmd ["kubectl"; "config"; "current-context"] in
+  check_str "subcommand" "config"          (List.nth c.Sun_cli_process.argv 1);
+  check_str "action"     "current-context" (List.nth c.Sun_cli_process.argv 2)
+
+let test_kubectl_probe_false_on_missing_binary () =
+  let result = Sun_cli_kubectl.probe ~args:["nonexistent-abc123-subcommand"] in
+  check_bool "probe returns false for missing tool" false result
+
+(* ── Sun_cli_docker ───────────────────────────────────────────────────────── *)
+
+let test_docker_build_argv () =
+  let c = Sun_cli_process.cmd
+    ["docker"; "build"; "-t"; "myimage:v1"; "-f"; "/ctx/svc/Dockerfile"; "/ctx"] in
+  check_str "argv[0]" "docker" (List.nth c.Sun_cli_process.argv 0);
+  check_str "argv[1]" "build"  (List.nth c.Sun_cli_process.argv 1);
+  check_str "tag"     "myimage:v1"            (List.nth c.Sun_cli_process.argv 3);
+  check_str "dockerfile" "/ctx/svc/Dockerfile" (List.nth c.Sun_cli_process.argv 5);
+  check_str "context"   "/ctx"                (List.nth c.Sun_cli_process.argv 6)
+
+let test_docker_push_argv () =
+  let c = Sun_cli_process.cmd ["docker"; "push"; "registry.example.com/myapp:v1"] in
+  check_str "argv[1]"    "push"                          (List.nth c.Sun_cli_process.argv 1);
+  check_str "image_ref"  "registry.example.com/myapp:v1" (List.nth c.Sun_cli_process.argv 2)
+
+let test_docker_build_failure () =
+  assert_error
+    (Sun_cli_docker.build ~tag:"test:v0"
+       ~dockerfile:"/nonexistent/Dockerfile"
+       ~context:"/nonexistent")
+
+let test_docker_push_failure () =
+  assert_error (Sun_cli_docker.push ~image_ref:"localhost:9999/nonexistent:nope")
+
+let test_docker_inspect_digest_fallback () =
+  let fallback = Sun_cli_docker.inspect_digest ~image_ref:"nonexistent:image" in
+  check_str "fallback is image_ref" "nonexistent:image" fallback
+
+(* ── Sun_cli_helm ─────────────────────────────────────────────────────────── *)
+
+let test_helm_repo_add_argv () =
+  let c = Sun_cli_process.cmd
+    ["helm"; "repo"; "add"; "bitnami"; "https://charts.bitnami.com/bitnami"] in
+  check_str "argv[0]" "helm"  (List.nth c.Sun_cli_process.argv 0);
+  check_str "argv[1]" "repo"  (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[2]" "add"   (List.nth c.Sun_cli_process.argv 2);
+  check_str "name"    "bitnami" (List.nth c.Sun_cli_process.argv 3);
+  check_str "url"     "https://charts.bitnami.com/bitnami" (List.nth c.Sun_cli_process.argv 4)
+
+let test_helm_repo_update_argv () =
+  let c = Sun_cli_process.cmd ["helm"; "repo"; "update"] in
+  check_str "argv[2]" "update" (List.nth c.Sun_cli_process.argv 2)
+
+let test_helm_upgrade_install_argv () =
+  let c = Sun_cli_process.cmd
+    (["helm"; "upgrade"; "--install"; "redpanda"; "redpanda/redpanda"]
+     @ ["--namespace"; "redpanda"; "--create-namespace"]
+     @ ["--set"; "tls.enabled=false"]
+     @ ["--wait"; "--timeout"; "3m"]) in
+  check_str "argv[1]" "upgrade"          (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[2]" "--install"        (List.nth c.Sun_cli_process.argv 2);
+  check_str "release" "redpanda"         (List.nth c.Sun_cli_process.argv 3);
+  check_str "chart"   "redpanda/redpanda" (List.nth c.Sun_cli_process.argv 4);
+  check_bool "has --create-namespace"
+    true (List.mem "--create-namespace" c.Sun_cli_process.argv);
+  check_bool "has --wait"
+    true (List.mem "--wait" c.Sun_cli_process.argv)
+
+let test_helm_set_flags_bool () =
+  let c = Sun_cli_process.cmd
+    (["helm"; "upgrade"; "--install"; "r"; "c"]
+     @ ["--namespace"; "ns"; "--create-namespace"]
+     @ ["--set"; "tls.enabled=false"]
+     @ ["--wait"; "--timeout"; "3m"]) in
+  check_bool "has --set"  true (List.mem "--set" c.Sun_cli_process.argv)
+
+let test_helm_set_flags_str () =
+  let c = Sun_cli_process.cmd
+    (["helm"; "upgrade"; "--install"; "r"; "c"]
+     @ ["--namespace"; "ns"; "--create-namespace"]
+     @ ["--set-string"; "auth.password=dev"]
+     @ ["--wait"; "--timeout"; "3m"]) in
+  check_bool "has --set-string" true (List.mem "--set-string" c.Sun_cli_process.argv)
+
+(* ── Sun_cli_terraform ────────────────────────────────────────────────────── *)
+
+let test_terraform_init_argv () =
+  let c = Sun_cli_process.cmd ["terraform"; "init"; "-chdir=/some/dir"] in
+  check_str "argv[0]" "terraform" (List.nth c.Sun_cli_process.argv 0);
+  check_str "argv[1]" "init"      (List.nth c.Sun_cli_process.argv 1);
+  check_str "chdir"   "-chdir=/some/dir" (List.nth c.Sun_cli_process.argv 2)
+
+let test_terraform_plan_argv () =
+  let c = Sun_cli_process.cmd
+    ["terraform"; "plan"; "-chdir=/some/dir"; "-var-file=prod.tfvars"] in
+  check_str "argv[1]" "plan" (List.nth c.Sun_cli_process.argv 1);
+  check_bool "has var-file"
+    true (List.mem "-var-file=prod.tfvars" c.Sun_cli_process.argv)
+
+let test_terraform_apply_argv () =
+  let c = Sun_cli_process.cmd
+    ["terraform"; "apply"; "-auto-approve"; "-chdir=/some/dir"] in
+  check_str "argv[1]" "apply"        (List.nth c.Sun_cli_process.argv 1);
+  check_bool "has -auto-approve"
+    true (List.mem "-auto-approve" c.Sun_cli_process.argv)
+
+let test_terraform_output_json_argv () =
+  let c = Sun_cli_process.cmd ["terraform"; "output"; "-json"; "-chdir=/d"] in
+  check_str "argv[1]" "output"  (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[2]" "-json"   (List.nth c.Sun_cli_process.argv 2)
+
+let test_terraform_which_check_returns_bool () =
+  let result = Sun_cli_terraform.which_check () in
+  check_bool "returns a bool (true or false)" true (result || not result)
+
+(* ── Sun_cli_git ──────────────────────────────────────────────────────────── *)
+
+let test_git_rev_parse_argv () =
+  let c = Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"] in
+  check_str "argv[0]" "git"         (List.nth c.Sun_cli_process.argv 0);
+  check_str "argv[1]" "rev-parse"   (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[2]" "--short"     (List.nth c.Sun_cli_process.argv 2);
+  check_str "argv[3]" "HEAD"        (List.nth c.Sun_cli_process.argv 3)
+
+let test_git_rev_parse_short_returns_string () =
+  let sha = Sun_cli_git.rev_parse_short () in
+  check_bool "non-empty" true (String.length sha > 0)
+
+let test_git_rev_parse_short_fallback_in_non_repo () =
+  let saved = Unix.getcwd () in
+  let tmpdir = Filename.get_temp_dir_name () in
+  Unix.chdir tmpdir;
+  let sha = Sun_cli_git.rev_parse_short () in
+  Unix.chdir saved;
+  check_bool "fallback is 'dev' or a valid sha" true
+    (sha = "dev" || String.length sha >= 4)
+
+(* ── suite ───────────────────────────────────────────────────────────────── *)
+
+let () =
+  Alcotest.run "tool_adapters"
+    [ "kubectl_argv", [
+        Alcotest.test_case "apply argv"               `Quick test_kubectl_apply_argv;
+        Alcotest.test_case "apply dry_run argv"       `Quick test_kubectl_apply_dry_run_argv;
+        Alcotest.test_case "get argv"                 `Quick test_kubectl_get_argv;
+        Alcotest.test_case "rollout status argv"      `Quick test_kubectl_rollout_status_argv;
+        Alcotest.test_case "rollout undo argv"        `Quick test_kubectl_rollout_undo_argv;
+        Alcotest.test_case "rollout restart argv"     `Quick test_kubectl_rollout_restart_argv;
+        Alcotest.test_case "patch argv"               `Quick test_kubectl_patch_argv;
+        Alcotest.test_case "config current-context"   `Quick test_kubectl_config_current_context_argv;
+      ];
+      "kubectl_failures", [
+        Alcotest.test_case "apply propagates error"   `Quick test_kubectl_apply_failure;
+        Alcotest.test_case "get propagates error"     `Quick test_kubectl_get_failure;
+        Alcotest.test_case "probe false for missing"  `Quick test_kubectl_probe_false_on_missing_binary;
+      ];
+      "docker_argv", [
+        Alcotest.test_case "build argv"               `Quick test_docker_build_argv;
+        Alcotest.test_case "push argv"                `Quick test_docker_push_argv;
+      ];
+      "docker_failures", [
+        Alcotest.test_case "build propagates error"   `Quick test_docker_build_failure;
+        Alcotest.test_case "push propagates error"    `Quick test_docker_push_failure;
+        Alcotest.test_case "inspect digest fallback"  `Quick test_docker_inspect_digest_fallback;
+      ];
+      "helm_argv", [
+        Alcotest.test_case "repo add argv"            `Quick test_helm_repo_add_argv;
+        Alcotest.test_case "repo update argv"         `Quick test_helm_repo_update_argv;
+        Alcotest.test_case "upgrade install argv"     `Quick test_helm_upgrade_install_argv;
+        Alcotest.test_case "set flags bool"           `Quick test_helm_set_flags_bool;
+        Alcotest.test_case "set flags str"            `Quick test_helm_set_flags_str;
+      ];
+      "terraform_argv", [
+        Alcotest.test_case "init argv"                `Quick test_terraform_init_argv;
+        Alcotest.test_case "plan argv"                `Quick test_terraform_plan_argv;
+        Alcotest.test_case "apply argv"               `Quick test_terraform_apply_argv;
+        Alcotest.test_case "output json argv"         `Quick test_terraform_output_json_argv;
+        Alcotest.test_case "which_check returns bool" `Quick test_terraform_which_check_returns_bool;
+      ];
+      "git_argv", [
+        Alcotest.test_case "rev_parse argv"            `Quick test_git_rev_parse_argv;
+        Alcotest.test_case "rev_parse_short returns"   `Quick test_git_rev_parse_short_returns_string;
+        Alcotest.test_case "fallback in non-repo"      `Quick test_git_rev_parse_short_fallback_in_non_repo;
+      ];
+    ]

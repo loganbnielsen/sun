@@ -45,23 +45,20 @@ let run filter_domain =
     let ns = namespace_or_exit ~workspace ~domain in
     Printf.printf "Namespace: %s\n%!" ns;
     let ns_exists =
-      match Sun_cli_process.run
-          (Sun_cli_process.cmd ["kubectl"; "get"; "ns"; ns]) with
+      match Sun_cli_kubectl.get_raw ~args:["get"; "ns"; ns] with
       | Ok r -> r.Sun_cli_process.exit_code = 0
       | Error _ -> false
     in
     if ns_exists then begin
-      (match Sun_cli_process.run
-           (Sun_cli_process.cmd ["kubectl"; "get"; "pods"; "-n"; ns]) with
+      (match Sun_cli_kubectl.get_raw ~args:["get"; "pods"; "-n"; ns] with
        | Ok r -> print_string r.Sun_cli_process.stdout; print_char '\n'
        | Error _ -> ());
       (* Print port-forward hint for ClusterIP HTTP services in this namespace.
          Filter out internal services: names ending in "-headless" or equal to "kubernetes". *)
       let jsonpath = "{.items[?(@.spec.type==\"ClusterIP\")].metadata.name}" in
       let svc_names_raw =
-        match Sun_cli_process.run
-            (Sun_cli_process.cmd
-               ["kubectl"; "get"; "svc"; "-n"; ns; "-o"; "jsonpath=" ^ jsonpath]) with
+        match Sun_cli_kubectl.get_raw
+            ~args:["get"; "svc"; "-n"; ns; "-o"; "jsonpath=" ^ jsonpath] with
         | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
         | _ -> ""
       in
@@ -75,10 +72,8 @@ let run filter_domain =
         let port80_jsonpath = "{.spec.ports[?(@.port==80)].port}" in
         let http_svcs = List.filter (fun name ->
           (not (is_internal name)) &&
-          (match Sun_cli_process.run
-               (Sun_cli_process.cmd
-                  ["kubectl"; "get"; "svc"; name; "-n"; ns;
-                   "-o"; "jsonpath=" ^ port80_jsonpath]) with
+          (match Sun_cli_kubectl.get ~resource:"svc" ~name ~namespace:ns
+                     ~output:("jsonpath=" ^ port80_jsonpath) with
            | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout <> ""
            | _ -> false)
         ) names in
