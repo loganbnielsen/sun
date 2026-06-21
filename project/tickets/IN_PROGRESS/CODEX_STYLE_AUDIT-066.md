@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-066
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-066/plan-diff-apply
+worktree: ../sun-CODEX_STYLE_AUDIT-066-plan-diff-apply
 ---
 
 Add first-class plan, diff, and apply semantics for deployment changes.
