@@ -132,7 +132,13 @@ let run (req : Sun_cli_command_request.deploy_request) =
    | None when not req.dry_run ->
      Printf.printf "\nDone. %d service(s) deployed.\n" (List.length services);
      Printf.printf "Run 'sun status' to check pod health.\n";
-     Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
+     Sun_cli_deployment_state.record_outcome workspace
+       (Sun_cli_deployment_state.Applied {
+         namespace = "default";
+         name = workspace;
+         image = sha;
+         consumer_groups = plan.Sun_cli_deployment_plan.consumer_groups;
+       })
    | None -> ())
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)

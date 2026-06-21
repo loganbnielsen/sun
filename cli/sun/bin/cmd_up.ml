@@ -228,7 +228,13 @@ let run (req : Sun_cli_command_request.up_request) =
         "\nNote: %d migration file(s) found in db/migrations/ — run 'sun migrate' to apply.\n"
         n;
     (* Persist deployed consumer groups for future change detection. *)
-    Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups;
+    Sun_cli_deployment_state.record_outcome workspace
+      (Sun_cli_deployment_state.Applied {
+        namespace = "default";
+        name = workspace;
+        image = sha;
+        consumer_groups = plan.Sun_cli_deployment_plan.consumer_groups;
+      });
     if !pf_failed then exit 1
   end
 

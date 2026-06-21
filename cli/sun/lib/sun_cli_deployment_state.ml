@@ -1,3 +1,9 @@
+type execution_outcome =
+  | Applied of { namespace: string; name: string; image: string; consumer_groups: string list }
+  | Emitted of { file: string }
+  | Dry_run
+  | Failed of { phase: string; message: string }
+
 let deploy_state_configmap_name workspace =
   Printf.sprintf "sun-deploy-state-%s" workspace
 
@@ -25,6 +31,11 @@ let save_deployed_groups workspace groups =
   close_out oc;
   ignore (Sun_cli_kubectl.apply ~file:path);
   (try Sys.remove path with _ -> ())
+
+let record_outcome workspace outcome =
+  match outcome with
+  | Applied { consumer_groups; _ } -> save_deployed_groups workspace consumer_groups
+  | Emitted _ | Dry_run | Failed _ -> ()
 
 let removed_consumer_groups ~prev ~next =
   List.filter (fun g -> not (List.mem g next)) prev
