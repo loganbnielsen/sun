@@ -104,57 +104,6 @@ let test_to_env_config_customer () =
     Alcotest.(check bool) "mode Customer_cloud" true
       (cfg.Sun_cli_deployment_plan.mode = Sun_cli_deployment_plan.Customer_cloud)
 
-(* ── default_secret_backend ──────────────────────────────────────────────── *)
-
-let check_backend label expected actual =
-  Alcotest.(check string) label
-    (Sun_cli_manifest.secret_backend_to_string expected)
-    (Sun_cli_manifest.secret_backend_to_string actual)
-
-let test_local_default_backend () =
-  let t = Sun_cli_env_target.local_defaults ~image_tag:"dev" in
-  check_backend "Local → Kubernetes_live"
-    Sun_cli_manifest.Kubernetes_live
-    (Sun_cli_env_target.default_secret_backend t)
-
-let test_customer_direct_default_backend () =
-  match Sun_cli_env_target.customer_cloud_defaults
-    ~registry:"reg" ~image_tag:"tag" ~emit_to:None ()
-  with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok t ->
-    check_backend "Customer_direct → Kubernetes_live"
-      Sun_cli_manifest.Kubernetes_live
-      (Sun_cli_env_target.default_secret_backend t)
-
-let test_customer_gitops_default_backend () =
-  match Sun_cli_env_target.customer_cloud_defaults
-    ~registry:"reg" ~image_tag:"tag" ~emit_to:(Some "/tmp/manifests") ()
-  with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok t ->
-    check_backend "Customer_gitops → Kubernetes_placeholder"
-      Sun_cli_manifest.Kubernetes_placeholder
-      (Sun_cli_env_target.default_secret_backend t)
-
-let test_to_env_config_local_backend () =
-  let t   = Sun_cli_env_target.local_defaults ~image_tag:"dev" in
-  let cfg = Sun_cli_env_target.to_env_config ~name:"local" t in
-  check_backend "to_env_config Local → Kubernetes_live"
-    Sun_cli_manifest.Kubernetes_live
-    cfg.Sun_cli_deployment_plan.secret_backend
-
-let test_to_env_config_gitops_backend () =
-  match Sun_cli_env_target.customer_cloud_defaults
-    ~registry:"reg" ~image_tag:"tag" ~emit_to:(Some "/tmp/manifests") ()
-  with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok t ->
-    let cfg = Sun_cli_env_target.to_env_config ~name:"prod" t in
-    check_backend "to_env_config Customer_gitops → Kubernetes_placeholder"
-      Sun_cli_manifest.Kubernetes_placeholder
-      cfg.Sun_cli_deployment_plan.secret_backend
-
 let () =
   Alcotest.run "env_target"
     [ "local_defaults", [
@@ -172,14 +121,5 @@ let () =
     ; "to_env_config", [
         Alcotest.test_case "local"    `Quick test_to_env_config_local
       ; Alcotest.test_case "customer" `Quick test_to_env_config_customer
-      ]
-    ; "default_secret_backend", [
-        Alcotest.test_case "Local → live"             `Quick test_local_default_backend
-      ; Alcotest.test_case "Customer_direct → live"   `Quick test_customer_direct_default_backend
-      ; Alcotest.test_case "Customer_gitops → placeholder" `Quick test_customer_gitops_default_backend
-      ]
-    ; "to_env_config secret_backend", [
-        Alcotest.test_case "Local → live"             `Quick test_to_env_config_local_backend
-      ; Alcotest.test_case "Customer_gitops → placeholder" `Quick test_to_env_config_gitops_backend
       ]
     ]

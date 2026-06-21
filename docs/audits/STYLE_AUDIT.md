@@ -54,29 +54,6 @@ possible.
 |----|----------|-----|
 | CODEX_STYLE_AUDIT-073 | `sun_cli_deployment_render.ml` — `Kubernetes_live` secret rendering | `render_spec` now returns `(string * string, string) result`; missing user-declared secret env vars produce `Error`. |
 
-## Secret strategy contract
-
-Secret handling is encoded as a deployment-phase decision derived from the
-`Sun_cli_env_target.t` value.  The allowed combinations are:
-
-| Target | Allowed secret backends | Notes |
-|--------|------------------------|-------|
-| `Local` (`sun up`) | `Kubernetes_live` | Reads values from the process environment |
-| `Customer_direct` | `Kubernetes_live` | Reads values from the process environment |
-| `Customer_gitops` | `Kubernetes_placeholder`, `External_secrets` | **Never** `Kubernetes_live` |
-| `Sun_hosted` | `Kubernetes_placeholder` (default) | Real secrets managed by the Sun platform |
-
-`Sun_cli_env_target.default_secret_backend` derives the correct default backend
-from the target, replacing the previous hard-coded `Kubernetes_placeholder` for
-all targets.  `cmd_deploy.ml` additionally enforces the invariant at the CLI
-layer: specifying `--secret-backend kubernetes-live` together with `--emit-to`
-(which selects a `Customer_gitops` target) is rejected with an actionable error
-message before any rendering begins.
-
-This makes GitOps plaintext leakage impossible by construction: the type system
-plus the explicit guard ensure that `Kubernetes_live` can never reach the YAML
-renderer when the output goes to a file on disk destined for a git repository.
-
 ## Areas noted for future improvement
 
 - `param_int` in `sun_cli_control_plane.ml` silently defaults invalid integers

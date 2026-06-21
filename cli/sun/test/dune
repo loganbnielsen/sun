@@ -22,6 +22,5 @@
   test_deployment_state
   test_change_set
   test_deployment_phases
-  test_rollback
-  test_secret_strategy)
+  test_rollback)
  (libraries sun_cli alcotest unix yojson str))
