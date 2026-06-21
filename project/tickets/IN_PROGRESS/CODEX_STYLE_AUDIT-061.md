@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-061
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-061/explicit-deployment-pipeline
+worktree: ../sun-CODEX_STYLE_AUDIT-061-explicit-deployment-pipeline
 ---
 
 Make the deployment compiler pipeline explicit in code.
