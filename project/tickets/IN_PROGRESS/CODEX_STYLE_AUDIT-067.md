@@ -1,5 +1,7 @@
 ---
 id: CODEX_STYLE_AUDIT-067
+branch: CODEX_STYLE_AUDIT-067/devops-pipeline-doc
+worktree: ../sun-CODEX_STYLE_AUDIT-067-devops-pipeline-doc
 type: refactor
 severity: medium
 source: docs/audits/STYLE_AUDIT.md
