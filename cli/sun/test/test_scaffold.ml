@@ -103,6 +103,41 @@ let test_ci_registry_secrets () =
   assert_contains "sun-ci.yml" content "secrets.REGISTRY_USER";
   assert_contains "sun-ci.yml" content "secrets.REGISTRY_PASSWORD"
 
+(* Verify that the CI contract comment block is present — PHASE 1 and PHASE 2 *)
+let test_ci_contract_comment_present () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "Sun CI contract";
+  assert_contains "sun-ci.yml" content "PHASE 1";
+  assert_contains "sun-ci.yml" content "PHASE 2"
+
+(* Verify that the deploy phase comment names sun deploy as the typed contract *)
+let test_ci_contract_deploy_phase_uses_sun_deploy () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  (* The contract comment block must reference the sun deploy command *)
+  assert_contains "sun-ci.yml" content "sun deploy --emit-plan-to";
+  assert_contains "sun-ci.yml" content "sun deploy --emit-to"
+
+(* Verify that no raw kubectl apply appears in the generated workflow — all
+   cluster changes must go through sun deploy *)
+let test_ci_no_raw_kubectl_apply () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  check_bool "no raw kubectl apply in sun-ci.yml" false
+    (contains content "kubectl apply")
+
+(* Verify that the build-images step retains the TODO(sun-build) marker so
+   future contributors know this step will be replaced by sun build *)
+let test_ci_build_images_has_todo_sun_build () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "TODO(sun-build)"
+
 (* Verify that other expected workspace files are still present *)
 let test_existing_files_still_generated () =
   in_temp_dir @@ fun () ->
@@ -591,6 +626,10 @@ let () =
       ; Alcotest.test_case "dune build + runtest"         `Quick test_ci_contains_dune_commands
       ; Alcotest.test_case "no KUBECONFIG_B64 in workflow" `Quick test_ci_no_kubeconfig_in_build_job
       ; Alcotest.test_case "registry secret placeholders" `Quick test_ci_registry_secrets
+      ; Alcotest.test_case "CI contract comment present"  `Quick test_ci_contract_comment_present
+      ; Alcotest.test_case "deploy phase uses sun deploy" `Quick test_ci_contract_deploy_phase_uses_sun_deploy
+      ; Alcotest.test_case "no raw kubectl apply"         `Quick test_ci_no_raw_kubectl_apply
+      ; Alcotest.test_case "build-images has TODO(sun-build)" `Quick test_ci_build_images_has_todo_sun_build
       ]
     ; "existing_files", [
         Alcotest.test_case "all prior files still present" `Quick test_existing_files_still_generated
