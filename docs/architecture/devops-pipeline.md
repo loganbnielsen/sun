@@ -1,0 +1,329 @@
+# Sun Deployment Pipeline — Architecture Guide
+
+**Audience:** Contributors adding or modifying deployment behavior in Sun.  
+**Scope:** CLI commands, OCaml modules, pipeline phases, state management, and where to add tests.
+
+---
+
+## Overview
+
+The Sun deployment pipeline converts a workspace directory scan and CLI flags into
+Kubernetes manifests, then applies them to a cluster (or emits them to a directory
+for GitOps). The pipeline is composed of five distinct phases that run in sequence:
+**Plan**, **Render**, **Change Set**, **Execute**, and **State**. Each phase is
+isolated in its own module with typed inputs and outputs, so individual phases can
+be tested or replaced without touching the others.
+
+---
+
+## Pipeline phases
+
+```
+CLI flags
+    │
+    ▼
+[Plan]  Sun_cli_deployment_plan.of_services_result
+    │   Inputs:  workspace name, env_config, list of discovered services
+    │   Output:  plan : t
+    │              ├─ services    : service_spec list
+    │              ├─ topics      : Topic_name.t list
+    │              ├─ migrations  : Migration_file.t list
+    │              ├─ schema_subjects
+    │              └─ consumer_groups
+    │
+    ▼
+[Render]  Sun_cli_deployment_render.render_spec
+    │   Inputs:  service_spec, secret_backend variant
+    │   Output:  (namespace_yaml * workload_yaml) result
+    │              Workload shape: Render_svc | Render_worker | Render_fn
+    │              Secret shape:   Kubernetes_live | Kubernetes_placeholder |
+    │                              External_secrets
+    │
+    ▼
+[Change Set]  Sun_cli_change_set.build + execute  (sun deploy only)
+    │   Inputs:  plan, execution_mode (Dry_run | Emit_to dir | Apply)
+    │   Output:  change_set : { plan; artifacts; mode }
+    │   Execute: iterates artifacts, dispatches to kubectl apply / file write
+    │
+    ▼
+[Execute]  Sun_cli_executor  (sun up uses executor directly)
+    │   local  : render + kubectl apply (local k3d)
+    │   direct : render + kubectl apply (live cluster, no build step)
+    │   gitops : render + emit_to_dir   (write YAML files, no cluster touch)
+    │
+    ▼
+[State]  Sun_cli_deployment_state
+         Reads/writes a ConfigMap "sun-deploy-state-<workspace>" in the default
+         namespace.  Currently tracks deployed consumer group IDs so that the
+         next deploy can warn when groups are removed.
+```
+
+---
+
+## Command map
+
+### `sun dev up`
+
+**Module:** `cli/sun/bin/cmd_dev.ml` → `dev_up`
+
+Provisions a local k3d cluster and installs infrastructure via Helm. Does **not**
+run the Plan/Render/Execute pipeline. Steps:
+
+1. Check required tools (k3d, helm, kubectl).
+2. Create k3d cluster `sun-local` with a local registry on port 5000 (idempotent).
+3. Scan the workspace with `Sun_cli_workspace.scan` to discover which infra components
+   are needed (Kafka, PostgreSQL, Loki, Prometheus).
+4. Install required Helm charts: Redpanda, PostgreSQL (bitnami), Loki, Prometheus.
+5. Start background port-forwards via `Sun_cli_port_forward.start` so localhost
+   addresses match in-cluster addresses.
+
+**Key modules:** `Sun_cli_workspace`, `Sun_cli_helm`, `Sun_cli_port_forward`, `Sun_cli_state`
+
+**No deployment plan is constructed** — this command only manages infrastructure.
+
+---
+
+### `sun dev run`
+
+**Module:** `cli/sun/bin/cmd_dev.ml` → `dev_run`
+
+Builds all workspace services with `dune build` and runs each executable directly
+on the host (not inside k3d). Injects dev environment variables
+(`KAFKA_BROKERS=localhost:9092`, `POSTGRES_URL=...`, etc.) that match the
+port-forwards started by `sun dev up`. Prefixes each service's stdout/stderr with
+`[domain/name]`. Stops all children on Ctrl-C (SIGTERM → SIGKILL).
+
+**No Plan/Render/Execute pipeline** — services run as native processes.
+
+---
+
+### `sun up`
+
+**Module:** `cli/sun/bin/cmd_up.ml` → `run`
+
+Full local deploy: builds Docker images, synthesizes manifests, applies to k3d.
+
+Pipeline:
+
+1. Discover services (`Sun_cli_manifest.discover_services`).
+2. Pre-flight: validate `POSTGRES_URL` (injected from in-cluster value if against k3d).
+3. Construct env_target with `Sun_cli_env_target.local_defaults`.
+4. **Plan:** `Sun_cli_deployment_plan.of_services_result` → `plan`.
+5. Consumer group removal guard: compare `Sun_cli_deployment_state.load_deployed_groups`
+   with plan's groups; abort if removed groups found (unless `--confirm-group-change`).
+6. Copy workspace to a temp Docker context dir (rsync, resolving symlinks).
+7. For each service: `Sun_cli_docker.build`, `Sun_cli_docker.push`,
+   then `Sun_cli_executor.local ~dry_run`.
+8. Wait for rollout (`Sun_cli_kubectl.rollout_status`) for Svc and Worker primitives.
+9. Start/refresh port-forward for Svc services.
+10. **State:** `Sun_cli_deployment_state.record_outcome` writes the applied consumer
+    groups to the cluster ConfigMap.
+
+**Flags:** `--dry-run` (prints YAML, skips build/push/apply), `--tag TAG`,
+`--confirm-group-change`
+
+---
+
+### `sun deploy`
+
+**Module:** `cli/sun/bin/cmd_deploy.ml` → `run`
+
+CI/CD deploy: skips image build. Images must already be in the registry.
+
+Pipeline:
+
+1. Discover services.
+2. Pre-flight: validate `POSTGRES_URL` (skipped for `--dry-run` and `--emit-to`).
+3. Construct env_target with `Sun_cli_env_target.customer_cloud_defaults` (requires
+   `--registry`).
+4. Guard: `Customer_gitops` mode is incompatible with `Kubernetes_live` secret backend
+   (would write plaintext secrets into the GitOps repo).
+5. **Plan:** `Sun_cli_deployment_plan.of_services_result` → `plan`.
+6. Optionally emit the plan as JSON (`--emit-plan-to`).
+7. Select execution mode:
+   - `--dry-run` → `Dry_run`
+   - `--emit-to DIR` → `Emit_to dir`
+   - neither → `Apply`
+8. **Change Set:** `Sun_cli_change_set.build` renders all artifacts for the whole plan
+   in a single pass (collecting any render errors before touching the cluster), then
+   `Sun_cli_change_set.execute` applies or emits them.
+9. **State:** `record_outcome` (skipped in GitOps/dry-run modes).
+
+**Flags:**
+- `--image-tag TAG` — image tag produced by the CI build job
+- `--registry URL` — container registry prefix (e.g. ECR URL)
+- `--emit-to DIR` — GitOps mode: write one `<ns>-<name>.yaml` per service to DIR
+- `--emit-plan-to FILE` — write plan JSON to FILE (experimental)
+- `--dry-run` — print YAML, no cluster contact
+- `--secret-backend` — `kubernetes-placeholder` (default) or `external-secrets`
+- `--secret-store-ref`, `--secret-store-kind`, `--key-prefix`, `--refresh-interval` — External Secrets Operator fields
+
+---
+
+### `sun status`
+
+**Module:** `cli/sun/bin/cmd_status.ml` → `run`
+
+Reads live cluster state. No plan construction.
+
+1. Discover domains from `app/` directory.
+2. For each domain, derive the Kubernetes namespace via
+   `Sun_cli_deployment_plan.namespace_result`.
+3. Call `kubectl get pods -n <ns>` and print output.
+4. Query ClusterIP services in the namespace; print a port-forward hint for HTTP
+   services (port 80).
+
+**Reads:** live cluster via `Sun_cli_kubectl.get_raw`. **Writes:** nothing.
+
+---
+
+### `sun logs`
+
+**Module:** `cli/sun/bin/cmd_logs.ml`
+
+Derives the Kubernetes namespace and service name from a `domain/name` argument
+(or scans `app/` for a bare name). Checks whether the deployment exists, then
+emits one or both of:
+
+- A `kubectl logs -n <ns> -l app=<name> --follow` command/stream.
+- A Grafana Explore URL built by `Sun_cli_logs.grafana_explore_url` using LogQL
+  `{namespace="<ns>",app="<name>"}`.
+
+**Reads:** live cluster via kubectl. **Writes:** nothing.
+
+---
+
+### `sun migrate`
+
+**Module:** `cli/sun/bin/cmd_migrate.ml`
+
+Runs database schema migrations. No Kubernetes manifest pipeline.
+
+Subcommands: `apply` (default), `status`, `rollback`.
+
+1. Resolve `POSTGRES_URL` from the environment, or auto-detect the cluster PostgreSQL
+   service and create a temporary port-forward to `localhost:15432`.
+2. Open a Caqti/Eio connection pool.
+3. `apply`: call `Migration.apply ~table pool ~dir` over SQL files in `db/migrations/`
+   (sorted lexicographically, skipping `.down.sql` files). `--dry-run` prints SQL
+   without connecting.
+4. `status`: call `Migration.status` and print a table of applied/pending files.
+5. `rollback` (within migrate): call `Migration.rollback` to undo the last applied file.
+
+The migration tracking table defaults to `sun_<workspace>_schema_migrations`,
+derived from the workspace directory name. Override with `--table`.
+
+---
+
+### `sun rollback`
+
+**Module:** `cli/sun/bin/cmd_rollback.ml` → `run`  
+**Library:** `cli/sun/lib/sun_cli_rollback.ml`
+
+Rolls back the last Kubernetes deployment for one or all services. No manifest
+re-render; operates entirely through kubectl.
+
+1. Discover services from `app/`.
+2. Load `sun.toml` for each service (to read `rollout_strategy` / `progressive_delivery`).
+3. Build a `service_spec` with minimal fields (no image, no config — only name,
+   namespace, primitive, progressive_delivery).
+4. `Sun_cli_rollback.rollback_target_of_service` selects the rollback strategy:
+   - `Fn` → `No_op` (CronJobs have no rollout history)
+   - `Svc` / `Worker` with `progressive_delivery` → `Argo_rollout`
+   - `Svc` / `Worker` without → `Standard_deployment`
+5. `execute_rollback`:
+   - `Standard_deployment`: `kubectl rollout undo deployment/<name> -n <ns>`, then
+     `kubectl rollout status` to wait for the previous revision to become healthy.
+   - `Argo_rollout`: requires `kubectl-argo-rollouts` plugin;
+     `kubectl argo rollouts undo <name> -n <ns>`, then wait for status.
+   - `No_op`: skip with a message.
+
+**State:** does **not** update `Sun_cli_deployment_state` after rollback. The
+consumer group guard on the next `sun up`/`sun deploy` will re-read the cluster
+state.
+
+---
+
+## Request-to-state diagram
+
+```
+CLI flags + workspace directory
+          │
+          │  Sun_cli_manifest.discover_services
+          │  Sun_cli_workspace_scan.*
+          ▼
+Sun_cli_deployment_plan.of_services_result
+          │  plan.t:
+          │    services       : service_spec list
+          │    topics, migrations, schema_subjects, consumer_groups
+          │
+          │  [sun up: also builds + pushes Docker images here]
+          ▼
+Sun_cli_deployment_render.render_spec  (per service)
+          │  (namespace_yaml, workload_yaml) result
+          │
+          │  Secret backend switch:
+          │    Kubernetes_live        → real env var values  (sun up / sun deploy Apply)
+          │    Kubernetes_placeholder → empty stringData     (GitOps default)
+          │    External_secrets       → ExternalSecret CRD   (--secret-backend=external-secrets)
+          │
+          ▼
+Sun_cli_change_set.build  [sun deploy path]
+          │  change_set.t:  { plan; artifacts; mode }
+          │  mode: Dry_run | Emit_to dir | Apply
+          │
+          ▼
+Sun_cli_change_set.execute  /  Sun_cli_executor.local
+          │
+          ├─ Dry_run   → Sun_cli_manifest.apply ~dry_run:true  (prints YAML)
+          ├─ Emit_to   → Sun_cli_manifest.emit_to_dir         (write files)
+          └─ Apply     → Sun_cli_manifest.apply ~dry_run:false (kubectl apply)
+                              │
+                              ▼ kubectl rollout status  [sun up: wait per service]
+          │
+          ▼
+Sun_cli_deployment_state.record_outcome
+          └─ Applied → kubectl apply ConfigMap "sun-deploy-state-<workspace>"
+                        data.consumer_groups = newline-separated group IDs
+```
+
+---
+
+## Where to add tests
+
+All test files live in `cli/sun/test/`. Each file covers one pipeline layer:
+
+| What you're changing | Test file |
+|---|---|
+| Plan construction (`of_services_result`, `service_spec` fields, workspace scan) | `test_deployment_plan.ml` |
+| Manifest rendering (`render_spec`, YAML shape, secret backends) | `test_manifest_render.ml` |
+| Change set build and execute logic (`Sun_cli_change_set`) | `test_change_set.ml` |
+| Full deploy sequence (plan → render → execute ordering) | `test_deployment_phases.ml` |
+| Rollback target selection and `execute_rollback` paths | `test_rollback.ml` |
+| Deployment state ConfigMap read/write | `test_deployment_state.ml` |
+| Executor functions (`local`, `direct`, `gitops`) | `test_executor.ml` |
+| Logs URL generation (`Sun_cli_logs`) | `test_logs.ml` |
+
+**Guidance for new contributors:**
+
+- **Adding a new manifest resource** (e.g. a new Kubernetes object type): add a
+  rendering test in `test_manifest_render.ml` that checks the YAML string output
+  for the expected fields and structure.
+
+- **Adding a new CLI flag that affects the plan** (e.g. a new TOML field): add a
+  test in `test_deployment_plan.ml` that verifies `of_services_result` produces
+  the expected `service_spec` value.
+
+- **Adding a new execution mode or changing how artifacts are applied**: add a test
+  in `test_change_set.ml` or `test_deployment_phases.ml` that mocks the plan and
+  checks which executor path is taken.
+
+- **Changing rollback behavior** (e.g. supporting a new progressive delivery
+  strategy): extend `test_rollback.ml` with a case for the new target type.
+
+- **Any new deployment behavior in `sun up` or `sun deploy`** that is not already
+  covered by the above should get an integration-level test in
+  `test_deployment_phases.ml`, which exercises the full plan → change-set →
+  execute sequence using a dry-run or stubbed executor to avoid cluster access.
+
+Tests run without a cluster: `eval $(opam env) && dune test cli/sun/test/`.
