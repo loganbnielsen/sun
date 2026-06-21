@@ -23,3 +23,6 @@ matter for local, customer direct, GitOps, and hosted modes.
   target mode.
 - Remove validation checks that become impossible states.
 - Update accessors and `to_env_config`.
+
+## Review — automated checks passed
+Flat record replaced with four constructors carrying mode-specific required fields; validate removed; to_env_config and all callers compile; build and tests green
