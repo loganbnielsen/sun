@@ -46,34 +46,38 @@ type t = {
   workspace        : string;
   environment      : env_config;
   services         : service_spec list;
-  topics           : string list;
-  migrations       : string list;
-  schema_subjects  : string list;
-  consumer_groups  : string list;
+  topics           : Sun_cli_plan_ids.Topic_name.t list;
+  migrations       : Sun_cli_plan_ids.Migration_file.t list;
+  schema_subjects  : Sun_cli_plan_ids.Schema_subject.t list;
+  consumer_groups  : Sun_cli_plan_ids.Consumer_group.t list;
 }
 
 type plan_error =
   | Toml_error of Sun_cli_toml.parse_error
   | Invalid_kubernetes_name of { field : string; value : string; message : string }
 
-val discover_topics : unit -> string list
-(** Scan [events/*.ml] in the current directory for ['let topic_name = "..."']
-    declarations and return the topic names, sorted and deduplicated.
+val discover_topics : unit -> Sun_cli_plan_ids.Topic_name.t list
+(** Scan [events/] subdirectories for [sun.toml] files with topic arrays.
+    Returns validated {!Sun_cli_plan_ids.Topic_name.t} values, sorted and
+    deduplicated.  Invalid names are skipped with a warning.
     Returns [[]] when the [events/] directory does not exist. *)
 
-val discover_migrations : unit -> string list
-(** Scan [db/migrations/*.sql] in the current directory and return filenames
-    sorted by name.  Returns [[]] when [db/migrations/] does not exist. *)
+val discover_migrations : unit -> Sun_cli_plan_ids.Migration_file.t list
+(** Scan [db/migrations/*.sql] in the current directory and return validated
+    {!Sun_cli_plan_ids.Migration_file.t} values, sorted by filename.
+    Returns [[]] when [db/migrations/] does not exist. *)
 
-val discover_schema_subjects : unit -> string list
+val discover_schema_subjects : unit -> Sun_cli_plan_ids.Schema_subject.t list
 (** Scan [events/<domain>/*.ml] for event contract files and derive schema
     subject names as ["<domain>.<EventName>"].  Top-level [events/<event>.ml]
-    files are returned without a domain prefix.  Returns a sorted,
-    deduplicated list.  Returns [[]] when the [events/] directory does not exist. *)
+    files are returned without a domain prefix.  Returns validated
+    {!Sun_cli_plan_ids.Schema_subject.t} values, sorted and deduplicated.
+    Returns [[]] when the [events/] directory does not exist. *)
 
-val derive_consumer_groups : string -> service_spec list -> string list
-(** [derive_consumer_groups workspace services] returns a sorted, deduplicated
-    list of consumer group identifiers for all [Worker] entries in [services].
+val derive_consumer_groups : string -> service_spec list -> Sun_cli_plan_ids.Consumer_group.t list
+(** [derive_consumer_groups workspace services] returns validated
+    {!Sun_cli_plan_ids.Consumer_group.t} values for all [Worker] entries in
+    [services], sorted and deduplicated.
     Convention: ["<workspace>.<domain>.<worker_name>"]. *)
 
 val effective_rollout_strategy : service_spec -> effective_rollout_strategy
