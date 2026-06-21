@@ -22,3 +22,6 @@ compile and travel deep into YAML rendering.
 - Add validated types for CPU quantity, memory quantity, hostname, and path.
 - Convert to strings only in manifest rendering.
 - Add tests for invalid quantities and invalid ingress paths.
+
+## Review — automated checks passed
+Validated types for cpu_quantity, memory_quantity, hostname, and ingress_path introduced in sun_cli_toml.ml; parsing validates at load time; to_string called at manifest boundary; four new tests cover all invalid-input cases; all 200+ tests pass; no project/tickets/ touched; wrapped false preserved.
