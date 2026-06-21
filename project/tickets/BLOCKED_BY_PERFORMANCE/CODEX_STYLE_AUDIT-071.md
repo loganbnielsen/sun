@@ -26,3 +26,6 @@ contract.
   possible instead of duplicating logic.
 - Add scaffold tests that assert workflow steps match the deployment pipeline
   contract.
+
+## Review — automated checks passed
+CI workflow contract added correctly: Phase 1/2 comment block, sun deploy references, TODO(sun-build) marker, matching tests, and architecture doc — build clean, no violations
