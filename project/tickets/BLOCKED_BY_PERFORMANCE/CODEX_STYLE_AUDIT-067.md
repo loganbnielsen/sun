@@ -27,3 +27,6 @@ contributors.
 - Include a request -> plan -> render -> execute -> state diagram.
 - Link to relevant tests and explain where new contributors should add tests for
   deployment changes.
+
+## Review — automated checks passed
+Documentation-only change; build passes, all 7 commands covered, pipeline diagram present, all module names and test file references verified against actual code
