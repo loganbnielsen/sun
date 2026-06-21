@@ -29,3 +29,6 @@ stdout/stderr capture, failure handling, and dry-run behavior.
   argv execution.
 - Add tests for quoting, non-zero exit status, captured stderr, and redacted
   logging.
+
+## Review — automated checks passed
+Sun_cli_process module correctly introduced with argv-native run/run_ok/run_shell, redaction, typed errors; all kubectl/docker/helm/terraform/git callers converted; tests pass; no new Sys.command calls; no project/tickets/ changes; wrapped false preserved
