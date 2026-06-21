@@ -25,3 +25,6 @@ source format.
 - Prefer `sun.toml`, generated metadata, or a real OCaml parser/AST if source
   inspection remains required.
 - Add tests showing comments or unrelated strings do not create false positives.
+
+## Review — automated checks passed
+Build succeeds, all tests pass (including new false-positive and extract_schedule tests), discover_topics reads only sun.toml files, extract_schedule reads only sun.toml, scaffold templates emit sun.toml for both -fn and event directories, no wrapped true, no new Kafka config, and project/tickets/ is untouched in the worktree branch.
