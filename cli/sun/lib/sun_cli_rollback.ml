@@ -48,14 +48,18 @@ let execute_rollback target =
     if not (argo_plugin_available ()) then
       Error (Plugin_missing { namespace; name })
     else
-      (match Sun_cli_process.run ~echo:true
-               (Sun_cli_process.cmd
-                  ["kubectl"; "argo"; "rollouts"; "undo"; name; "-n"; namespace]) with
+      (match Sun_cli_kubectl.argo_rollout_undo ~namespace ~name with
        | Error e -> Error (Kubectl_error e)
        | Ok r when r.Sun_cli_process.exit_code <> 0 ->
          Error (Non_zero { command = "kubectl argo rollouts undo";
                            exit_code = r.Sun_cli_process.exit_code })
-       | Ok _ -> Ok ())
+       | Ok _ ->
+         (match Sun_cli_kubectl.argo_rollout_status ~namespace ~name with
+          | Error e -> Error (Kubectl_error e)
+          | Ok r when r.Sun_cli_process.exit_code <> 0 ->
+            Error (Non_zero { command = "kubectl argo rollouts status";
+                              exit_code = r.Sun_cli_process.exit_code })
+          | Ok _ -> Ok ()))
 
 let error_to_string = function
   | Kubectl_error e ->

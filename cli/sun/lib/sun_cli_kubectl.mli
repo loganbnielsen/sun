@@ -15,4 +15,8 @@ val patch        : resource:string -> name:string -> namespace:string
                    -> patch_type:string -> patch:string
                    -> (Sun_cli_process.result, Sun_cli_process.error) result
 val config_current_context : unit -> (Sun_cli_process.result, Sun_cli_process.error) result
+val argo_rollout_undo   : namespace:string -> name:string
+                         -> (Sun_cli_process.result, Sun_cli_process.error) result
+val argo_rollout_status : namespace:string -> name:string
+                         -> (Sun_cli_process.result, Sun_cli_process.error) result
 val probe        : args:string list -> bool

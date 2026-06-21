@@ -37,6 +37,12 @@ let patch ~resource ~name ~namespace ~patch_type ~patch =
 let config_current_context () =
   run (cmd ["kubectl"; "config"; "current-context"])
 
+let argo_rollout_undo ~namespace ~name =
+  run ~echo:true (cmd ["kubectl"; "argo"; "rollouts"; "undo"; name; "-n"; namespace])
+
+let argo_rollout_status ~namespace ~name =
+  run (cmd ["kubectl"; "argo"; "rollouts"; "status"; name; "-n"; namespace])
+
 let probe ~args =
   match run (cmd (["kubectl"] @ args)) with
   | Ok r -> r.Sun_cli_process.exit_code = 0
