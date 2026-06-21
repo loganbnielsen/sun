@@ -8,8 +8,6 @@ let wait_for_rollout ~namespace ~name =
   in
   Sun_cli_shell.run_cmd ~echo:false cmd
 
-(* ── Workspace / git helpers ─────────────────────────────────────────────── *)
-
 let workspace_name () = Filename.basename (Sys.getcwd ())
 
 let git_sha () =
@@ -33,8 +31,6 @@ let find_repo_root () =
   in
   go (Sys.getcwd ())
 
-(* ── Pipeline ────────────────────────────────────────────────────────────── *)
-
 let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
   let workspace = workspace_name () in
   let sha       = match tag with Some t -> t | None -> git_sha () in
@@ -47,14 +43,8 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
     exit 1
   end;
 
-  (* Pre-flight: POSTGRES_URL must be set before applying to non-local
-     clusters.  For local k3d, populate it with the in-cluster dev Postgres
-     URL so generated Secrets carry a usable value instead of "".
-     Dry-run is exempt because it only prints YAML. *)
   if not dry_run then begin
     if is_known_local_dev_context () then begin
-      (* Inject the dev Postgres URL when running against the local k3d cluster
-         and the operator has not already overridden it. *)
       (match Sys.getenv_opt "POSTGRES_URL" with
        | None | Some "" ->
          Unix.putenv "POSTGRES_URL"
@@ -76,29 +66,21 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
   if dry_run then Printf.printf "(dry-run)\n";
   Printf.printf "\n%!";
 
-  (* k3d's registries.yaml maps sun-registry:5000 → the registry container.
-     The env target owns the cluster-internal registry address (sun-registry:5000).
-     Push uses localhost:5000 (host-accessible); that address is build-step-only
-     and is computed locally — not embedded in the plan. *)
-  let env_target    = Sun_cli_env_target.local_defaults ~image_tag:sha in
   let push_registry = "localhost:5000" in
-
-  let env  = Sun_cli_env_target.to_env_config ~name:workspace env_target in
+  let req : Sun_cli_deployment_pipeline.request = {
+    workspace;
+    image_tag            = sha;
+    filter_path;
+    emit_to              = None;
+    secret_backend       = Sun_cli_manifest.Kubernetes_live;
+    confirm_group_change;
+    dry_run;
+  } in
+  let env = Sun_cli_deployment_pipeline.resolve_local ~image_tag:sha ~workspace in
   let plan =
-    match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
+    match Sun_cli_deployment_pipeline.build_plan req env services with
     | Ok plan -> plan
-    | Error err ->
-      Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
-      exit 1
-  in
-
-  (* Consumer group rename/removal guard.  Skipped in dry-run — no state is
-     loaded or written, and no blocking question is asked. *)
-  if not dry_run then begin
-    let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
-    let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-    let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-    if removed <> [] && not confirm_group_change then begin
+    | Error (Sun_cli_deployment_pipeline.Consumer_group_change { removed }) ->
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
          this deploy plan:\n";
@@ -108,15 +90,11 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
          from the latest offset when the group is re-added, silently skipping\n\
          any backlog.  Pass --confirm-group-change to acknowledge and proceed.\n\n";
       exit 1
-    end
-  end;
+    | Error err ->
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_pipeline.pipeline_error_to_string err);
+      exit 1
+  in
 
-  (* The multi-stage Dockerfile compiles from source inside ubuntu-24.04, so
-     vendor/ symlinks (which point outside the workspace) must be resolved into
-     real files before docker build runs.  We create a temporary self-contained
-     copy with rsync --copy-links (follow symlinks, exclude _build and .git to
-     avoid stale dune internal symlinks that cp -rL cannot resolve) and remove
-     the copy when done. *)
   let ctx_dir = repo_root ^ ".docker-ctx" in
   if not dry_run then begin
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
@@ -130,21 +108,23 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
     end
   end;
 
+  let image_override spec =
+    Sun_cli_deployment_plan.image_ref
+      ~registry:push_registry ~workspace
+      ~k8s_name:spec.Sun_cli_deployment_plan.k8s_name ~tag:sha
+  in
+  let artifacts = Sun_cli_deployment_pipeline.render_artifacts
+    ~image_override:(if dry_run then image_override else fun _ -> "")
+    ~secret_backend:Sun_cli_manifest.Kubernetes_live
+    plan
+  in
+
   (try
-    List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+    List.iter (fun (artifact : Sun_cli_deployment_pipeline.artifact) ->
+      let spec     = artifact.spec in
       let k8s_name = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name in
       let namespace = Sun_cli_deployment_plan.namespace_to_string spec.namespace in
-      (* push_image is the host-accessible URL used for docker build/push and
-         shown in dry-run output — it matches what actually gets written into the
-         registry.  spec.image is the in-cluster URL baked into the manifest. *)
-      let push_image = Sun_cli_deployment_plan.image_ref
-        ~registry:push_registry ~workspace
-        ~k8s_name:spec.k8s_name ~tag:sha in
-      let repo_dir   = spec.source_dir in
-      (* In dry-run the ctx_dir is not created; fall back to repo_root for the
-         Dockerfile path so the plan output shows a real path. *)
-      let build_ctx  = if dry_run then repo_root else ctx_dir in
-      let dockerfile = Printf.sprintf "%s/%s/Dockerfile" build_ctx repo_dir in
+      let push_image = image_override spec in
 
       Printf.printf "[%s] %s/%s\n%!" (prim_label
         (match spec.primitive with
@@ -155,6 +135,8 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
 
       if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
+        let build_ctx  = ctx_dir in
+        let dockerfile = Printf.sprintf "%s/%s/Dockerfile" build_ctx spec.source_dir in
         if not (Sun_process.succeeded
               (Sun_process.run_argv ~echo:false
                  ["docker"; "build"; "-t"; push_image; "-f"; dockerfile; ctx_dir])) then
@@ -165,14 +147,7 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
           raise (Deploy_failed (Printf.sprintf "docker push failed: %s" push_image))
       end;
 
-      (* dry-run shows push_image (what actually gets pushed);
-         live apply uses spec.image (the cluster-resolved reference).
-         We pass the spec with the appropriate image to the local executor. *)
-      let exec_spec =
-        if dry_run then { spec with Sun_cli_deployment_plan.image = push_image }
-        else spec
-      in
-      ignore (Sun_cli_executor.local ~dry_run exec_spec);
+      ignore (Sun_cli_deployment_pipeline.apply_artifact ~dry_run artifact);
 
       if not dry_run then begin
         (match spec.primitive with
@@ -186,9 +161,6 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
          | Sun_cli_deployment_plan.Svc ->
            let local_port = 8080 in
            if not (Sun_cli_port_forward.is_running k8s_name) then begin
-             (* Before binding the port, check whether a stale Sun-managed
-                port-forward from a different workspace/namespace already owns
-                it.  Give the old process ~400 ms to release the port. *)
              if Sun_cli_port_forward.detect_stale ~local_port
                   ~namespace ~target:("svc/" ^ k8s_name)
              then Unix.sleepf 0.4;
@@ -213,7 +185,7 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
            Printf.printf "\n%!")
       end
 
-    ) plan.Sun_cli_deployment_plan.services
+    ) artifacts
   with Deploy_failed msg ->
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.eprintf "\nerror: %s\n" msg;
@@ -223,13 +195,11 @@ let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
     Printf.printf "Run 'sun status' to check pod health.\n";
-    (* Warn if unapplied migration files exist *)
     let n = Sun_cli_workspace.pending_migration_count ~dir:(Sys.getcwd ()) in
     if n > 0 then
       Printf.printf
         "\nNote: %d migration file(s) found in db/migrations/ — run 'sun migrate' to apply.\n"
         n;
-    (* Persist deployed consumer groups for future change detection. *)
     Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups;
     if !pf_failed then exit 1
   end
