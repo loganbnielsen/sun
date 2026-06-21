@@ -327,38 +327,3 @@ All test files live in `cli/sun/test/`. Each file covers one pipeline layer:
   execute sequence using a dry-run or stubbed executor to avoid cluster access.
 
 Tests run without a cluster: `eval $(opam env) && dune test cli/sun/test/`.
-
----
-
-## CI Workflow Contract
-
-Generated CI workflows (`.github/workflows/sun-ci.yml`) are a thin wrapper around
-Sun's typed deployment contract. The contract divides CI into two explicit phases.
-
-**Phase 1 — Build (user-owned)**
-
-The CI template compiles the OCaml project and builds Docker images. This step is
-intentionally outside Sun's core pipeline because image build tooling varies (ECR,
-GCP Artifact Registry, Docker Hub, GHCR). A future `sun build` command will replace
-the manual `docker build/push` loop; the template contains a `TODO(sun-build)` marker
-at that step.
-
-**Phase 2 — Deploy (Sun-owned)**
-
-The deploy job uses two stable `sun deploy` invocations:
-
-```
-sun deploy --emit-plan-to plan.json --dry-run    # capture typed deployment intent
-sun deploy --emit-to manifests/ --image-tag $SHA # render K8s YAML for GitOps
-```
-
-The `--emit-plan-to` step records the full deployment intent (images, namespaces,
-config) and uploads `plan.json` as a CI artifact for auditing. The `--emit-to` step
-renders Kubernetes manifests to `manifests/`; a GitOps agent (Argo CD, Flux)
-watching that directory reconciles the change automatically. No `KUBECONFIG` or
-cluster credentials are required in CI.
-
-**Adding new CI behavior:** Do not add deployment logic to the CI workflow template.
-Add it to `sun_cli_deployment_plan.ml` (plan phase) or `sun_cli_executor.ml`
-(execute phase), and the CI template will pick it up automatically through
-`sun deploy`.
