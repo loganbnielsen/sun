@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-063
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-063/typed-process-api
+worktree: ../sun-CODEX_STYLE_AUDIT-063-typed-process-api
 ---
 
 Centralize external command execution behind a typed process API.
