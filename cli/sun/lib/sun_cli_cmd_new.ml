@@ -67,12 +67,9 @@ let new_workspace name =
   write ~path:(name ^ "/README.md")    ~content:(subst v tpl_readme);
   write ~path:(name ^ "/.github/workflows/deploy.yml") ~content:(subst v tpl_github_deploy);
   write ~path:(name ^ "/.github/workflows/sun-ci.yml") ~content:(subst v tpl_github_ci);
-  (* events — also emit sun.toml so topics are discoverable without ML scanning *)
+  (* events *)
   write ~path:(name ^ "/events/payments/charged.ml")       ~content:(subst v ws_charged_ml);
   write ~path:(name ^ "/events/payments/dune")             ~content:(subst v ws_events_dune);
-  write ~path:(name ^ "/events/payments/sun.toml")
-    ~content:(subst (v @ [("team", "payments"); ("name", name ^ "-payments-charges")])
-                tpl_event_sun_toml);
   (* shared storage lib — Notification module used by svc and worker *)
   write ~path:(name ^ "/lib/notification.ml") ~content:(subst v ws_notification_ml);
   write ~path:(name ^ "/lib/dune")            ~content:(subst v ws_storage_dune);
@@ -210,7 +207,7 @@ let component_scaffold kind ~ws ~domain ~name =
         ("lib/dune", subst v fn_lib_dune);
         ("bin/main.ml", subst v fn_bin_ml);
         ("bin/dune", subst v fn_bin_dune);
-        ("sun.toml", tpl_fn_sun_toml);
+        ("sun.toml", tpl_sun_toml);
         ("Dockerfile", subst v tpl_dockerfile);
       ]
   in
@@ -285,9 +282,8 @@ let patch_modules_stanza path new_mod =
 let new_event arg =
   let ws = ws_of_cwd () in
   let team, name = domain_name_or_exit arg in
-  let file       = Printf.sprintf "events/%s/%s.ml"      team name in
-  let dune_f     = Printf.sprintf "events/%s/dune"        team in
-  let toml_f     = Printf.sprintf "events/%s/sun.toml"    team in
+  let file    = Printf.sprintf "events/%s/%s.ml" team name in
+  let dune_f  = Printf.sprintf "events/%s/dune"  team in
   let mod_    = cap name in
   let lib     = ws ^ "_" ^ team ^ "_events" in
   let v = [("team", team); ("name", name); ("Mod", mod_); ("lib", lib)] in
@@ -307,13 +303,6 @@ let new_event arg =
  (libraries kafka_eio_service yojson))
 |tpl});
   end;
-  (* Emit or update sun.toml with topic metadata.
-     If sun.toml already exists we leave it intact — the operator may have
-     already added more topics manually.  A new sun.toml lists just this
-     event's default topic name so discover_topics() can read it without
-     scanning .ml source files. *)
-  if not (Sys.file_exists toml_f) then
-    write ~path:toml_f ~content:(subst v tpl_event_sun_toml);
   Printf.printf "\nDone.  Consumers add (libraries %s) to their dune files.\n" lib
 
 (* ── Cmdliner terms ───────────────────────────────────────────────────────── *)

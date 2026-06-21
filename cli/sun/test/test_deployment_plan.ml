@@ -228,10 +228,10 @@ let write_file path content =
 let test_discover_topics_finds_topic () =
   let tmp = Filename.temp_dir "sun_test_topics" "" in
   with_cwd tmp (fun () ->
-    mkdirs "events/payments";
-    write_file "events/payments/sun.toml"
-      {|[service]
-topics = ["payments.charged"]
+    mkdirs "events";
+    write_file "events/charged.ml"
+      {|let topic_name = "payments.charged"
+let () = ()
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
     Alcotest.(check (list string)) "topic found" ["payments.charged"] topics
@@ -244,31 +244,25 @@ let test_discover_topics_empty_when_no_dir () =
     Alcotest.(check (list string)) "empty without events dir" [] topics
   )
 
-let test_discover_topics_multiple_topics_in_toml () =
+let test_discover_topics_multiple_files () =
   let tmp = Filename.temp_dir "sun_test_topics_multi" "" in
   with_cwd tmp (fun () ->
-    mkdirs "events/payments";
-    write_file "events/payments/sun.toml"
-      {|[service]
-topics = ["payments.charged", "payments.refunded"]
-|};
+    mkdirs "events";
+    write_file "events/charged.ml"  {|let topic_name = "payments.charged"|};
+    write_file "events/refunded.ml" {|let topic_name = "payments.refunded"|};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "multiple topics in one toml"
+    (* sorted order *)
+    Alcotest.(check (list string)) "multiple topics sorted"
       ["payments.charged"; "payments.refunded"] topics
   )
 
 let test_discover_topics_deduplicates () =
   let tmp = Filename.temp_dir "sun_test_topics_dedup" "" in
   with_cwd tmp (fun () ->
-    mkdirs "events/a";
-    mkdirs "events/b";
-    (* Same topic listed in two different event sun.toml files *)
-    write_file "events/a/sun.toml" {|[service]
-topics = ["dup.topic"]
-|};
-    write_file "events/b/sun.toml" {|[service]
-topics = ["dup.topic"]
-|};
+    mkdirs "events";
+    (* Same topic name declared twice across two files *)
+    write_file "events/a.ml" {|let topic_name = "dup.topic"|};
+    write_file "events/b.ml" {|let topic_name = "dup.topic"|};
     let topics = Sun_cli_deployment_plan.discover_topics () in
     Alcotest.(check (list string)) "deduplicates" ["dup.topic"] topics
   )
@@ -277,24 +271,24 @@ let test_discover_topics_subdirectory () =
   let tmp = Filename.temp_dir "sun_test_topics_subdir" "" in
   with_cwd tmp (fun () ->
     mkdirs "events/payments";
-    write_file "events/payments/sun.toml"
-      {|[service]
-topics = ["payments.charged"]
+    write_file "events/payments/charged.ml"
+      {|let topic_name = "payments.charged"
+let () = ()
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
     Alcotest.(check (list string)) "subdirectory topic found" ["payments.charged"] topics
   )
 
-let test_discover_topics_top_level_toml () =
-  let tmp = Filename.temp_dir "sun_test_topics_toplevel" "" in
+let test_discover_topics_typed_constructor () =
+  let tmp = Filename.temp_dir "sun_test_topics_typed" "" in
   with_cwd tmp (fun () ->
-    mkdirs "events";
-    write_file "events/sun.toml"
-      {|[service]
-topics = ["top.event"]
+    mkdirs "events/payments";
+    write_file "events/payments/charged.ml"
+      {|let topic_name = Kafka_service.topic_name_exn "payments.charged"
+let () = ()
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "top-level events/sun.toml" ["top.event"] topics
+    Alcotest.(check (list string)) "typed constructor topic found" ["payments.charged"] topics
   )
 
 let test_discover_topics_mixed_levels () =
@@ -302,92 +296,12 @@ let test_discover_topics_mixed_levels () =
   with_cwd tmp (fun () ->
     mkdirs "events/payments";
     mkdirs "events/orders";
-    write_file "events/sun.toml"              {|[service]
-topics = ["top.event"]
-|};
-    write_file "events/payments/sun.toml"    {|[service]
-topics = ["payments.charged"]
-|};
-    write_file "events/orders/sun.toml"      {|[service]
-topics = ["orders.placed"]
-|};
+    write_file "events/top_level.ml"          {|let topic_name = "top.event"|};
+    write_file "events/payments/charged.ml"   {|let topic_name = "payments.charged"|};
+    write_file "events/orders/placed.ml"      {|let topic_name = "orders.placed"|};
     let topics = Sun_cli_deployment_plan.discover_topics () in
     Alcotest.(check (list string)) "mixed top-level and subdir topics"
       ["orders.placed"; "payments.charged"; "top.event"] topics
-  )
-
-(** Comments and unrelated strings in .ml files must NOT create false positives,
-    because discover_topics no longer scans .ml source files at all. *)
-let test_discover_topics_no_false_positives_from_ml_files () =
-  let tmp = Filename.temp_dir "sun_test_topics_fp" "" in
-  with_cwd tmp (fun () ->
-    mkdirs "events/payments";
-    (* Write .ml files with topic_name patterns — these must be ignored *)
-    write_file "events/payments/charged.ml"
-      "(* let topic_name = \"commented.out.topic\" *)\n\
-       let topic_name = Kafka_service.topic_name_exn \"payments.charged\"\n\
-       let s = \"let topic_name = not-a-real-topic\"\n";
-    (* No sun.toml — so discover_topics should return [] *)
-    let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string))
-      "ml files are not scanned — no false positives from comments or strings"
-      [] topics
-  )
-
-(* ── extract_schedule tests ─────────────────────────────────────────────── *)
-
-let test_extract_schedule_reads_from_sun_toml () =
-  let tmp = Filename.temp_dir "sun_test_sched" "" in
-  with_cwd tmp (fun () ->
-    mkdirs "app/cron/report_fn";
-    write_file "app/cron/report_fn/sun.toml"
-      {|[service]
-schedule = "30 6 * * 1"
-|};
-    let schedule = Sun_cli_manifest.extract_schedule
-                     ~dir:"app/cron/report_fn" ~name:"report_fn" in
-    Alcotest.(check string) "schedule from sun.toml" "30 6 * * 1" schedule
-  )
-
-let test_extract_schedule_defaults_when_no_toml () =
-  let tmp = Filename.temp_dir "sun_test_sched_default" "" in
-  with_cwd tmp (fun () ->
-    mkdirs "app/cron/report_fn";
-    (* No sun.toml — default hourly schedule *)
-    let schedule = Sun_cli_manifest.extract_schedule
-                     ~dir:"app/cron/report_fn" ~name:"report_fn" in
-    Alcotest.(check string) "default schedule" "0 * * * *" schedule
-  )
-
-let test_extract_schedule_defaults_when_no_schedule_key () =
-  let tmp = Filename.temp_dir "sun_test_sched_nokey" "" in
-  with_cwd tmp (fun () ->
-    mkdirs "app/cron/report_fn";
-    write_file "app/cron/report_fn/sun.toml"
-      {|[infra.scale]
-replicas = 1
-|};
-    (* sun.toml exists but has no [service] schedule *)
-    let schedule = Sun_cli_manifest.extract_schedule
-                     ~dir:"app/cron/report_fn" ~name:"report_fn" in
-    Alcotest.(check string) "default when no schedule key" "0 * * * *" schedule
-  )
-
-let test_extract_schedule_ignores_ml_source_pattern () =
-  let tmp = Filename.temp_dir "sun_test_sched_ml" "" in
-  with_cwd tmp (fun () ->
-    mkdirs "app/cron/report_fn/lib";
-    (* Write an ML file with the old schedule pattern — must be ignored *)
-    write_file "app/cron/report_fn/lib/report_fn.ml"
-      {|let schedule = "0 3 * * *"
-let run () = Ok ()
-|};
-    (* No sun.toml — so we get the default, not the ml-file value *)
-    let schedule = Sun_cli_manifest.extract_schedule
-                     ~dir:"app/cron/report_fn" ~name:"report_fn" in
-    Alcotest.(check string)
-      "ml source not scanned — default returned"
-      "0 * * * *" schedule
   )
 
 let test_discover_migrations_finds_sql () =
@@ -741,20 +655,13 @@ let () =
       ; Alcotest.test_case "consumer_groups in json"         `Quick test_to_json_consumer_groups_present
       ]
     ; "discover_topics", [
-        Alcotest.test_case "finds topic from sun.toml"          `Quick test_discover_topics_finds_topic
-      ; Alcotest.test_case "empty without events/"              `Quick test_discover_topics_empty_when_no_dir
-      ; Alcotest.test_case "multiple topics in one toml"        `Quick test_discover_topics_multiple_topics_in_toml
-      ; Alcotest.test_case "deduplicates"                       `Quick test_discover_topics_deduplicates
-      ; Alcotest.test_case "subdirectory discovery"             `Quick test_discover_topics_subdirectory
-      ; Alcotest.test_case "top-level events/sun.toml"          `Quick test_discover_topics_top_level_toml
-      ; Alcotest.test_case "mixed top-level and subdir"         `Quick test_discover_topics_mixed_levels
-      ; Alcotest.test_case "no false positives from .ml files"  `Quick test_discover_topics_no_false_positives_from_ml_files
-      ]
-    ; "extract_schedule", [
-        Alcotest.test_case "reads schedule from sun.toml"            `Quick test_extract_schedule_reads_from_sun_toml
-      ; Alcotest.test_case "default when no sun.toml"                `Quick test_extract_schedule_defaults_when_no_toml
-      ; Alcotest.test_case "default when no schedule key in toml"    `Quick test_extract_schedule_defaults_when_no_schedule_key
-      ; Alcotest.test_case "ignores ml source schedule pattern"      `Quick test_extract_schedule_ignores_ml_source_pattern
+        Alcotest.test_case "finds topic"             `Quick test_discover_topics_finds_topic
+      ; Alcotest.test_case "empty without events/"   `Quick test_discover_topics_empty_when_no_dir
+      ; Alcotest.test_case "multiple files sorted"   `Quick test_discover_topics_multiple_files
+      ; Alcotest.test_case "deduplicates"            `Quick test_discover_topics_deduplicates
+      ; Alcotest.test_case "subdirectory discovery"  `Quick test_discover_topics_subdirectory
+      ; Alcotest.test_case "typed constructor discovery" `Quick test_discover_topics_typed_constructor
+      ; Alcotest.test_case "mixed top-level and subdir" `Quick test_discover_topics_mixed_levels
       ]
     ; "discover_migrations", [
         Alcotest.test_case "finds sql"               `Quick test_discover_migrations_finds_sql

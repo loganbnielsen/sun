@@ -573,7 +573,7 @@ let test_golden_new_fn_files () =
     (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.fn_bin_dune);
   check_generated_file "fn sun.toml"
     "app/comms/notify_fn/sun.toml"
-    Sun_cli_scaffold_templates.tpl_fn_sun_toml;
+    Sun_cli_scaffold_templates.tpl_sun_toml;
   check_generated_file "fn Dockerfile"
     "app/comms/notify_fn/Dockerfile"
     (Sun_cli_scaffold.subst v Sun_cli_scaffold_templates.tpl_dockerfile)

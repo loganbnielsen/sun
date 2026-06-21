@@ -37,34 +37,46 @@ let derive_consumer_groups workspace workers =
   ) workers
   |> List.sort_uniq String.compare
 
-(** Load topics from a [sun.toml] file at [path], returning [] if absent or
-    unparseable.  Silently ignores errors so a missing/malformed sun.toml in an
-    event directory does not abort workspace scanning. *)
-let topics_of_toml path =
-  match Sun_cli_toml.load_result path with
-  | Ok t -> t.Sun_cli_toml.topics
-  | Error _ -> []
-
-(** Discover topics from structured [sun.toml] metadata.
-    Scans [events/] subdirectories for [sun.toml] files with a
-    [[service] topics = [...]] array.  Also checks [events/sun.toml] for
-    top-level topics.  Returns a sorted, deduplicated list.
-
-    Only reads [sun.toml] files — never scans [*.ml] source for string
-    patterns, which would cause false positives from comments or
-    unrelated string literals. *)
+(** Scan [events/] for OCaml files containing topic declarations.
+    Searches both [events/*.ml] (top-level) and [events/*/*.ml] (one level deep),
+    so domain-namespaced layouts such as [events/payments/charged.ml] are discovered. *)
 let discover_topics () =
-  (* Top-level events/sun.toml *)
-  let top_level = topics_of_toml "events/sun.toml" in
-  (* Subdirectory events/<domain>/sun.toml *)
-  let sub_topics = fold_dir "events" ~init:[] ~f:(fun acc entry path ->
-    if entry.[0] = '.' then acc
-    else if Sys.is_directory path then
-      let toml_path = Filename.concat path "sun.toml" in
-      topics_of_toml toml_path @ acc
+  let markers = [
+    {|let topic_name = "|};
+    {|let topic_name = Kafka_service.topic_name_exn "|};
+  ] in
+  let scan_file path =
+    try
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      let sl = String.length content in
+      let acc = ref [] in
+      List.iter (fun marker ->
+        let ml = String.length marker in
+        for i = 0 to sl - ml do
+          if String.sub content i ml = marker then begin
+            let j = ref (i + ml) in
+            while !j < sl && content.[!j] <> '"' do incr j done;
+            let name = String.sub content (i + ml) (!j - i - ml) in
+            if name <> "" then acc := name :: !acc
+          end
+        done
+      ) markers;
+      !acc
+    with _ -> []
+  in
+  let topics = fold_dir "events" ~init:[] ~f:(fun acc fname path ->
+    if Sys.is_directory path then
+      fold_dir path ~init:acc ~f:(fun acc2 child child_path ->
+        if not (Sys.is_directory child_path) && Filename.check_suffix child ".ml" then
+          scan_file child_path @ acc2
+        else acc2)
+    else if Filename.check_suffix fname ".ml" then
+      scan_file path @ acc
     else acc
   ) in
-  List.sort_uniq String.compare (top_level @ sub_topics)
+  List.sort_uniq String.compare topics
 
 (** Scan [db/migrations/] for SQL files, sorted by filename. *)
 let discover_migrations () =

@@ -26,13 +26,6 @@ type t = {
   ingress_path         : string option;
   extra_labels         : (string * string) list;
   progressive_delivery : progressive_delivery option;
-  (** Cron schedule for [-fn] services, e.g. ["0 * * * *"]. Read from
-      [[service] schedule] in sun.toml. [None] means "use default". *)
-  schedule             : string option;
-  (** Kafka topic names owned by this event/service directory.  Read from
-      [[service] topics] in sun.toml.  Used by [discover_topics] to collect
-      topics without scanning OCaml source files. *)
-  topics               : string list;
 }
 
 val empty : t

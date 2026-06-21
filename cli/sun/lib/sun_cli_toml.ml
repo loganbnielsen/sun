@@ -31,8 +31,6 @@ type t = {
   ingress_path         : string option;
   extra_labels         : (string * string) list;
   progressive_delivery : progressive_delivery option;
-  schedule             : string option;
-  topics               : string list;
 }
 
 let empty = {
@@ -46,8 +44,6 @@ let empty = {
   ingress_path         = None;
   extra_labels         = [];
   progressive_delivery = None;
-  schedule             = None;
-  topics               = [];
 }
 
 type parse_error =
@@ -314,23 +310,6 @@ let load_result path =
            valid values are \"canary\" and \"blue-green\"" other)
     in
 
-    (* [service] *)
-    let schedule =
-      Otoml.Helpers.find_string_opt doc ["service"; "schedule"]
-    in
-    let* topics =
-      match Otoml.find_opt doc Otoml.get_value ["service"; "topics"] with
-      | None -> Ok []
-      | Some v ->
-        (try
-           Otoml.get_array Otoml.get_string v
-           |> Result.ok
-         with Otoml.Type_error _ ->
-           validation_error path
-             "sun.toml: [service] topics must be an array of strings, \
-              e.g. topics = [\"my-topic\"]")
-    in
-
     Ok { replicas;
          cpu;
          memory;
@@ -340,9 +319,7 @@ let load_result path =
          ingress_host;
          ingress_path;
          extra_labels;
-         progressive_delivery;
-         schedule;
-         topics }
+         progressive_delivery }
   end
 
 let load_result path =

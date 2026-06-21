@@ -17,17 +17,41 @@ type workload_shape = Http_service | Background_worker
 
 (* ── Schedule extraction for -fn ─────────────────────────────────────────── *)
 
-let extract_schedule ~dir ~name:_ =
-  (* Read schedule from the service's sun.toml [service] section.
-     This replaces ad hoc substring scanning of OCaml source files,
-     which produced false positives when "schedule = " appeared in
-     comments or unrelated string literals.
-     Default: "0 * * * *" (hourly) when sun.toml has no schedule. *)
-  let toml_path = Filename.concat dir "sun.toml" in
-  match Sun_cli_toml.load_result toml_path with
-  | Ok { Sun_cli_toml.schedule = Some s; _ } -> s
-  | Ok _  -> "0 * * * *"
-  | Error _ -> "0 * * * *"
+let extract_schedule ~dir ~name =
+  let base =
+    let n = String.length name in
+    String.sub name 0 (n - 3)
+  in
+  let candidates = [
+    Filename.concat dir (Printf.sprintf "lib/%s_fn.ml" base);
+    Filename.concat dir (Printf.sprintf "lib/%s.ml"    base);
+    Filename.concat dir (Printf.sprintf "bin/%s.ml"    base);
+  ] in
+  let marker = {|schedule = "|} in
+  let ml = String.length marker in
+  let try_file path =
+    if not (Sys.file_exists path) then None
+    else begin
+      let ic = open_in path in
+      let content = In_channel.input_all ic in
+      close_in ic;
+      let sl = String.length content in
+      let found = ref None in
+      for i = 0 to sl - ml - 1 do
+        if !found = None && String.sub content i ml = marker then begin
+          let j = ref (i + ml) in
+          while !j < sl && content.[!j] <> '"' do incr j done;
+          found := Some (String.sub content (i + ml) (!j - i - ml))
+        end
+      done;
+      !found
+    end
+  in
+  let rec go = function
+    | []        -> "0 * * * *"
+    | p :: rest -> (match try_file p with Some s -> s | None -> go rest)
+  in
+  go candidates
 
 (* ── YAML templates ─────────────────────────────────────────────────────── *)
 
