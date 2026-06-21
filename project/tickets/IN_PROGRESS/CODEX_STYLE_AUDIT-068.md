@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-068
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-068/explicit-deployment-state
+worktree: ../sun-CODEX_STYLE_AUDIT-068-explicit-deployment-state
 ---
 
 Make deployment state updates explicit and failure-aware.
