@@ -56,6 +56,22 @@ let run (req : Sun_cli_command_request.deploy_request) =
       Printf.eprintf "error: %s\n" msg;
       exit 1
   in
+  (* Guard: Kubernetes_live is never allowed with a GitOps target.
+     Combining the two would write plaintext secret values into the GitOps
+     repository, leaking them to everyone with read access to the repo. *)
+  (match env_target, req.secret_backend with
+   | Sun_cli_env_target.Customer_gitops _, Sun_cli_manifest.Kubernetes_live ->
+     Printf.eprintf
+       "error: cannot use --secret-backend kubernetes-live with --emit-to \
+        (GitOps mode).\n\
+        \  This combination would write plaintext secrets into the GitOps \
+        repository,\n\
+        \  leaking them to every reader of the repo.\n\
+        \  Use --secret-backend kubernetes-placeholder (the default) or \
+        --secret-backend external-secrets instead.\n";
+     exit 1
+   | _ -> ());
+
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
                Sun_cli_deployment_plan.secret_backend = req.secret_backend } in
   let plan =

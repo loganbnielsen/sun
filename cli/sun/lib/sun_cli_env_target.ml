@@ -35,6 +35,22 @@ let deployment_mode_of_target = function
   | Customer_gitops _ -> Sun_cli_deployment_plan.Customer_cloud
   | Sun_hosted _      -> Sun_cli_deployment_plan.Sun_hosted
 
+(** Derive the default secret backend from the deployment target.
+    - [Local] and [Customer_direct]: apply real credentials live via
+      [Kubernetes_live] (values are read from the process environment).
+    - [Customer_gitops]: emit a redacted placeholder Secret so that
+      plaintext values are never written to the GitOps repository.
+    - [Sun_hosted]: emit a redacted placeholder Secret; real secrets
+      are managed by the Sun platform out-of-band.
+
+    The CLI guard in [cmd_deploy.ml] additionally rejects any explicit
+    [--secret-backend kubernetes-live] override on a GitOps target. *)
+let default_secret_backend : t -> Sun_cli_manifest.secret_backend = function
+  | Local _           -> Sun_cli_manifest.Kubernetes_live
+  | Customer_direct _ -> Sun_cli_manifest.Kubernetes_live
+  | Customer_gitops _ -> Sun_cli_manifest.Kubernetes_placeholder
+  | Sun_hosted _      -> Sun_cli_manifest.Kubernetes_placeholder
+
 let to_env_config ~name t : Sun_cli_deployment_plan.env_config = {
   name;
   mode           = deployment_mode_of_target t;
@@ -42,5 +58,5 @@ let to_env_config ~name t : Sun_cli_deployment_plan.env_config = {
   image_tag      = image_tag t;
   region         = None;
   base_domain    = None;
-  secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
+  secret_backend = default_secret_backend t;
 }
