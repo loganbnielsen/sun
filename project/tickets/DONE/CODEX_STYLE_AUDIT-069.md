@@ -27,3 +27,6 @@ workload kind.
 - Keep raw kubectl commands in the typed kubectl adapter.
 - Add tests for service, worker, function/no-op, and Argo Rollouts plugin-missing
   behavior.
+
+## Review — automated checks passed
+Build clean, all tests pass, all kubectl argo commands routed through Sun_cli_kubectl adapter, rollback_target type correct with all required variants, test coverage complete, no wrapped true, project/tickets untouched.
