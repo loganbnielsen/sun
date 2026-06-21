@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-064
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-064/typed-tool-adapters
+worktree: ../sun-CODEX_STYLE_AUDIT-064-typed-tool-adapters
 ---
 
 Introduce typed Kubernetes, Docker, Helm, Terraform, and Git command modules.
