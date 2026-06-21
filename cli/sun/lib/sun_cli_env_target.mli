@@ -35,7 +35,22 @@ val registry  : t -> string
 
 (** {2 Conversion} *)
 
+val default_secret_backend : t -> Sun_cli_manifest.secret_backend
+(** [default_secret_backend t] derives the correct secret backend from the
+    deployment target:
+    - [Local] and [Customer_direct] → [Kubernetes_live] (real credentials
+      are read from the process environment and applied directly).
+    - [Customer_gitops] → [Kubernetes_placeholder] (redacted manifest; no
+      plaintext values are written to the GitOps repository).
+    - [Sun_hosted] → [Kubernetes_placeholder] (managed by the Sun platform).
+
+    Use this to populate [env_config.secret_backend] before the user's
+    explicit [--secret-backend] override is applied.  [cmd_deploy.ml]
+    additionally guards against [Customer_gitops + Kubernetes_live] at
+    the CLI layer. *)
+
 val to_env_config : name:string -> t -> Sun_cli_deployment_plan.env_config
 (** [to_env_config ~name t] converts an env target into the
     [Sun_cli_deployment_plan.env_config] expected by
-    [Sun_cli_deployment_plan.of_services]. *)
+    [Sun_cli_deployment_plan.of_services].  The [secret_backend] field is
+    populated using [default_secret_backend t]. *)
