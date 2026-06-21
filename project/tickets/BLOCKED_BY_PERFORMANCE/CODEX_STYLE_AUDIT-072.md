@@ -26,3 +26,6 @@ place.
 - Add a test helper that validates rendered artifacts against these invariants.
 - Use the helper across service, worker, function, GitOps, and rollout rendering
   tests.
+
+## Review — automated checks passed
+assert_k8s_invariants helper and artifact_invariants suite added for svc/worker/fn/rollout, GitOps redaction test present, devops-pipeline.md invariants table documented, build and all tests pass
