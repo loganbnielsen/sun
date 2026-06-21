@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-069
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-069/typed-rollback
+worktree: ../sun-CODEX_STYLE_AUDIT-069-typed-rollback
 ---
 
 Unify rollback intent with deployment plan history.
