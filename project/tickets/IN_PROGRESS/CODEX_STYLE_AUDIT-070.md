@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-070
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-070/secret-strategy
+worktree: ../sun-CODEX_STYLE_AUDIT-070-secret-strategy
 ---
 
 Make secret backend behavior a deployment-phase contract.
