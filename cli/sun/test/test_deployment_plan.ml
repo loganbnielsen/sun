@@ -42,6 +42,26 @@ let check_ids label stringify expected got =
   let got_strs      = List.map stringify got in
   Alcotest.(check (list string)) label expected_strs got_strs
 
+let cpu s =
+  match Sun_cli_toml.cpu_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let memory s =
+  match Sun_cli_toml.memory_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let hostname s =
+  match Sun_cli_toml.hostname_of_string s with
+  | Ok host -> host
+  | Error message -> Alcotest.fail message
+
+let ingress_path s =
+  match Sun_cli_toml.ingress_path_of_string s with
+  | Ok path -> path
+  | Error message -> Alcotest.fail message
+
 let test_k8s_name_underscores () =
   check_string "underscore to hyphen" "charge-svc"
     (Sun_cli_deployment_plan.k8s_name_of "charge_svc")
@@ -156,8 +176,8 @@ let sample_plan () : Sun_cli_deployment_plan.t =
     secrets     = [("DB_PASSWORD", "super-secret-value"); ("API_KEY", "also-secret")];
     schedule    = None;
     replicas         = 2;
-    cpu              = "250m";
-    memory           = "256Mi";
+    cpu              = cpu "250m";
+    memory           = memory "256Mi";
     rollout_strategy     = None;
     ingress_host         = None;
     ingress_path         = None;
@@ -534,8 +554,8 @@ let make_worker_spec name domain =
   ; secrets               = []
   ; schedule              = None
   ; replicas              = 1
-  ; cpu                   = "100m"
-  ; memory                = "128Mi"
+  ; cpu                   = cpu "100m"
+  ; memory                = memory "128Mi"
   ; rollout_strategy      = None
   ; ingress_host          = None
   ; ingress_path          = None
@@ -687,8 +707,8 @@ let test_to_json_ingress_present () =
   let plan = sample_plan () in
   let svc_with_ingress =
     { (List.hd plan.services) with
-      ingress_host = Some "example.com";
-      ingress_path = Some "/api" }
+      ingress_host = Some (hostname "example.com");
+      ingress_path = Some (ingress_path "/api") }
   in
   let plan2 = { plan with services = [svc_with_ingress] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan2) in

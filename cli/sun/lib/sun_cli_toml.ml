@@ -20,15 +20,25 @@ type progressive_delivery =
   | Canary     of { steps : canary_step list }
   | Blue_green
 
+type cpu_quantity = Cpu_quantity of string
+type memory_quantity = Memory_quantity of string
+type hostname = Hostname of string
+type ingress_path = Ingress_path of string
+
+let cpu_quantity_to_string (Cpu_quantity s) = s
+let memory_quantity_to_string (Memory_quantity s) = s
+let hostname_to_string (Hostname s) = s
+let ingress_path_to_string (Ingress_path s) = s
+
 type t = {
   replicas             : int option;
-  cpu                  : string option;
-  memory               : string option;
+  cpu                  : cpu_quantity option;
+  memory               : memory_quantity option;
   env_config           : (string * string) list;
   secret_keys          : string list;
   rollout_strategy     : rollout_strategy option;
-  ingress_host         : string option;
-  ingress_path         : string option;
+  ingress_host         : hostname option;
+  ingress_path         : ingress_path option;
   extra_labels         : (string * string) list;
   progressive_delivery : progressive_delivery option;
   schedule             : string option;
@@ -65,6 +75,134 @@ let ( let* ) = Result.bind
 
 (* ── Validation ──────────────────────────────────────────────────────────── *)
 
+let is_digit c = c >= '0' && c <= '9'
+let is_lower_alnum c = (c >= 'a' && c <= 'z') || is_digit c
+
+let split_on_dot s =
+  let rec loop acc start i =
+    if i = String.length s then
+      List.rev (String.sub s start (i - start) :: acc)
+    else if s.[i] = '.' then
+      loop (String.sub s start (i - start) :: acc) (i + 1) (i + 1)
+    else
+      loop acc start (i + 1)
+  in
+  loop [] 0 0
+
+let has_decimal_digits s =
+  let len = String.length s in
+  let digits start stop =
+    let rec loop i =
+      if i = stop then true
+      else if is_digit s.[i] then loop (i + 1)
+      else false
+    in
+    start < stop && loop start
+  in
+  match String.index_opt s '.' with
+  | None -> digits 0 len
+  | Some dot ->
+    (digits 0 dot || digits (dot + 1) len)
+    &&
+    let rec loop i =
+      if i = len then true
+      else if i = dot || is_digit s.[i] then loop (i + 1)
+      else false
+    in
+    loop 0
+
+let cpu_quantity_of_string s =
+  let len = String.length s in
+  if len = 0 then
+    Error "sun.toml: [infra.scale] cpu quantity must not be empty"
+  else
+    let valid =
+      if len > 1 && s.[len - 1] = 'm' then
+        let millicores = String.sub s 0 (len - 1) in
+        has_decimal_digits millicores && not (String.contains millicores '.')
+      else
+        has_decimal_digits s
+    in
+    if valid then Ok (Cpu_quantity s)
+    else
+      Error (Printf.sprintf
+        "sun.toml: [infra.scale] cpu quantity %S is invalid — \
+         use cores like \"1\" or \"0.5\", or millicores like \"250m\"" s)
+
+let memory_suffixes =
+  [ ""; "Ki"; "Mi"; "Gi"; "Ti"; "Pi"; "Ei"; "k"; "K"; "M"; "G"; "T"; "P"; "E" ]
+
+let memory_quantity_of_string s =
+  let len = String.length s in
+  if len = 0 then
+    Error "sun.toml: [infra.scale] memory quantity must not be empty"
+  else
+    let suffix =
+      List.find_opt
+        (fun suffix ->
+           let slen = String.length suffix in
+           slen <= len && String.sub s (len - slen) slen = suffix)
+        (List.sort (fun a b -> compare (String.length b) (String.length a)) memory_suffixes)
+    in
+    match suffix with
+    | None ->
+      Error (Printf.sprintf
+        "sun.toml: [infra.scale] memory quantity %S is invalid — \
+         use bytes or memory suffixes like \"128Mi\" or \"1Gi\"" s)
+    | Some suffix ->
+      let number = String.sub s 0 (len - String.length suffix) in
+      if has_decimal_digits number then Ok (Memory_quantity s)
+      else
+        Error (Printf.sprintf
+          "sun.toml: [infra.scale] memory quantity %S is invalid — \
+           use bytes or memory suffixes like \"128Mi\" or \"1Gi\"" s)
+
+let validate_hostname_label label =
+  let len = String.length label in
+  len > 0
+  && len <= 63
+  && is_lower_alnum label.[0]
+  && is_lower_alnum label.[len - 1]
+  &&
+  let rec loop i =
+    if i = len then true
+    else
+      let c = label.[i] in
+      (is_lower_alnum c || c = '-') && loop (i + 1)
+  in
+  loop 0
+
+let hostname_of_string s =
+  let len = String.length s in
+  if len = 0 || len > 253 then
+    Error "sun.toml: [infra.deploy] ingress_host must be a DNS hostname"
+  else if String.contains s '*' then
+    Error (Printf.sprintf
+      "sun.toml: [infra.deploy] ingress_host %S is invalid — wildcard hosts are not supported" s)
+  else if List.for_all validate_hostname_label (split_on_dot s) then
+    Ok (Hostname s)
+  else
+    Error (Printf.sprintf
+      "sun.toml: [infra.deploy] ingress_host %S is invalid — use a DNS hostname like \"api.example.com\"" s)
+
+let ingress_path_of_string s =
+  let len = String.length s in
+  let rec has_invalid_char i =
+    if i = len then false
+    else
+      match s.[i] with
+      | '\000' .. '\032' | '\127' -> true
+      | _ -> has_invalid_char (i + 1)
+  in
+  if len = 0 || s.[0] <> '/' then
+    Error (Printf.sprintf
+      "sun.toml: [infra.deploy] ingress_path %S is invalid — paths must start with \"/\"" s)
+  else if has_invalid_char 0 then
+    Error (Printf.sprintf
+      "sun.toml: [infra.deploy] ingress_path %S is invalid — paths must not contain whitespace or control characters" s)
+  else
+    Ok (Ingress_path s)
+
 let parse_rollout_strategy path s =
   match s with
   | "Recreate"      -> Ok Recreate
@@ -73,6 +211,13 @@ let parse_rollout_strategy path s =
     validation_error path (Printf.sprintf
       "sun.toml: unsupported rollout_strategy %S — \
        valid values are \"Recreate\" and \"RollingUpdate\"" other)
+
+let validate_opt path parse = function
+  | None -> Ok None
+  | Some s ->
+    parse s
+    |> Result.map (fun v -> Some v)
+    |> Result.map_error (fun message -> Validation { path; message })
 
 (* Guard: keys starting with "sun.dev/" are reserved for Sun internals. *)
 let validate_extra_label_key k =
@@ -220,11 +365,13 @@ let load_result path =
     let replicas =
       Otoml.Helpers.find_integer_opt doc ["infra"; "scale"; "replicas"]
     in
-    let cpu =
+    let* cpu =
       Otoml.Helpers.find_string_opt doc ["infra"; "scale"; "cpu"]
+      |> validate_opt path cpu_quantity_of_string
     in
-    let memory =
+    let* memory =
       Otoml.Helpers.find_string_opt doc ["infra"; "scale"; "memory"]
+      |> validate_opt path memory_quantity_of_string
     in
 
     (* [infra.env] *)
@@ -261,11 +408,13 @@ let load_result path =
         let* strategy = parse_rollout_strategy path s in
         Ok (Some strategy)
     in
-    let ingress_host =
+    let* ingress_host =
       Otoml.Helpers.find_string_opt doc ["infra"; "deploy"; "ingress_host"]
+      |> validate_opt path hostname_of_string
     in
-    let ingress_path =
+    let* ingress_path =
       Otoml.Helpers.find_string_opt doc ["infra"; "deploy"; "ingress_path"]
+      |> validate_opt path ingress_path_of_string
     in
 
     (* [infra.labels] *)

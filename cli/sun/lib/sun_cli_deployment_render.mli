@@ -8,8 +8,8 @@ type common_fields = {
 
 type deployment_fields = {
   replicas             : int;
-  cpu                  : string;
-  memory               : string;
+  cpu                  : Sun_cli_toml.cpu_quantity;
+  memory               : Sun_cli_toml.memory_quantity;
   rollout_strategy     : Sun_cli_toml.rollout_strategy option;
   extra_labels         : (string * string) list;
   progressive_delivery : Sun_cli_toml.progressive_delivery option;
@@ -17,8 +17,8 @@ type deployment_fields = {
 
 type http_fields = {
   deployment   : deployment_fields;
-  ingress_host : string option;
-  ingress_path : string option;
+  ingress_host : Sun_cli_toml.hostname option;
+  ingress_path : Sun_cli_toml.ingress_path option;
 }
 
 type worker_fields = {

@@ -8,8 +8,8 @@ type common_fields = {
 
 type deployment_fields = {
   replicas             : int;
-  cpu                  : string;
-  memory               : string;
+  cpu                  : Sun_cli_toml.cpu_quantity;
+  memory               : Sun_cli_toml.memory_quantity;
   rollout_strategy     : Sun_cli_toml.rollout_strategy option;
   extra_labels         : (string * string) list;
   progressive_delivery : Sun_cli_toml.progressive_delivery option;
@@ -17,8 +17,8 @@ type deployment_fields = {
 
 type http_fields = {
   deployment   : deployment_fields;
-  ingress_host : string option;
-  ingress_path : string option;
+  ingress_host : Sun_cli_toml.hostname option;
+  ingress_path : Sun_cli_toml.ingress_path option;
 }
 
 type worker_fields = {
@@ -112,6 +112,8 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
         let { replicas; cpu; memory; rollout_strategy; extra_labels; progressive_delivery } =
           deployment
         in
+        let cpu    = Sun_cli_toml.cpu_quantity_to_string cpu in
+        let memory = Sun_cli_toml.memory_quantity_to_string memory in
         match progressive_delivery with
         (* ── Argo Rollouts paths ─────────────────────────────────────────── *)
         | Some pd ->
@@ -138,8 +140,16 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
       in
       let resources = match workload with
         | Render_svc { deployment; ingress_host; ingress_path } ->
-          let ingress_host = Option.value ingress_host ~default:"" in
-          let ingress_path = Option.value ingress_path ~default:"/" in
+          let ingress_host =
+            match ingress_host with
+            | Some host -> Sun_cli_toml.hostname_to_string host
+            | None -> ""
+          in
+          let ingress_path =
+            match ingress_path with
+            | Some path -> Sun_cli_toml.ingress_path_to_string path
+            | None -> "/"
+          in
           let resources =
             deployment_resources ~shape:Http_service ~ingress_host ~ingress_path ~deployment
           in

@@ -6,6 +6,16 @@ let k8s_name value =
 let namespace ~workspace ~domain =
   Sun_cli_deployment_plan.namespace_of ~workspace ~domain
 
+let cpu s =
+  match Sun_cli_toml.cpu_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
+let memory s =
+  match Sun_cli_toml.memory_quantity_of_string s with
+  | Ok quantity -> quantity
+  | Error message -> Alcotest.fail message
+
 let base_spec : Sun_cli_deployment_plan.service_spec =
   { domain               = "payments"
   ; source_name          = "charge_svc"
@@ -18,8 +28,8 @@ let base_spec : Sun_cli_deployment_plan.service_spec =
   ; secrets              = []
   ; schedule             = None
   ; replicas             = 1
-  ; cpu                  = "100m"
-  ; memory               = "128Mi"
+  ; cpu                  = cpu "100m"
+  ; memory               = memory "128Mi"
   ; rollout_strategy     = None
   ; ingress_host         = None
   ; ingress_path         = None

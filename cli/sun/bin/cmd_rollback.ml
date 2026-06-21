@@ -41,6 +41,14 @@ let run filter_path =
       | Worker -> Sun_cli_deployment_plan.Worker
       | Fn     -> Sun_cli_deployment_plan.Fn
     in
+    let default_cpu =
+      match Sun_cli_toml.cpu_quantity_of_string "100m" with
+      | Ok v -> v | Error msg -> invalid_arg msg
+    in
+    let default_memory =
+      match Sun_cli_toml.memory_quantity_of_string "128Mi" with
+      | Ok v -> v | Error msg -> invalid_arg msg
+    in
     let spec : Sun_cli_deployment_plan.service_spec =
       { domain               = svc.domain
       ; source_name          = svc.name
@@ -53,8 +61,8 @@ let run filter_path =
       ; secrets              = []
       ; schedule             = None
       ; replicas             = 1
-      ; cpu                  = "100m"
-      ; memory               = "128Mi"
+      ; cpu                  = default_cpu
+      ; memory               = default_memory
       ; rollout_strategy     = toml.Sun_cli_toml.rollout_strategy
       ; ingress_host         = None
       ; ingress_path         = None
