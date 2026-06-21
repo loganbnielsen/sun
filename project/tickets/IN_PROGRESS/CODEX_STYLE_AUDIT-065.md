@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-065
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-065/phase-oriented-tests
+worktree: ../sun-CODEX_STYLE_AUDIT-065-phase-oriented-tests
 ---
 
 Split deployment planning, rendering, and execution tests by phase.
