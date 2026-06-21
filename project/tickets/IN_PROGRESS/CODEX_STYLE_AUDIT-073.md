@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-073
 type: refactor
 severity: medium
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-073/explicit-config-parse
+worktree: ../sun-CODEX_STYLE_AUDIT-073-explicit-config-parse
 ---
 
 Replace silent defaulting in CI/CD-facing configuration with explicit parse results.
