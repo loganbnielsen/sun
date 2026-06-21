@@ -44,18 +44,27 @@ let run filter_domain =
   List.iter (fun domain ->
     let ns = namespace_or_exit ~workspace ~domain in
     Printf.printf "Namespace: %s\n%!" ns;
-    if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "kubectl get ns %s" (Filename.quote ns)) = 0 then begin
-      ignore (Sys.command (Printf.sprintf "kubectl get pods -n %s 2>&1" (Filename.quote ns)));
+    let ns_exists =
+      match Sun_cli_process.run
+          (Sun_cli_process.cmd ["kubectl"; "get"; "ns"; ns]) with
+      | Ok r -> r.Sun_cli_process.exit_code = 0
+      | Error _ -> false
+    in
+    if ns_exists then begin
+      (match Sun_cli_process.run
+           (Sun_cli_process.cmd ["kubectl"; "get"; "pods"; "-n"; ns]) with
+       | Ok r -> print_string r.Sun_cli_process.stdout; print_char '\n'
+       | Error _ -> ());
       (* Print port-forward hint for ClusterIP HTTP services in this namespace.
          Filter out internal services: names ending in "-headless" or equal to "kubernetes". *)
-      let tmp = Filename.temp_file "sun-svc-" ".tmp" in
-      ignore (Sys.command (Printf.sprintf
-        "kubectl get svc -n %s -o jsonpath='{.items[?(@.spec.type==\"ClusterIP\")].metadata.name}' > %s 2>/dev/null"
-        (Filename.quote ns) (Filename.quote tmp)));
-      let ic = open_in tmp in
-      let svc_names_raw = String.trim (In_channel.input_all ic) in
-      close_in ic;
-      (try Sys.remove tmp with _ -> ());
+      let jsonpath = "{.items[?(@.spec.type==\"ClusterIP\")].metadata.name}" in
+      let svc_names_raw =
+        match Sun_cli_process.run
+            (Sun_cli_process.cmd
+               ["kubectl"; "get"; "svc"; "-n"; ns; "-o"; "jsonpath=" ^ jsonpath]) with
+        | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
+        | _ -> ""
+      in
       if svc_names_raw <> "" then begin
         let names = String.split_on_char ' ' svc_names_raw in
         let is_internal name =
@@ -63,18 +72,15 @@ let run filter_domain =
           (let n = String.length name in
            n >= 9 && String.sub name (n - 9) 9 = "-headless")
         in
+        let port80_jsonpath = "{.spec.ports[?(@.port==80)].port}" in
         let http_svcs = List.filter (fun name ->
           (not (is_internal name)) &&
-          (* Check that the service exposes port 80 *)
-          (let tmp2 = Filename.temp_file "sun-svcport-" ".tmp" in
-           ignore (Sys.command (Printf.sprintf
-             "kubectl get svc %s -n %s -o jsonpath='{.spec.ports[?(@.port==80)].port}' > %s 2>/dev/null"
-             (Filename.quote name) (Filename.quote ns) (Filename.quote tmp2)));
-           let ic2 = open_in tmp2 in
-           let port_s = String.trim (In_channel.input_all ic2) in
-           close_in ic2;
-           (try Sys.remove tmp2 with _ -> ());
-           port_s <> "")
+          (match Sun_cli_process.run
+               (Sun_cli_process.cmd
+                  ["kubectl"; "get"; "svc"; name; "-n"; ns;
+                   "-o"; "jsonpath=" ^ port80_jsonpath]) with
+           | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout <> ""
+           | _ -> false)
         ) names in
         List.iter (fun name ->
           Printf.printf "  →  http://localhost:8080  (%s)\n%!" name

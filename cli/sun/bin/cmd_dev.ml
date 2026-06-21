@@ -2,11 +2,12 @@ open Cmdliner
 open Sun_cli_manifest
 
 let check_tool name install_url =
-  if Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "which %s" name) <> 0 then begin
+  match Sun_cli_process.run (Sun_cli_process.cmd ["which"; name]) with
+  | Ok r when r.Sun_cli_process.exit_code = 0 -> ()
+  | _ ->
     Printf.eprintf "error: %S not found in PATH.\n" name;
     Printf.eprintf "  Install: %s\n" install_url;
     exit 1
-  end
 
 let require_tools () =
   check_tool "k3d"     "https://k3d.io/";
@@ -21,13 +22,20 @@ let registry_port = 5000
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
 let helm_install release chart ~namespace ?(values = []) () =
-  let cmd = String.concat " " (
-    [ "helm upgrade --install"; release; chart ]
-    @ [ "--namespace"; namespace; "--create-namespace" ]
-    @ List.map render_helm_flag values
-    @ [ "--wait --timeout 3m" ]
-  ) in
-  Sun_cli_shell.run_cmd cmd
+  let set_flags = values |> List.concat_map (fun (k, v) -> match v with
+    | Bool  b -> ["--set"; Printf.sprintf "%s=%s" k (string_of_bool b)]
+    | Float f -> ["--set"; Printf.sprintf "%s=%g" k f]
+    | Str   s -> ["--set-string"; Printf.sprintf "%s=%s" k s])
+  in
+  let argv =
+    ["helm"; "upgrade"; "--install"; release; chart]
+    @ ["--namespace"; namespace; "--create-namespace"]
+    @ set_flags
+    @ ["--wait"; "--timeout"; "3m"]
+  in
+  match Sun_cli_process.run ~echo:true (Sun_cli_process.cmd argv) with
+  | Ok r -> r.Sun_cli_process.exit_code
+  | Error _ -> 1
 
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
 
@@ -42,14 +50,21 @@ let dev_up () =
   (* 1. Cluster *)
   Printf.printf "\n[1/4] Provisioning cluster...\n%!";
   let cluster_exists =
-    Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "k3d cluster get %s" cluster_name) = 0
+    match Sun_cli_process.run
+        (Sun_cli_process.cmd ["k3d"; "cluster"; "get"; cluster_name]) with
+    | Ok r -> r.Sun_cli_process.exit_code = 0
+    | Error _ -> false
   in
   if cluster_exists then
     Printf.printf "  cluster %s already exists, skipping\n%!" cluster_name
   else begin
-    let rc = Sun_cli_shell.run_cmd (Printf.sprintf
-      "k3d cluster create %s --registry-create sun-registry:%d"
-      cluster_name registry_port)
+    let rc =
+      match Sun_cli_process.run ~echo:true
+          (Sun_cli_process.cmd
+             ["k3d"; "cluster"; "create"; cluster_name;
+              "--registry-create"; Printf.sprintf "sun-registry:%d" registry_port]) with
+      | Ok r -> r.Sun_cli_process.exit_code
+      | Error _ -> 1
     in
     if rc <> 0 then (Printf.eprintf "error: cluster creation failed\n"; exit 1)
   end;
@@ -64,11 +79,12 @@ let dev_up () =
   Printf.printf "\n[3/4] Deploying infra...\n%!";
   let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
   if need_any then begin
-    ignore (Sun_cli_shell.run_cmd "helm repo add redpanda              https://charts.redpanda.com 2>/dev/null");
-    ignore (Sun_cli_shell.run_cmd "helm repo add grafana               https://grafana.github.io/helm-charts 2>/dev/null");
-    ignore (Sun_cli_shell.run_cmd "helm repo add bitnami               https://charts.bitnami.com/bitnami 2>/dev/null");
-    ignore (Sun_cli_shell.run_cmd "helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts 2>/dev/null");
-    ignore (Sun_cli_shell.run_cmd "helm repo update");
+    let helm argv = ignore (Sun_cli_process.run (Sun_cli_process.cmd (["helm"] @ argv))) in
+    helm ["repo"; "add"; "redpanda";             "https://charts.redpanda.com"];
+    helm ["repo"; "add"; "grafana";              "https://grafana.github.io/helm-charts"];
+    helm ["repo"; "add"; "bitnami";              "https://charts.bitnami.com/bitnami"];
+    helm ["repo"; "add"; "prometheus-community"; "https://prometheus-community.github.io/helm-charts"];
+    helm ["repo"; "update"];
   end;
 
   if req.kafka then begin
@@ -181,7 +197,7 @@ let dev_down delete_cluster =
   if delete_cluster then begin
     check_tool "k3d" "https://k3d.io/";
     Printf.printf "Deleting cluster %s...\n%!" cluster_name;
-    ignore (Sun_cli_shell.run_cmd (Printf.sprintf "k3d cluster delete %s" cluster_name))
+    ignore (Sun_cli_process.run (Sun_cli_process.cmd ["k3d"; "cluster"; "delete"; cluster_name]))
   end else
     Printf.printf "Port-forwards stopped. Cluster %s is still running.\n" cluster_name
 
@@ -190,13 +206,18 @@ let dev_down delete_cluster =
 let dev_status () =
   check_tool "kubectl" "https://kubernetes.io/docs/tasks/tools/";
   let cluster_running =
-    Sun_cli_shell.run_cmd ~echo:false (Printf.sprintf "k3d cluster get %s" cluster_name) = 0
+    match Sun_cli_process.run
+        (Sun_cli_process.cmd ["k3d"; "cluster"; "get"; cluster_name]) with
+    | Ok r -> r.Sun_cli_process.exit_code = 0
+    | Error _ -> false
   in
   Printf.printf "\nCluster:  %s  %s\n" cluster_name
     (if cluster_running then "✓ running" else "✗ not found");
   if cluster_running then begin
     Printf.printf "\nPods:\n%!";
-    ignore (Sun_cli_shell.run_cmd ~echo:false "kubectl get pods -A 2>/dev/null");
+    (match Sun_cli_process.run (Sun_cli_process.cmd ["kubectl"; "get"; "pods"; "-A"]) with
+     | Ok r -> print_string r.Sun_cli_process.stdout; print_char '\n'
+     | Error _ -> ());
     Printf.printf "\nPort-forwards:\n%!";
     if Sys.file_exists Sun_cli_state.dir then begin
       let entries = try Sys.readdir Sun_cli_state.dir with _ -> [||] in
