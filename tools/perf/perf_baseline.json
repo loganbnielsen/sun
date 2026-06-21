@@ -1912,11 +1912,6 @@
           "duration_s": 2.704,
           "baseline": true,
           "note": "Bump after 23 new pipeline tests from CODEX_STYLE_AUDIT-061; independent agent reviewer approved"
-        },
-        {
-          "date": "2026-06-20",
-          "commit": "ec39b01",
-          "duration_s": 1.620
         }
       ]
     },

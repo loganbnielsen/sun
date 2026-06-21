@@ -35,10 +35,10 @@ let find_repo_root () =
 
 (* ── Pipeline ────────────────────────────────────────────────────────────── *)
 
-let run (req : Sun_cli_command_request.up_request) =
+let run ~filter_path ~dry_run ~tag ~confirm_group_change () =
   let workspace = workspace_name () in
-  let sha       = req.image_tag in
-  let services  = discover_services ~filter_path:req.filter_path in
+  let sha       = match tag with Some t -> t | None -> git_sha () in
+  let services  = discover_services ~filter_path in
   let repo_root = find_repo_root () in
   let pf_failed = ref false in
 
@@ -51,7 +51,7 @@ let run (req : Sun_cli_command_request.up_request) =
      clusters.  For local k3d, populate it with the in-cluster dev Postgres
      URL so generated Secrets carry a usable value instead of "".
      Dry-run is exempt because it only prints YAML. *)
-  if not req.dry_run then begin
+  if not dry_run then begin
     if is_known_local_dev_context () then begin
       (* Inject the dev Postgres URL when running against the local k3d cluster
          and the operator has not already overridden it. *)
@@ -73,7 +73,7 @@ let run (req : Sun_cli_command_request.up_request) =
   end;
 
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;
-  if req.dry_run then Printf.printf "(dry-run)\n";
+  if dry_run then Printf.printf "(dry-run)\n";
   Printf.printf "\n%!";
 
   (* k3d's registries.yaml maps sun-registry:5000 → the registry container.
@@ -94,11 +94,11 @@ let run (req : Sun_cli_command_request.up_request) =
 
   (* Consumer group rename/removal guard.  Skipped in dry-run — no state is
      loaded or written, and no blocking question is asked. *)
-  if not req.dry_run then begin
+  if not dry_run then begin
     let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
     let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
     let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-    if removed <> [] && not req.confirm_group_change then begin
+    if removed <> [] && not confirm_group_change then begin
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
          this deploy plan:\n";
@@ -118,7 +118,7 @@ let run (req : Sun_cli_command_request.up_request) =
      avoid stale dune internal symlinks that cp -rL cannot resolve) and remove
      the copy when done. *)
   let ctx_dir = repo_root ^ ".docker-ctx" in
-  if not req.dry_run then begin
+  if not dry_run then begin
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Preparing build context...\n%!";
     let rsync_cmd = Printf.sprintf
@@ -143,7 +143,7 @@ let run (req : Sun_cli_command_request.up_request) =
       let repo_dir   = spec.source_dir in
       (* In dry-run the ctx_dir is not created; fall back to repo_root for the
          Dockerfile path so the plan output shows a real path. *)
-      let build_ctx  = if req.dry_run then repo_root else ctx_dir in
+      let build_ctx  = if dry_run then repo_root else ctx_dir in
       let dockerfile = Printf.sprintf "%s/%s/Dockerfile" build_ctx repo_dir in
 
       Printf.printf "[%s] %s/%s\n%!" (prim_label
@@ -153,7 +153,7 @@ let run (req : Sun_cli_command_request.up_request) =
          | Sun_cli_deployment_plan.Fn     -> Fn))
         spec.domain spec.source_name;
 
-      if not req.dry_run then begin
+      if not dry_run then begin
         Printf.printf "  packaging %s...\n%!" push_image;
         if not (Sun_process.succeeded
               (Sun_process.run_argv ~echo:false
@@ -169,12 +169,12 @@ let run (req : Sun_cli_command_request.up_request) =
          live apply uses spec.image (the cluster-resolved reference).
          We pass the spec with the appropriate image to the local executor. *)
       let exec_spec =
-        if req.dry_run then { spec with Sun_cli_deployment_plan.image = push_image }
+        if dry_run then { spec with Sun_cli_deployment_plan.image = push_image }
         else spec
       in
-      ignore (Sun_cli_executor.local ~dry_run:req.dry_run exec_spec);
+      ignore (Sun_cli_executor.local ~dry_run exec_spec);
 
-      if not req.dry_run then begin
+      if not dry_run then begin
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc
          | Sun_cli_deployment_plan.Worker ->
@@ -219,7 +219,7 @@ let run (req : Sun_cli_command_request.up_request) =
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);
 
-  if not req.dry_run then begin
+  if not dry_run then begin
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
     Printf.printf "Run 'sun status' to check pod health.\n";
@@ -261,11 +261,5 @@ let cmd =
     (Cmd.info "up"
        ~doc:"Build images, synthesize k8s manifests, and deploy to the cluster")
     Term.(const (fun filter_path dry_run tag confirm_group_change ->
-        match Sun_cli_command_request.make_up_request
-                ~filter_path ~dry_run ~tag ~confirm_group_change ~git_sha
-          with
-          | Ok req -> run req
-          | Error msg ->
-            Printf.eprintf "error: %s\n" msg;
-            exit 1)
+        run ~filter_path ~dry_run ~tag ~confirm_group_change ())
       $ path_arg $ dry_run_flag $ tag_arg $ confirm_group_change_flag)

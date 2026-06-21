@@ -16,10 +16,21 @@ let git_sha () =
   (try Sys.remove tmp with _ -> ());
   if s = "" then "dev" else s
 
-let run (req : Sun_cli_command_request.deploy_request) =
+type run_config = {
+  filter_path          : string option;
+  dry_run              : bool;
+  emit_to              : string option;
+  emit_plan_to         : string option;
+  image_tag            : string option;
+  registry             : string option;
+  secret_backend       : Sun_cli_manifest.secret_backend;
+  confirm_group_change : bool;
+}
+
+let run cfg =
   let workspace = workspace_name () in
-  let sha       = req.image_tag in
-  let services  = discover_services ~filter_path:req.filter_path in
+  let sha       = match cfg.image_tag with Some t -> t | None -> git_sha () in
+  let services  = discover_services ~filter_path:cfg.filter_path in
 
   if services = [] then begin
     Printf.eprintf "No services found in app/ with a Dockerfile.\n";
@@ -29,7 +40,7 @@ let run (req : Sun_cli_command_request.deploy_request) =
   (* Pre-flight: POSTGRES_URL must be set when deploying live credentials to a
      cluster.  Skip the check for --dry-run and --emit-to: those modes either
      only print YAML or emit redacted GitOps manifests with no real values. *)
-  if not req.dry_run && req.emit_to = None then begin
+  if not cfg.dry_run && cfg.emit_to = None then begin
     match Sys.getenv_opt "POSTGRES_URL" with
     | None | Some "" ->
       Printf.eprintf
@@ -41,16 +52,23 @@ let run (req : Sun_cli_command_request.deploy_request) =
   end;
 
   Printf.printf "\nWorkspace: %s  tag: %s\n" workspace sha;
-  (match req.emit_to with
+  (match cfg.emit_to with
    | Some dir -> Printf.printf "emit-to: %s\n" dir
-   | None when req.dry_run -> Printf.printf "(dry-run)\n"
+   | None when cfg.dry_run -> Printf.printf "(dry-run)\n"
    | None -> ());
   Printf.printf "\n%!";
 
+  (* In CI the registry is the production one (ECR, GCR, Docker Hub).
+     Without --registry, fall back to the k3d local registry so sun deploy
+     works against a local cluster without a --registry flag. *)
+  let reg = match cfg.registry with
+    | Some r -> r
+    | None   -> "sun-registry:5000"
+  in
   let env_target = Sun_cli_env_target.customer_cloud_defaults
-    ~registry:req.registry
+    ~registry:reg
     ~image_tag:sha
-    ~emit_to:req.emit_to
+    ~emit_to:cfg.emit_to
     ()
   in
   (match Sun_cli_env_target.validate env_target with
@@ -59,7 +77,7 @@ let run (req : Sun_cli_command_request.deploy_request) =
      Printf.eprintf "error: %s\n" msg;
      exit 1);
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
-               Sun_cli_deployment_plan.secret_backend = req.secret_backend } in
+               Sun_cli_deployment_plan.secret_backend = cfg.secret_backend } in
   let plan =
     match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
     | Ok plan -> plan
@@ -70,11 +88,11 @@ let run (req : Sun_cli_command_request.deploy_request) =
 
   (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
      since that path does not touch the cluster directly). *)
-  if not req.dry_run && req.emit_to = None then begin
+  if not cfg.dry_run && cfg.emit_to = None then begin
     let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
     let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
     let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-    if removed <> [] && not req.confirm_group_change then begin
+    if removed <> [] && not cfg.confirm_group_change then begin
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
          this deploy plan:\n";
@@ -88,7 +106,7 @@ let run (req : Sun_cli_command_request.deploy_request) =
   end;
 
   (* Emit plan JSON if requested *)
-  (match req.emit_plan_to with
+  (match cfg.emit_plan_to with
    | None -> ()
    | Some path ->
      let json_str = Yojson.Safe.pretty_to_string (Sun_cli_deployment_plan.to_json plan) in
@@ -112,15 +130,15 @@ let run (req : Sun_cli_command_request.deploy_request) =
          | Sun_cli_deployment_plan.Fn     -> Fn))
         spec.domain spec.source_name;
 
-      (match req.emit_to with
+      (match cfg.emit_to with
        | Some dir ->
-         let r = Sun_cli_executor.gitops ~dir ~secret_backend:req.secret_backend spec in
+         let r = Sun_cli_executor.gitops ~dir ~secret_backend:cfg.secret_backend spec in
          let path = Filename.concat dir
            (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
          Printf.printf "  ✓  %s\n%!" path
        | None ->
-         let r = Sun_cli_executor.direct ~dry_run:req.dry_run spec in
-         if not req.dry_run then
+         let r = Sun_cli_executor.direct ~dry_run:cfg.dry_run spec in
+         if not cfg.dry_run then
            Printf.printf "  ✓  namespace %s  image %s\n\n%!" r.Sun_cli_executor.namespace r.Sun_cli_executor.image)
 
     ) plan.Sun_cli_deployment_plan.services
@@ -128,11 +146,11 @@ let run (req : Sun_cli_command_request.deploy_request) =
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);
 
-  (match req.emit_to with
+  (match cfg.emit_to with
    | Some dir ->
      Printf.printf "\nManifests written to %s/\n" dir;
      Printf.printf "Commit and push to your GitOps repo, then Argo CD will apply them.\n"
-   | None when not req.dry_run ->
+   | None when not cfg.dry_run ->
      Printf.printf "\nDone. %d service(s) deployed.\n" (List.length services);
      Printf.printf "Run 'sun status' to check pod health.\n";
      Sun_cli_deployment_state.save_deployed_groups workspace plan.Sun_cli_deployment_plan.consumer_groups
@@ -239,23 +257,19 @@ let confirm_group_change_flag =
        info ["confirm-group-change"]
          ~doc:"Acknowledge that consumer group IDs have changed and proceed with deploy")
 
+let make_config filter_path dry_run emit_to emit_plan_to image_tag registry
+    secret_backend confirm_group_change =
+  { filter_path; dry_run; emit_to; emit_plan_to; image_tag; registry;
+    secret_backend; confirm_group_change }
+
 let cmd =
   Cmd.v
     (Cmd.info "deploy"
        ~doc:"Deploy pre-built images to a cluster (CI/CD integration). \
              Like 'sun up' but skips the build step — images must already \
              be in the registry.")
-    Term.(const (fun filter_path dry_run emit_to emit_plan_to image_tag registry
-                     secret_backend confirm_group_change ->
-        match Sun_cli_command_request.make_deploy_request
-                ~filter_path ~dry_run ~emit_to ~emit_plan_to
-                ~image_tag ~registry ~secret_backend ~confirm_group_change
-                ~git_sha
-          with
-          | Ok req -> run req
-          | Error msg ->
-            Printf.eprintf "error: %s\n" msg;
-            exit 1)
-          $ path_arg $ dry_run_flag $ emit_to_arg
-          $ emit_plan_to_arg $ image_tag_arg $ registry_arg
-          $ secret_backend_term $ confirm_group_change_flag)
+    Term.(const (fun cfg -> run cfg)
+          $ (const make_config
+             $ path_arg $ dry_run_flag $ emit_to_arg
+             $ emit_plan_to_arg $ image_tag_arg $ registry_arg
+             $ secret_backend_term $ confirm_group_change_flag))
