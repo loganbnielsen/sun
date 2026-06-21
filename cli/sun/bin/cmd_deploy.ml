@@ -44,17 +44,18 @@ let run (req : Sun_cli_command_request.deploy_request) =
    | None -> ());
   Printf.printf "\n%!";
 
-  let env_target = Sun_cli_env_target.customer_cloud_defaults
-    ~registry:req.registry
-    ~image_tag:sha
-    ~emit_to:req.emit_to
-    ()
+  let env_target =
+    match Sun_cli_env_target.customer_cloud_defaults
+            ~registry:req.registry
+            ~image_tag:sha
+            ~emit_to:req.emit_to
+            ()
+    with
+    | Ok t      -> t
+    | Error msg ->
+      Printf.eprintf "error: %s\n" msg;
+      exit 1
   in
-  (match Sun_cli_env_target.validate env_target with
-   | Ok ()    -> ()
-   | Error msg ->
-     Printf.eprintf "error: %s\n" msg;
-     exit 1);
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
                Sun_cli_deployment_plan.secret_backend = req.secret_backend } in
   let plan =
