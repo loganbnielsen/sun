@@ -58,8 +58,10 @@ let hosted_plan ?progressive_delivery () =
       service ?progressive_delivery ();
       service ~name:"notify-worker" ~primitive:Sun_cli_deployment_plan.Worker ();
     ];
-    topics = [ "charged" ];
-    migrations = [ "0001_notifications.sql" ];
+    topics = (match Sun_cli_plan_ids.Topic_name.of_string "charged" with
+              | Ok t -> [t] | Error _ -> []);
+    migrations = (match Sun_cli_plan_ids.Migration_file.of_string "0001_notifications.sql" with
+                  | Ok m -> [m] | Error _ -> []);
     schema_subjects = [];
     consumer_groups = [];
   }

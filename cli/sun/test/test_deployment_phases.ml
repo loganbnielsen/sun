@@ -246,13 +246,14 @@ let test_plan_consumer_groups_derived_from_workers () =
     (List.length plan.Sun_cli_deployment_plan.consumer_groups);
   Alcotest.(check (list string)) "group name"
     ["myapp.comms.notify_worker"]
-    plan.Sun_cli_deployment_plan.consumer_groups
+    (List.map Sun_cli_plan_ids.Consumer_group.to_string
+       plan.Sun_cli_deployment_plan.consumer_groups)
 
 let test_plan_svc_does_not_produce_consumer_group () =
   let groups =
     Sun_cli_deployment_plan.derive_consumer_groups "myapp" [svc_spec]
   in
-  Alcotest.(check (list string)) "Svc yields no consumer groups" [] groups
+  Alcotest.(check int) "Svc yields no consumer groups" 0 (List.length groups)
 
 (** Unwrap a [change_set build] result or fail the test with the error message. *)
 let build_ok ~plan ~mode ?secret_backend () =

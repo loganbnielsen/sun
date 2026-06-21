@@ -14,6 +14,34 @@ let namespace_string ~workspace ~domain =
   namespace ~workspace ~domain
   |> Sun_cli_deployment_plan.namespace_to_string
 
+(* ── plan_ids newtype helpers ───────────────────────────────────────────── *)
+
+let topic_name_exn s =
+  match Sun_cli_plan_ids.Topic_name.of_string s with
+  | Ok t    -> t
+  | Error e -> Alcotest.fail (Printf.sprintf "invalid topic name %S: %s" s e)
+
+let migration_file_exn s =
+  match Sun_cli_plan_ids.Migration_file.of_string s with
+  | Ok t    -> t
+  | Error e -> Alcotest.fail (Printf.sprintf "invalid migration file %S: %s" s e)
+
+let schema_subject_exn s =
+  match Sun_cli_plan_ids.Schema_subject.of_string s with
+  | Ok t    -> t
+  | Error e -> Alcotest.fail (Printf.sprintf "invalid schema subject %S: %s" s e)
+
+let consumer_group_exn s =
+  match Sun_cli_plan_ids.Consumer_group.of_string s with
+  | Ok t    -> t
+  | Error e -> Alcotest.fail (Printf.sprintf "invalid consumer group %S: %s" s e)
+
+(** Compare a list of typed identifiers by their string representation. *)
+let check_ids label stringify expected got =
+  let expected_strs = List.map stringify expected in
+  let got_strs      = List.map stringify got in
+  Alcotest.(check (list string)) label expected_strs got_strs
+
 let test_k8s_name_underscores () =
   check_string "underscore to hyphen" "charge-svc"
     (Sun_cli_deployment_plan.k8s_name_of "charge_svc")
@@ -139,7 +167,7 @@ let sample_plan () : Sun_cli_deployment_plan.t =
   { workspace        = "myworkspace"
   ; environment      = env
   ; services         = [svc]
-  ; topics           = ["sun-demo-orders"]
+  ; topics           = [topic_name_exn "sun-demo-orders"]
   ; migrations       = []
   ; schema_subjects  = []
   ; consumer_groups  = []
@@ -234,14 +262,16 @@ let test_discover_topics_finds_topic () =
 topics = ["payments.charged"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "topic found" ["payments.charged"] topics
+    check_ids "topic found"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [topic_name_exn "payments.charged"] topics
   )
 
 let test_discover_topics_empty_when_no_dir () =
   let tmp = Filename.temp_dir "sun_test_topics_nodir" "" in
   with_cwd tmp (fun () ->
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "empty without events dir" [] topics
+    Alcotest.(check int) "empty without events dir" 0 (List.length topics)
   )
 
 let test_discover_topics_multiple_topics_in_toml () =
@@ -253,8 +283,9 @@ let test_discover_topics_multiple_topics_in_toml () =
 topics = ["payments.charged", "payments.refunded"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "multiple topics in one toml"
-      ["payments.charged"; "payments.refunded"] topics
+    check_ids "multiple topics in one toml"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [topic_name_exn "payments.charged"; topic_name_exn "payments.refunded"] topics
   )
 
 let test_discover_topics_deduplicates () =
@@ -270,7 +301,9 @@ topics = ["dup.topic"]
 topics = ["dup.topic"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "deduplicates" ["dup.topic"] topics
+    check_ids "deduplicates"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [topic_name_exn "dup.topic"] topics
   )
 
 let test_discover_topics_subdirectory () =
@@ -282,7 +315,9 @@ let test_discover_topics_subdirectory () =
 topics = ["payments.charged"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "subdirectory topic found" ["payments.charged"] topics
+    check_ids "subdirectory topic found"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [topic_name_exn "payments.charged"] topics
   )
 
 let test_discover_topics_top_level_toml () =
@@ -294,7 +329,9 @@ let test_discover_topics_top_level_toml () =
 topics = ["top.event"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "top-level events/sun.toml" ["top.event"] topics
+    check_ids "top-level events/sun.toml"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [topic_name_exn "top.event"] topics
   )
 
 let test_discover_topics_mixed_levels () =
@@ -312,8 +349,11 @@ topics = ["payments.charged"]
 topics = ["orders.placed"]
 |};
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string)) "mixed top-level and subdir topics"
-      ["orders.placed"; "payments.charged"; "top.event"] topics
+    check_ids "mixed top-level and subdir topics"
+      Sun_cli_plan_ids.Topic_name.to_string
+      [ topic_name_exn "orders.placed"
+      ; topic_name_exn "payments.charged"
+      ; topic_name_exn "top.event" ] topics
   )
 
 (** Comments and unrelated strings in .ml files must NOT create false positives,
@@ -329,9 +369,9 @@ let test_discover_topics_no_false_positives_from_ml_files () =
        let s = \"let topic_name = not-a-real-topic\"\n";
     (* No sun.toml — so discover_topics should return [] *)
     let topics = Sun_cli_deployment_plan.discover_topics () in
-    Alcotest.(check (list string))
+    Alcotest.(check int)
       "ml files are not scanned — no false positives from comments or strings"
-      [] topics
+      0 (List.length topics)
   )
 
 (* ── extract_schedule tests ─────────────────────────────────────────────── *)
@@ -396,14 +436,16 @@ let test_discover_migrations_finds_sql () =
     mkdirs "db/migrations";
     write_file "db/migrations/001_init.sql" "CREATE TABLE foo (id INT);";
     let migs = Sun_cli_deployment_plan.discover_migrations () in
-    Alcotest.(check (list string)) "migration found" ["001_init.sql"] migs
+    check_ids "migration found"
+      Sun_cli_plan_ids.Migration_file.to_string
+      [migration_file_exn "001_init.sql"] migs
   )
 
 let test_discover_migrations_empty_when_no_dir () =
   let tmp = Filename.temp_dir "sun_test_mig_nodir" "" in
   with_cwd tmp (fun () ->
     let migs = Sun_cli_deployment_plan.discover_migrations () in
-    Alcotest.(check (list string)) "empty without db/migrations dir" [] migs
+    Alcotest.(check int) "empty without db/migrations dir" 0 (List.length migs)
   )
 
 let test_discover_migrations_sorted () =
@@ -414,8 +456,11 @@ let test_discover_migrations_sorted () =
     write_file "db/migrations/001_init.sql"      "";
     write_file "db/migrations/002_add_col.sql"   "";
     let migs = Sun_cli_deployment_plan.discover_migrations () in
-    Alcotest.(check (list string)) "migrations sorted"
-      ["001_init.sql"; "002_add_col.sql"; "003_add_index.sql"] migs
+    check_ids "migrations sorted"
+      Sun_cli_plan_ids.Migration_file.to_string
+      [ migration_file_exn "001_init.sql"
+      ; migration_file_exn "002_add_col.sql"
+      ; migration_file_exn "003_add_index.sql" ] migs
   )
 
 let test_discover_migrations_ignores_non_sql () =
@@ -426,7 +471,9 @@ let test_discover_migrations_ignores_non_sql () =
     write_file "db/migrations/README.md"    "";
     write_file "db/migrations/seed.sh"      "";
     let migs = Sun_cli_deployment_plan.discover_migrations () in
-    Alcotest.(check (list string)) "only sql files" ["001_init.sql"] migs
+    check_ids "only sql files"
+      Sun_cli_plan_ids.Migration_file.to_string
+      [migration_file_exn "001_init.sql"] migs
   )
 
 (* ── schema_subjects tests ──────────────────────────────────────────────── *)
@@ -437,8 +484,9 @@ let test_schema_subjects_derived () =
     mkdirs "events/payments";
     write_file "events/payments/charged.ml" "(* stub *)";
     let subjects = Sun_cli_deployment_plan.discover_schema_subjects () in
+    let strs = List.map Sun_cli_plan_ids.Schema_subject.to_string subjects in
     Alcotest.(check bool) "payments.Charged present"
-      true (List.mem "payments.Charged" subjects)
+      true (List.mem "payments.Charged" strs)
   )
 
 let test_schema_subjects_multiple_domains () =
@@ -449,8 +497,9 @@ let test_schema_subjects_multiple_domains () =
     write_file "events/payments/charged.ml"   "(* stub *)";
     write_file "events/comms/notification.ml" "(* stub *)";
     let subjects = Sun_cli_deployment_plan.discover_schema_subjects () in
-    Alcotest.(check (list string)) "sorted multi-domain"
-      ["comms.Notification"; "payments.Charged"] subjects
+    check_ids "sorted multi-domain"
+      Sun_cli_plan_ids.Schema_subject.to_string
+      [schema_subject_exn "comms.Notification"; schema_subject_exn "payments.Charged"] subjects
   )
 
 let test_schema_subjects_top_level_ml () =
@@ -459,15 +508,16 @@ let test_schema_subjects_top_level_ml () =
     mkdirs "events";
     write_file "events/order.ml" "(* stub *)";
     let subjects = Sun_cli_deployment_plan.discover_schema_subjects () in
+    let strs = List.map Sun_cli_plan_ids.Schema_subject.to_string subjects in
     Alcotest.(check bool) "top-level file as stem"
-      true (List.mem "order" subjects)
+      true (List.mem "order" strs)
   )
 
 let test_schema_subjects_empty_when_no_dir () =
   let tmp = Filename.temp_dir "sun_test_subjects_nodir" "" in
   with_cwd tmp (fun () ->
     let subjects = Sun_cli_deployment_plan.discover_schema_subjects () in
-    Alcotest.(check (list string)) "empty without events dir" [] subjects
+    Alcotest.(check int) "empty without events dir" 0 (List.length subjects)
   )
 
 (* ── consumer_groups tests ──────────────────────────────────────────────── *)
@@ -500,8 +550,9 @@ let make_svc_spec name domain =
 let test_consumer_groups_derived () =
   let worker = make_worker_spec "notify_worker" "comms" in
   let groups = Sun_cli_deployment_plan.derive_consumer_groups "myworkspace" [worker] in
-  Alcotest.(check (list string)) "worker produces consumer group"
-    ["myworkspace.comms.notify_worker"] groups
+  check_ids "worker produces consumer group"
+    Sun_cli_plan_ids.Consumer_group.to_string
+    [consumer_group_exn "myworkspace.comms.notify_worker"] groups
 
 let test_consumer_groups_excludes_svc () =
   let worker = make_worker_spec "notify_worker" "comms" in
@@ -513,8 +564,9 @@ let test_consumer_groups_sorted () =
   let w1 = make_worker_spec "b_worker" "comms" in
   let w2 = make_worker_spec "a_worker" "comms" in
   let groups = Sun_cli_deployment_plan.derive_consumer_groups "ws" [w1; w2] in
-  Alcotest.(check (list string)) "consumer groups sorted"
-    ["ws.comms.a_worker"; "ws.comms.b_worker"] groups
+  check_ids "consumer groups sorted"
+    Sun_cli_plan_ids.Consumer_group.to_string
+    [consumer_group_exn "ws.comms.a_worker"; consumer_group_exn "ws.comms.b_worker"] groups
 
 (* ── to_json v2 field tests ─────────────────────────────────────────────── *)
 
@@ -645,7 +697,9 @@ let test_to_json_ingress_present () =
 
 let test_to_json_schema_subjects_present () =
   let plan = { (sample_plan ()) with
-    schema_subjects = ["payments.Charged"; "comms.Notification"] } in
+    schema_subjects =
+      [ schema_subject_exn "payments.Charged"
+      ; schema_subject_exn "comms.Notification" ] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"schema_subjects"|} in
           (contains re s));
@@ -654,7 +708,7 @@ let test_to_json_schema_subjects_present () =
 
 let test_to_json_consumer_groups_present () =
   let plan = { (sample_plan ()) with
-    consumer_groups = ["myworkspace.comms.notify_worker"] } in
+    consumer_groups = [consumer_group_exn "myworkspace.comms.notify_worker"] } in
   let s = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
   assert (let re = Str.regexp {|"consumer_groups"|} in
           (contains re s));
@@ -694,6 +748,74 @@ let test_of_services_result_surfaces_toml_parse_error () =
       Alcotest.fail "expected validation error, got syntax error"
     | Error (Sun_cli_deployment_plan.Invalid_kubernetes_name _) ->
       Alcotest.fail "expected TOML error, got Kubernetes name error")
+
+(* ── plan_ids newtype unit tests ────────────────────────────────────────── *)
+
+let test_topic_name_valid () =
+  match Sun_cli_plan_ids.Topic_name.of_string "payments.charged" with
+  | Ok t -> check_string "round-trips" "payments.charged"
+              (Sun_cli_plan_ids.Topic_name.to_string t)
+  | Error e -> Alcotest.fail e
+
+let test_topic_name_empty_fails () =
+  match Sun_cli_plan_ids.Topic_name.of_string "" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected empty topic name to fail"
+
+let test_topic_name_too_long_fails () =
+  let s = String.make 250 'a' in
+  match Sun_cli_plan_ids.Topic_name.of_string s with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected overlong topic name to fail"
+
+let test_topic_name_invalid_char_fails () =
+  match Sun_cli_plan_ids.Topic_name.of_string "bad name!" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected topic name with space/bang to fail"
+
+let test_topic_name_max_length_ok () =
+  let s = String.make 249 'a' in
+  match Sun_cli_plan_ids.Topic_name.of_string s with
+  | Ok _    -> ()
+  | Error e -> Alcotest.fail e
+
+let test_migration_file_valid () =
+  match Sun_cli_plan_ids.Migration_file.of_string "001_init.sql" with
+  | Ok t -> check_string "round-trips" "001_init.sql"
+              (Sun_cli_plan_ids.Migration_file.to_string t)
+  | Error e -> Alcotest.fail e
+
+let test_migration_file_empty_fails () =
+  match Sun_cli_plan_ids.Migration_file.of_string "" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected empty migration file to fail"
+
+let test_migration_file_not_sql_fails () =
+  match Sun_cli_plan_ids.Migration_file.of_string "001_init.sh" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected non-.sql migration file to fail"
+
+let test_schema_subject_valid () =
+  match Sun_cli_plan_ids.Schema_subject.of_string "payments.Charged" with
+  | Ok t -> check_string "round-trips" "payments.Charged"
+              (Sun_cli_plan_ids.Schema_subject.to_string t)
+  | Error e -> Alcotest.fail e
+
+let test_schema_subject_empty_fails () =
+  match Sun_cli_plan_ids.Schema_subject.of_string "" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected empty schema subject to fail"
+
+let test_consumer_group_valid () =
+  match Sun_cli_plan_ids.Consumer_group.of_string "ws.comms.notify_worker" with
+  | Ok t -> check_string "round-trips" "ws.comms.notify_worker"
+              (Sun_cli_plan_ids.Consumer_group.to_string t)
+  | Error e -> Alcotest.fail e
+
+let test_consumer_group_empty_fails () =
+  match Sun_cli_plan_ids.Consumer_group.of_string "" with
+  | Error _ -> ()
+  | Ok _    -> Alcotest.fail "expected empty consumer group to fail"
 
 let () =
   Alcotest.run "deployment_plan"
@@ -775,5 +897,19 @@ let () =
       ]
     ; "of_services", [
         Alcotest.test_case "returns typed TOML parse error" `Quick test_of_services_result_surfaces_toml_parse_error
+      ]
+    ; "plan_ids", [
+        Alcotest.test_case "Topic_name valid"              `Quick test_topic_name_valid
+      ; Alcotest.test_case "Topic_name empty fails"        `Quick test_topic_name_empty_fails
+      ; Alcotest.test_case "Topic_name too long fails"     `Quick test_topic_name_too_long_fails
+      ; Alcotest.test_case "Topic_name invalid char fails" `Quick test_topic_name_invalid_char_fails
+      ; Alcotest.test_case "Topic_name max length ok"      `Quick test_topic_name_max_length_ok
+      ; Alcotest.test_case "Migration_file valid"          `Quick test_migration_file_valid
+      ; Alcotest.test_case "Migration_file empty fails"    `Quick test_migration_file_empty_fails
+      ; Alcotest.test_case "Migration_file not-.sql fails" `Quick test_migration_file_not_sql_fails
+      ; Alcotest.test_case "Schema_subject valid"          `Quick test_schema_subject_valid
+      ; Alcotest.test_case "Schema_subject empty fails"    `Quick test_schema_subject_empty_fails
+      ; Alcotest.test_case "Consumer_group valid"          `Quick test_consumer_group_valid
+      ; Alcotest.test_case "Consumer_group empty fails"    `Quick test_consumer_group_empty_fails
       ]
     ]
