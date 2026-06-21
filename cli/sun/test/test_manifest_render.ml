@@ -6,6 +6,12 @@
 let check_string = Alcotest.(check string)
 let check_bool   = Alcotest.(check bool)
 
+(** Unwrap a [render_spec] result, failing the test on [Error]. *)
+let render_spec_ok ?image ?secret_backend spec =
+  match Sun_cli_deployment_plan.render_spec ?image ?secret_backend spec with
+  | Ok v    -> v
+  | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
+
 (* ── helpers ─────────────────────────────────────────────────────────────── *)
 
 let contains haystack needle =
@@ -127,53 +133,53 @@ let fn_spec : Sun_cli_deployment_plan.service_spec = {
 (* ── Svc tests ───────────────────────────────────────────────────────────── *)
 
 let test_svc_namespace () =
-  let (ns_yaml, _workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (ns_yaml, _workload) = render_spec_ok svc_spec in
   assert_contains "svc ns_yaml" ns_yaml "name: myapp-payments"
 
 let test_svc_deployment_name () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc deployment name" workload "name: charge-svc"
 
 let test_svc_image () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc image" workload "sun-registry:5000/myapp/charge-svc:abc123"
 
 let test_svc_has_service_resource () =
   (* "kind: Service\n" matches the Service resource, not ServiceAccount *)
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc Service resource" workload "kind: Service\n"
 
 let test_svc_has_ingress () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc Ingress resource" workload "kind: Ingress"
 
 let test_svc_has_ports () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc containerPort" workload "containerPort: 8080"
 
 let test_svc_replicas () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc replicas=2" workload "replicas: 2"
 
 let test_svc_extra_config () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
 
 let test_svc_default_postgres_url () =
   (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "svc default postgres url in secret" secret_block {|POSTGRES_URL: ""|}
 
 let test_postgres_url_not_in_configmap () =
   (* POSTGRES_URL must never appear in the ConfigMap — it contains an embedded password *)
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   let cm_block = extract_kind_block workload "kind: ConfigMap" in
   assert_absent "POSTGRES_URL absent from ConfigMap" cm_block "POSTGRES_URL"
 
 let test_postgres_url_in_secret () =
   (* A Secret resource must be emitted and must contain POSTGRES_URL in stringData with empty value *)
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "Secret resource present" workload "kind: Secret";
   assert_contains "stringData section" workload "stringData:";
   let secret_block = extract_kind_block workload "kind: Secret" in
@@ -181,23 +187,27 @@ let test_postgres_url_in_secret () =
 
 let test_live_secret_uses_postgres_url_env () =
   Unix.putenv "POSTGRES_URL" "postgresql://user:pass@db.example.com:5432/app";
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "POSTGRES_URL env value in live Secret" secret_block
     {|POSTGRES_URL: "postgresql://user:pass@db.example.com:5432/app"|};
   Unix.putenv "POSTGRES_URL" ""
 
 let test_svc_default_redpanda_admin_url () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc default redpanda admin url" workload
     {|REDPANDA_ADMIN_URL: "http://redpanda.redpanda.svc.cluster.local:9644"|}
 
 let test_svc_secret_refs_without_values () =
+  (* Use Kubernetes_placeholder so the test does not require DATABASE_URL and
+     API_TOKEN to be set in the environment.  We are checking for structural
+     YAML (key refs in the Deployment, no values), not live env-var reading. *)
   let spec = {
     svc_spec with
     secrets = [ "DATABASE_URL", "postgres://secret"; "API_TOKEN", "token-value" ];
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   assert_contains "database secret ref" workload "key: DATABASE_URL";
   assert_contains "api token secret ref" workload "key: API_TOKEN";
   assert_absent "database value absent" workload "postgres://secret";
@@ -205,7 +215,7 @@ let test_svc_secret_refs_without_values () =
   assert_contains "shared secret name" workload "name: charge-svc-secrets"
 
 let test_svc_namespace_in_workload () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc workload namespace" workload "namespace: myapp-payments"
 
 (* ── AUDIT-016: user-defined secret_keys emitted as Secret resource ───────── *)
@@ -214,29 +224,37 @@ let test_svc_namespace_in_workload () =
    Secret resource (kind: Secret) that carries STRIPE_KEY in its stringData
    section.  The value is empty — operators fill it in at apply time. *)
 let test_user_secret_key_in_secret_resource () =
+  (* Kubernetes_placeholder: check key names appear in Secret without needing env vars. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "STRIPE_KEY present in Secret resource" secret_block "STRIPE_KEY:"
 
 (* The key reference in the Deployment env block must also be present. *)
 let test_user_secret_key_ref_in_deployment () =
+  (* Kubernetes_placeholder: check secretKeyRef present without needing STRIPE_KEY set. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   assert_contains "STRIPE_KEY secretKeyRef" workload "key: STRIPE_KEY"
 
 (* Multiple user-defined secret keys must all appear in the Secret resource. *)
 let test_multiple_user_secret_keys_in_secret_resource () =
+  (* Kubernetes_placeholder: check multiple key names without needing env vars. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", ""; "SENDGRID_API_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "STRIPE_KEY in Secret"       secret_block "STRIPE_KEY:";
   assert_contains "SENDGRID_API_KEY in Secret" secret_block "SENDGRID_API_KEY:"
 
 (* The default POSTGRES_URL must still be present alongside user secrets. *)
 let test_default_secrets_preserved_with_user_secrets () =
+  (* Kubernetes_placeholder: verify default + user keys both appear in Secret. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "POSTGRES_URL still in Secret" secret_block "POSTGRES_URL:";
   assert_contains "STRIPE_KEY also in Secret"    secret_block "STRIPE_KEY:"
@@ -248,7 +266,7 @@ let test_gitops_redacts_all_secret_values () =
     svc_spec with
     secrets = [ "STRIPE_KEY", "sk_live_should_not_render" ];
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec
+  let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "redaction comment" secret_block "Populate these values before applying";
@@ -260,82 +278,86 @@ let test_gitops_redacts_all_secret_values () =
 
 (* Worker with secret_keys also emits Secret resource with those keys. *)
 let test_worker_user_secret_key_in_secret_resource () =
+  (* Kubernetes_placeholder: check key appears in Secret without setting env var. *)
   let spec = { worker_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "worker STRIPE_KEY in Secret" secret_block "STRIPE_KEY:"
 
 (* Fn/CronJob with secret_keys also emits Secret resource with those keys. *)
 let test_fn_user_secret_key_in_secret_resource () =
+  (* Kubernetes_placeholder: check key appears in Secret without setting env var. *)
   let spec = { fn_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let secret_block = extract_kind_block workload "kind: Secret" in
   assert_contains "fn STRIPE_KEY in Secret" secret_block "STRIPE_KEY:"
 
 (* image override: dry-run uses push_image *)
 let test_svc_image_override () =
   let push_image = "localhost:5000/myapp/charge-svc:abc123" in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~image:push_image svc_spec in
+  let (_ns, workload) = render_spec_ok ~image:push_image svc_spec in
   assert_contains "svc push image in dry-run" workload "localhost:5000/myapp/charge-svc:abc123";
   assert_absent "svc cluster image absent" workload "sun-registry:5000/myapp/charge-svc:abc123"
 
 (* ── Worker tests ────────────────────────────────────────────────────────── *)
 
 let test_worker_namespace () =
-  let (ns_yaml, _) = Sun_cli_deployment_plan.render_spec worker_spec in
+  let (ns_yaml, _) = render_spec_ok worker_spec in
   assert_contains "worker ns" ns_yaml "name: myapp-comms"
 
 let test_worker_image () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec worker_spec in
+  let (_ns, workload) = render_spec_ok worker_spec in
   assert_contains "worker image" workload "sun-registry:5000/myapp/notify-worker:abc123"
 
 let test_worker_no_service_resource () =
   (* Workers don't expose HTTP — no Service or Ingress resource.
      Check for "kind: Service\n" to avoid matching "kind: ServiceAccount". *)
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec worker_spec in
+  let (_ns, workload) = render_spec_ok worker_spec in
   assert_absent "worker no Service resource" workload "kind: Service\n";
   assert_absent "worker no Ingress" workload "kind: Ingress"
 
 let test_worker_no_ports () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec worker_spec in
+  let (_ns, workload) = render_spec_ok worker_spec in
   assert_absent "worker no containerPort" workload "containerPort:"
 
 let test_worker_has_deployment () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec worker_spec in
+  let (_ns, workload) = render_spec_ok worker_spec in
   assert_contains "worker Deployment" workload "kind: Deployment"
 
 (* ── Fn tests ────────────────────────────────────────────────────────────── *)
 
 let test_fn_namespace () =
-  let (ns_yaml, _) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (ns_yaml, _) = render_spec_ok fn_spec in
   assert_contains "fn ns" ns_yaml "name: myapp-billing"
 
 let test_fn_image () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (_ns, workload) = render_spec_ok fn_spec in
   assert_contains "fn image" workload "sun-registry:5000/myapp/invoice-fn:abc123"
 
 let test_fn_cronjob () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (_ns, workload) = render_spec_ok fn_spec in
   assert_contains "fn CronJob kind" workload "kind: CronJob"
 
 let test_fn_schedule () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (_ns, workload) = render_spec_ok fn_spec in
   assert_contains "fn schedule" workload {|schedule: "0 9 * * 1"|}
 
 let test_fn_no_deployment () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (_ns, workload) = render_spec_ok fn_spec in
   assert_absent "fn no Deployment" workload "kind: Deployment"
 
 let test_fn_default_schedule () =
   (* When schedule=None the default cron expression is used *)
   let spec = { fn_spec with schedule = None } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "fn default schedule" workload {|schedule: "0 * * * *"|}
 
 (* AUDIT-040: CronJob pod template must carry app: <k8s_name> so that the
    generated NetworkPolicy (which selects on app: <name>) matches fn pods. *)
 let test_fn_cronjob_pod_template_has_app_label () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec fn_spec in
+  let (_ns, workload) = render_spec_ok fn_spec in
   let cronjob_block = extract_kind_block workload "kind: CronJob" in
   assert_contains "fn cronjob pod template app label" cronjob_block "app: invoice-fn"
 
@@ -370,7 +392,7 @@ let test_svc_render_spec_matches_render () =
     prim   = Sun_cli_manifest.Svc;
     dir    = "app/payments/charge_svc";
   } in
-  let (ns1, w1) = Sun_cli_deployment_plan.render_spec plain_spec in
+  let (ns1, w1) = render_spec_ok plain_spec in
   let (ns2, w2) = Sun_cli_manifest.render svc
     ~ns:"myapp-payments" ~name:"charge-svc"
     ~image:"sun-registry:5000/myapp/charge-svc:abc123" in
@@ -382,25 +404,25 @@ let test_svc_render_spec_matches_render () =
 let test_rollout_recreate () =
   (* rollout_strategy = Recreate must produce "type: Recreate" in the Deployment spec *)
   let spec = { svc_spec with rollout_strategy = Some Sun_cli_toml.Recreate } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "recreate strategy" workload "type: Recreate";
   assert_absent   "no RollingUpdate"  workload "type: RollingUpdate"
 
 let test_rollout_rolling_update () =
   (* rollout_strategy = RollingUpdate (explicit) must produce "type: RollingUpdate" *)
   let spec = { svc_spec with rollout_strategy = Some Sun_cli_toml.RollingUpdate } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "rolling strategy" workload "type: RollingUpdate";
   assert_absent   "no Recreate"      workload "type: Recreate"
 
 let test_rollout_default_is_rolling_update () =
   (* Default (None) must also produce RollingUpdate *)
   let spec = { svc_spec with rollout_strategy = None } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "default is RollingUpdate" workload "type: RollingUpdate"
 
 let test_progressive_default_is_deployment () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "default Deployment" workload "kind: Deployment";
   assert_absent   "default no Rollout"  workload "kind: Rollout"
 
@@ -412,7 +434,7 @@ let test_progressive_canary_rollout () =
         steps = [ Sun_cli_toml.Weight 10; Sun_cli_toml.Weight 40; Sun_cli_toml.Weight 100 ];
       });
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "rollout api" workload "apiVersion: argoproj.io/v1alpha1";
   assert_contains "rollout kind" workload "kind: Rollout";
   assert_contains "canary block" workload "canary:";
@@ -429,7 +451,7 @@ let test_progressive_canary_worker_no_service () =
     progressive_delivery =
       Some (Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] });
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "worker rollout kind" workload "kind: Rollout";
   assert_contains "worker canary step" workload "setWeight: 50";
   assert_absent "worker no ingress" workload "kind: Ingress";
@@ -441,7 +463,7 @@ let test_progressive_blue_green_rollout () =
     svc_spec with
     progressive_delivery = Some Sun_cli_toml.Blue_green;
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "rollout kind" workload "kind: Rollout";
   assert_contains "blueGreen block" workload "blueGreen:";
   assert_contains "active service strategy" workload "activeService: charge-svc-active";
@@ -457,6 +479,7 @@ let test_progressive_blue_green_rollout () =
 (* Canary Rollout with secrets must reference charge-svc-secrets (not sun-secrets)
    in the secretKeyRef block. *)
 let test_rollout_canary_secrets_use_sun_secrets () =
+  (* Kubernetes_placeholder: check secret name refs without setting STRIPE_KEY/DATABASE_URL. *)
   let spec = {
     svc_spec with
     progressive_delivery =
@@ -465,7 +488,8 @@ let test_rollout_canary_secrets_use_sun_secrets () =
       });
     secrets = [ "STRIPE_KEY", ""; "DATABASE_URL", "" ];
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let rollout_block = extract_kind_block workload "kind: Rollout" in
   assert_contains "rollout uses charge-svc-secrets ref" rollout_block "name: charge-svc-secrets";
   assert_contains "rollout has STRIPE_KEY ref"          rollout_block "key: STRIPE_KEY";
@@ -474,12 +498,14 @@ let test_rollout_canary_secrets_use_sun_secrets () =
 
 (* Blue-green Rollout with secrets must also reference charge-svc-secrets. *)
 let test_rollout_blue_green_secrets_use_sun_secrets () =
+  (* Kubernetes_placeholder: check secret name refs without setting API_TOKEN. *)
   let spec = {
     svc_spec with
     progressive_delivery = Some Sun_cli_toml.Blue_green;
     secrets = [ "API_TOKEN", "" ];
   } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
   let rollout_block = extract_kind_block workload "kind: Rollout" in
   assert_contains "blue-green rollout uses charge-svc-secrets" rollout_block "name: charge-svc-secrets";
   assert_contains "blue-green rollout has API_TOKEN ref"       rollout_block "key: API_TOKEN";
@@ -488,32 +514,32 @@ let test_rollout_blue_green_secrets_use_sun_secrets () =
 let test_ingress_host_override () =
   (* ingress_host override must appear in the Ingress rule *)
   let spec = { svc_spec with ingress_host = Some "payments.example.com" } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "ingress host" workload "host: payments.example.com"
 
 let test_ingress_path_override () =
   (* ingress_path override must appear in the path field *)
   let spec = { svc_spec with ingress_path = Some "/api/v2" } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "ingress path" workload "path: /api/v2"
 
 let test_ingress_default_path () =
   (* Default path is "/" *)
   let spec = { svc_spec with ingress_path = None } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "default path" workload "path: /"
 
 let test_extra_labels_appear_in_pod_template () =
   (* extra_labels must appear in the pod template metadata.labels block *)
   let spec = { svc_spec with extra_labels = [ "team", "platform"; "tier", "backend" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_contains "extra label team"  workload {|team: "platform"|};
   assert_contains "extra label tier"  workload {|tier: "backend"|}
 
 let test_extra_labels_empty_by_default () =
   (* No extra labels → no spurious keys in pod template *)
   let spec = { svc_spec with extra_labels = [] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec spec in
+  let (_ns, workload) = render_spec_ok spec in
   assert_absent "no team label" workload {|team:|}
 
 let test_toml_invalid_rollout_strategy () =
@@ -816,28 +842,79 @@ let test_external_secret_doc_target_name () =
 (* render_spec with External_secrets backend must emit ExternalSecret, not Secret *)
 let test_render_spec_eso_backend_no_k8s_secret () =
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  let (_ns, workload) = render_spec_ok ~secret_backend:eso_backend spec in
   assert_contains "ExternalSecret present" workload "kind: ExternalSecret";
   assert_absent   "no plain Secret kind"  workload "kind: Secret"
 
 (* render_spec with ESO backend must include all keys (default + user) in data: *)
 let test_render_spec_eso_backend_all_keys () =
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  let (_ns, workload) = render_spec_ok ~secret_backend:eso_backend spec in
   assert_contains "POSTGRES_URL in ESO data" workload "secretKey: POSTGRES_URL";
   assert_contains "STRIPE_KEY in ESO data"   workload "secretKey: STRIPE_KEY"
 
 (* render_spec with ESO backend must NOT contain stringData *)
 let test_render_spec_eso_backend_no_stringdata () =
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec ~secret_backend:eso_backend spec in
+  let (_ns, workload) = render_spec_ok ~secret_backend:eso_backend spec in
   assert_absent "no stringData in ESO output" workload "stringData"
 
 (* Kubernetes_placeholder backend (default) still emits a regular Secret *)
 let test_render_spec_k8s_placeholder_default () =
-  let (_ns, workload) = Sun_cli_deployment_plan.render_spec svc_spec in
+  let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "kind Secret present" workload "kind: Secret";
   assert_absent   "no ExternalSecret"   workload "kind: ExternalSecret"
+
+(* ── Config parsing policy: Kubernetes_live fails closed on missing env vars ── *)
+
+(* When Kubernetes_live is used and a user-declared secret key is absent from
+   the process environment, render_spec must return Error — not Ok with "". *)
+let test_live_backend_missing_user_secret_returns_error () =
+  (* Ensure MISSING_SECRET_KEY_FOR_TEST is definitely not set *)
+  (try Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "" with _ -> ());
+  Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "__marker__";
+  (* First ensure that setting the env var does succeed *)
+  let spec_with_secret = { svc_spec with secrets = [ "MISSING_SECRET_KEY_FOR_TEST", "" ] } in
+  (match Sun_cli_deployment_plan.render_spec
+      ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_with_secret with
+  | Ok _ -> ()
+  | Error e -> Alcotest.fail ("Expected Ok when env var set, got Error: " ^ e));
+  (* Now unset it and verify we get an Error *)
+  Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "";
+  (* putenv cannot unset; use a key that is genuinely never set *)
+  let absent_key = "__SUN_TEST_ABSENT_KEY_XQ9Z2__" in
+  let spec_missing = { svc_spec with secrets = [ absent_key, "" ] } in
+  (match Sun_cli_deployment_plan.render_spec
+      ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_missing with
+  | Error msg ->
+    check_bool "error mentions the missing key"
+      true (contains msg absent_key)
+  | Ok _ ->
+    Alcotest.fail "Expected Error when required secret env var is absent, got Ok")
+
+(* Multiple missing secret keys should all be reported in the error message. *)
+let test_live_backend_multiple_missing_secrets_all_reported () =
+  let absent1 = "__SUN_TEST_ABSENT_A_XQ9Z2__" in
+  let absent2 = "__SUN_TEST_ABSENT_B_XQ9Z2__" in
+  let spec = { svc_spec with secrets = [ absent1, ""; absent2, "" ] } in
+  (match Sun_cli_deployment_plan.render_spec
+      ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
+  | Error msg ->
+    check_bool "error mentions first absent key"  true (contains msg absent1);
+    check_bool "error mentions second absent key" true (contains msg absent2)
+  | Ok _ ->
+    Alcotest.fail "Expected Error when required secret env vars are absent, got Ok")
+
+(* When no user-declared secrets, Kubernetes_live must still succeed even if
+   the platform-default env vars (e.g. POSTGRES_URL) are absent. *)
+let test_live_backend_no_user_secrets_always_succeeds () =
+  let spec = { svc_spec with secrets = [] } in
+  (match Sun_cli_deployment_plan.render_spec
+      ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
+  | Ok (_ns, workload) ->
+    assert_contains "kind Secret present" workload "kind: Secret"
+  | Error e ->
+    Alcotest.fail ("Expected Ok with no user secrets, got Error: " ^ e))
 
 (* ── workload_shape: direct deployment_doc / rollout_doc coverage ─────────── *)
 
@@ -965,6 +1042,14 @@ let () =
       ; Alcotest.test_case "render_spec ESO: all keys in data"    `Quick test_render_spec_eso_backend_all_keys
       ; Alcotest.test_case "render_spec ESO: no stringData"       `Quick test_render_spec_eso_backend_no_stringdata
       ; Alcotest.test_case "render_spec default: k8s placeholder" `Quick test_render_spec_k8s_placeholder_default
+      ]
+    ; "config_parsing_policy", [
+        Alcotest.test_case "live: missing user secret → Error"
+          `Quick test_live_backend_missing_user_secret_returns_error
+      ; Alcotest.test_case "live: multiple missing secrets all reported"
+          `Quick test_live_backend_multiple_missing_secrets_all_reported
+      ; Alcotest.test_case "live: no user secrets → always Ok"
+          `Quick test_live_backend_no_user_secrets_always_succeeds
       ]
     ; "workload_shape", [
         Alcotest.test_case "Http_service deployment has ports"         `Quick test_shape_http_service_deployment_has_ports

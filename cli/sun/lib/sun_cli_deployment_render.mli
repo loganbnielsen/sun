@@ -43,4 +43,8 @@ val render_spec :
   ?image:string ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   spec ->
-  string * string
+  (string * string, string) result
+(** Returns [Ok (namespace_yaml, workload_yaml)] on success.
+    Returns [Error msg] when [secret_backend = Kubernetes_live] and one or
+    more user-declared secret env vars (from [common.secrets]) are absent
+    from the process environment. *)

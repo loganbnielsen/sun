@@ -108,7 +108,11 @@ let run (req : Sun_cli_command_request.deploy_request) =
       | None     -> Sun_cli_change_set.Apply
   in
   let cs =
-    Sun_cli_change_set.build ~plan ~mode ~secret_backend:req.secret_backend ()
+    match Sun_cli_change_set.build ~plan ~mode ~secret_backend:req.secret_backend () with
+    | Ok cs -> cs
+    | Error msg ->
+      Printf.eprintf "\nerror: %s\n" msg;
+      exit 1
   in
 
   (try

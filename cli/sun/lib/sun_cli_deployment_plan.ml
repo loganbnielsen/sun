@@ -348,3 +348,4 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
     }
   in
   Sun_cli_deployment_render.render_spec ~image ~secret_backend spec
+(** See [Sun_cli_deployment_render.render_spec] for the error contract. *)

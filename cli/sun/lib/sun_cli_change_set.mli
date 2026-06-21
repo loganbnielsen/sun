@@ -42,9 +42,13 @@ val build :
   mode:execution_mode ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   unit ->
-  change_set
+  (change_set, string) result
 (** [build ~plan ~mode ?secret_backend ()] renders all artifacts from [plan]
-    and returns a [change_set].  No executor side effects are performed. *)
+    and returns [Ok change_set] on success.  Returns [Error msg] when
+    [secret_backend = Kubernetes_live] (or the effective backend resolves to
+    [Kubernetes_live]) and one or more user-declared secret env vars are
+    absent from the process environment.
+    No executor side effects are performed. *)
 
 val execute :
   change_set ->

@@ -254,45 +254,51 @@ let test_plan_svc_does_not_produce_consumer_group () =
   in
   Alcotest.(check (list string)) "Svc yields no consumer groups" [] groups
 
+(** Unwrap a [change_set build] result or fail the test with the error message. *)
+let build_ok ~plan ~mode ?secret_backend () =
+  match Sun_cli_change_set.build ~plan ~mode ?secret_backend () with
+  | Ok cs   -> cs
+  | Error e -> Alcotest.fail ("change_set.build unexpectedly failed: " ^ e)
+
 (* ── Phase 3: render artifacts ──────────────────────────────────────────── *)
 
 let test_render_svc_produces_deployment_and_service () =
   let plan = make_plan [svc_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   assert_contains "svc workload has Deployment" art.Sun_cli_change_set.workload_yaml "kind: Deployment";
   assert_contains "svc workload has Service"    art.Sun_cli_change_set.workload_yaml "kind: Service"
 
 let test_render_worker_has_deployment_no_service () =
   let plan = make_plan [worker_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   assert_contains "worker has Deployment"  art.Sun_cli_change_set.workload_yaml "kind: Deployment";
   assert_absent   "worker no Service"      art.Sun_cli_change_set.workload_yaml "kind: Service\n"
 
 let test_render_fn_produces_cronjob () =
   let plan = make_plan [fn_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   assert_contains "fn has CronJob"      art.Sun_cli_change_set.workload_yaml "kind: CronJob";
   assert_absent   "fn no Deployment"    art.Sun_cli_change_set.workload_yaml "kind: Deployment"
 
 let test_render_namespace_yaml_is_non_empty () =
   let plan = make_plan [svc_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   Alcotest.(check bool) "namespace_yaml non-empty" true
     (String.length art.Sun_cli_change_set.namespace_yaml > 0)
 
 let test_render_artifact_count_matches_services () =
   let plan = make_plan [svc_spec; worker_spec; fn_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   Alcotest.(check int) "one artifact per service" 3
     (List.length cs.Sun_cli_change_set.artifacts)
 
 let test_render_artifact_image_matches_spec () =
   let plan = make_plan [svc_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   Alcotest.(check string) "artifact image"
     "registry.example.com/myapp/charge-svc:abc123"
@@ -302,7 +308,7 @@ let test_render_no_docker_or_k8s_calls () =
   (* build is pure: it renders YAML without side effects.
      If this test completes without hanging or raising, the phase is side-effect-free. *)
   let plan = make_plan [svc_spec; worker_spec; fn_spec] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   Alcotest.(check bool) "renders without side effects" true
     (List.length cs.Sun_cli_change_set.artifacts = 3)
 
@@ -324,7 +330,7 @@ let with_temp_dir f =
 let test_gitops_emit_creates_file () =
   with_temp_dir (fun dir ->
     let plan = make_plan [svc_spec] in
-    let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+    let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
     ignore (Sun_cli_change_set.execute cs);
     let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
     Alcotest.(check bool) "gitops file created" true (Sys.file_exists path)
@@ -333,7 +339,7 @@ let test_gitops_emit_creates_file () =
 let test_gitops_emit_file_contains_yaml_separator () =
   with_temp_dir (fun dir ->
     let plan = make_plan [svc_spec] in
-    let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+    let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
     ignore (Sun_cli_change_set.execute cs);
     let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
     let content =
@@ -347,7 +353,7 @@ let test_gitops_emit_file_contains_yaml_separator () =
 let test_gitops_emit_file_has_namespace_kind () =
   with_temp_dir (fun dir ->
     let plan = make_plan [svc_spec] in
-    let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+    let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
     ignore (Sun_cli_change_set.execute cs);
     let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
     let content =
@@ -364,7 +370,7 @@ let test_gitops_emit_uses_placeholder_backend () =
     let env = { customer_env with
       secret_backend = Sun_cli_manifest.Kubernetes_placeholder } in
     let plan = make_plan ~env [svc_spec] in
-    let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+    let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
     ignore (Sun_cli_change_set.execute cs);
     let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
     let content =
@@ -378,7 +384,7 @@ let test_gitops_emit_uses_placeholder_backend () =
 let test_gitops_emit_one_file_per_service () =
   with_temp_dir (fun dir ->
     let plan = make_plan [svc_spec; worker_spec] in
-    let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+    let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
     ignore (Sun_cli_change_set.execute cs);
     let files = Sys.readdir dir |> Array.to_list in
     Alcotest.(check int) "one file per service" 2 (List.length files)
@@ -503,9 +509,9 @@ let test_change_set_build_is_path_agnostic () =
      same namespace, name, and image.  (YAML bytes may differ when the plan's
      secret_backend differs, but identity fields are always mode-independent.) *)
   let plan = make_plan [svc_spec] in
-  let cs_dry   = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run  () in
-  let cs_emit  = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to "/tmp") () in
-  let cs_apply = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Apply   () in
+  let cs_dry   = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run  () in
+  let cs_emit  = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to "/tmp") () in
+  let cs_apply = build_ok ~plan ~mode:Sun_cli_change_set.Apply   () in
   let id art = (art.Sun_cli_change_set.namespace, art.Sun_cli_change_set.name, art.Sun_cli_change_set.image) in
   let id_dry   = id (List.hd cs_dry.Sun_cli_change_set.artifacts) in
   let id_emit  = id (List.hd cs_emit.Sun_cli_change_set.artifacts) in

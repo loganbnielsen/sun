@@ -74,16 +74,24 @@ let make_plan services =
   ; consumer_groups = []
   }
 
+(* ── helpers ─────────────────────────────────────────────────────────────── *)
+
+(** Unwrap a [change_set build] result or fail the test with the error message. *)
+let build_ok ~plan ~mode ?secret_backend () =
+  match Sun_cli_change_set.build ~plan ~mode ?secret_backend () with
+  | Ok cs   -> cs
+  | Error e -> Alcotest.fail ("change_set.build unexpectedly failed: " ^ e)
+
 (* ── build ───────────────────────────────────────────────────────────────── *)
 
 let test_build_renders_one_artifact_per_service () =
   let plan = make_plan [ svc_spec; worker_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   Alcotest.(check int) "artifact count" 2 (List.length cs.Sun_cli_change_set.artifacts)
 
 let test_build_artifact_fields () =
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   Alcotest.(check string) "artifact namespace" "myapp-payments" art.Sun_cli_change_set.namespace;
   Alcotest.(check string) "artifact name"      "charge-svc"     art.Sun_cli_change_set.name;
@@ -93,12 +101,12 @@ let test_build_artifact_fields () =
 
 let test_build_preserves_plan () =
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Apply () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Apply () in
   Alcotest.(check string) "workspace" "myapp" cs.Sun_cli_change_set.plan.Sun_cli_deployment_plan.workspace
 
 let test_build_mode_stored () =
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   Alcotest.(check bool) "mode is dry_run"
     true
     (cs.Sun_cli_change_set.mode = Sun_cli_change_set.Dry_run)
@@ -107,7 +115,7 @@ let test_build_mode_stored () =
 
 let test_dry_run_returns_result () =
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let results = Sun_cli_change_set.execute cs in
   Alcotest.(check int) "dry_run result count" 1 (List.length results);
   let r = List.hd results in
@@ -116,7 +124,7 @@ let test_dry_run_returns_result () =
 
 let test_dry_run_yaml_non_empty () =
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   Alcotest.(check bool) "namespace_yaml non-empty"
     true (String.length art.Sun_cli_change_set.namespace_yaml > 0);
@@ -130,7 +138,7 @@ let test_emit_to_writes_file () =
   Sys.remove dir;
   Unix.mkdir dir 0o755;
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+  let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
   let _results = Sun_cli_change_set.execute cs in
   let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
   let exists = Sys.file_exists path in
@@ -143,7 +151,7 @@ let test_emit_to_result_fields () =
   Sys.remove dir;
   Unix.mkdir dir 0o755;
   let plan = make_plan [ worker_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+  let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
   let results = Sun_cli_change_set.execute cs in
   let path = Filename.concat dir "myapp-comms-notify-worker.yaml" in
   (try Sys.remove path with _ -> ());
@@ -158,7 +166,7 @@ let test_emit_to_uses_placeholder_backend () =
   Sys.remove dir;
   Unix.mkdir dir 0o755;
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
+  let cs = build_ok ~plan ~mode:(Sun_cli_change_set.Emit_to dir) () in
   let art = List.hd cs.Sun_cli_change_set.artifacts in
   let _results = Sun_cli_change_set.execute cs in
   let path = Filename.concat dir "myapp-payments-charge-svc.yaml" in
@@ -177,7 +185,7 @@ let test_apply_result_fields () =
      executor (same code path) with dry_run=true to confirm result shape.
      The actual kubectl call is tested by test_executor.ml. *)
   let plan = make_plan [ svc_spec ] in
-  let cs = Sun_cli_change_set.build ~plan ~mode:Sun_cli_change_set.Dry_run () in
+  let cs = build_ok ~plan ~mode:Sun_cli_change_set.Dry_run () in
   let results = Sun_cli_change_set.execute cs in
   let r = List.hd results in
   Alcotest.(check string) "apply-stub namespace" "myapp-payments" r.Sun_cli_executor.namespace;

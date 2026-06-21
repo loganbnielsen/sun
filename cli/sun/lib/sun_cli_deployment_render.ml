@@ -39,8 +39,11 @@ type spec = {
   workload : workload;
 }
 
-(** Render a (namespace_yaml, workload_yaml) pair from resolved deployment
-    fields.  This module does not construct plans or scan the workspace. *)
+(** Render a [(namespace_yaml, workload_yaml)] pair from resolved deployment
+    fields.  Returns [Ok (ns_yaml, workload_yaml)] on success.
+    Returns [Error msg] when [secret_backend = Kubernetes_live] and one or more
+    user-declared secret env vars are absent from the environment.
+    This module does not construct plans or scan the workspace. *)
 let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     { common; workload } =
   let { namespace; k8s_name; spec_image; config; secrets } = common in
@@ -50,36 +53,56 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
   let cfg_hash         = Sun_cli_manifest.config_hash config in
   Sun_cli_manifest.(
     let ns_yaml = namespace_doc ~ns in
-    let workload_yaml =
-      (* Build the secret resource document depending on backend:
-         - Kubernetes_live (default): emit a Secret with real values (sun up / live deploy).
-         - Kubernetes_placeholder: emit a Secret with empty stringData (GitOps fill-in).
-         - External_secrets _: emit an ExternalSecret CRD so ESO materialises the Secret. *)
-      let secret_resource = match secret_backend with
-        | Kubernetes_live ->
-          let value_from_env key =
-            match Sys.getenv_opt key with
-            | Some value -> value
-            | None       -> ""
-          in
+    (* Build the secret resource document depending on backend:
+       - Kubernetes_live (default): emit a Secret with real values (sun up / live deploy).
+         Fails with Error if any user-declared secret env var is missing.
+       - Kubernetes_placeholder: emit a Secret with empty stringData (GitOps fill-in).
+       - External_secrets _: emit an ExternalSecret CRD so ESO materialises the Secret. *)
+    let secret_resource_result = match secret_backend with
+      | Kubernetes_live ->
+        (* Platform-default secrets (e.g. POSTGRES_URL) use "" when the env var
+           is absent — these are documented empty-string defaults that operators
+           fill in via a secrets manager before applying.  User-declared secrets,
+           however, must be present in the environment; a missing key produces a
+           broken deployment with no error, so we fail closed instead. *)
+        let value_from_env key =
+          match Sys.getenv_opt key with
+          | Some value -> value
+          | None       -> ""
+        in
+        let missing_keys =
+          List.filter_map
+            (fun (k, _) ->
+              match Sys.getenv_opt k with
+              | Some _ -> None
+              | None   -> Some k)
+            secrets
+        in
+        (match missing_keys with
+        | _ :: _ ->
+          Error (Printf.sprintf
+            "Kubernetes_live render failed: required secret env var(s) not set: %s"
+            (String.concat ", " missing_keys))
+        | [] ->
           let extra_secrets =
             List.map (fun (k, _) -> (k, value_from_env k)) secrets
           in
           let base_secrets =
             List.map (fun (k, _) -> (k, value_from_env k)) default_secrets
           in
-          secret_doc ~base_secrets ~extra_secrets ~ns ~name ()
-        | Kubernetes_placeholder ->
-          let extra_secrets = List.map (fun (k, _) -> (k, "")) secrets in
-          secret_doc ~extra_secrets ~redact:true ~ns ~name ()
-        | External_secrets { store_ref; store_kind; key_prefix; refresh_interval } ->
-          let all_keys =
-            List.map fst default_secrets @ List.map fst secrets
-          in
-          external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval
-            ~secret_keys:all_keys ~ns ~name
-      in
-      let common = [
+          Ok (secret_doc ~base_secrets ~extra_secrets ~ns ~name ()))
+      | Kubernetes_placeholder ->
+        let extra_secrets = List.map (fun (k, _) -> (k, "")) secrets in
+        Ok (secret_doc ~extra_secrets ~redact:true ~ns ~name ())
+      | External_secrets { store_ref; store_kind; key_prefix; refresh_interval } ->
+        let all_keys =
+          List.map fst default_secrets @ List.map fst secrets
+        in
+        Ok (external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval
+          ~secret_keys:all_keys ~ns ~name)
+    in
+    Result.map (fun secret_resource ->
+      let common_resources = [
         service_account_doc ~ns ~name;
         configmap_doc ~extra_env:config ~ns ~name ();
         secret_resource;
@@ -128,7 +151,6 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
         | Render_fn { schedule } ->
           [ cronjob_doc ~secret_keys:(List.map fst secrets) ~ns ~name ~image:img ~schedule () ]
       in
-      String.concat "\n" (common @ resources)
-    in
-    (ns_yaml, workload_yaml)
+      (ns_yaml, String.concat "\n" (common_resources @ resources))
+    ) secret_resource_result
   )
