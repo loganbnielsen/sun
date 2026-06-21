@@ -21,25 +21,35 @@ type change_set = {
 
 let render_artifact ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     (spec : Sun_cli_deployment_plan.service_spec) =
-  let (ns_yaml, wl_yaml) =
-    Sun_cli_deployment_plan.render_spec ~secret_backend spec
-  in
-  { namespace_yaml = ns_yaml
-  ; workload_yaml  = wl_yaml
-  ; namespace      = Sun_cli_deployment_plan.namespace_to_string spec.namespace
-  ; name           = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name
-  ; image          = spec.image
-  }
+  match Sun_cli_deployment_plan.render_spec ~secret_backend spec with
+  | Error msg -> Error msg
+  | Ok (ns_yaml, wl_yaml) ->
+    Ok { namespace_yaml = ns_yaml
+       ; workload_yaml  = wl_yaml
+       ; namespace      = Sun_cli_deployment_plan.namespace_to_string spec.namespace
+       ; name           = Sun_cli_deployment_plan.k8s_name_to_string spec.k8s_name
+       ; image          = spec.image
+       }
 
 let build ~plan ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_live) () =
   let backend = match mode with
     | Emit_to _ -> Sun_cli_manifest.Kubernetes_placeholder
     | Dry_run | Apply -> secret_backend
   in
-  let artifacts =
+  let results =
     List.map (render_artifact ~secret_backend:backend) plan.Sun_cli_deployment_plan.services
   in
-  { plan; artifacts; mode }
+  (* Collect the first error, if any, and surface it before any side effects. *)
+  let first_error =
+    List.fold_left
+      (fun acc r -> match acc with Some _ -> acc | None -> (match r with Error e -> Some e | Ok _ -> None))
+      None results
+  in
+  match first_error with
+  | Some msg -> Error msg
+  | None ->
+    let artifacts = List.filter_map (function Ok a -> Some a | Error _ -> None) results in
+    Ok { plan; artifacts; mode }
 
 let execute cs =
   List.map2
