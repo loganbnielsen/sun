@@ -37,9 +37,6 @@ let run cfg =
     exit 1
   end;
 
-  (* Pre-flight: POSTGRES_URL must be set when deploying live credentials to a
-     cluster.  Skip the check for --dry-run and --emit-to: those modes either
-     only print YAML or emit redacted GitOps manifests with no real values. *)
   if not cfg.dry_run && cfg.emit_to = None then begin
     match Sys.getenv_opt "POSTGRES_URL" with
     | None | Some "" ->
@@ -58,41 +55,34 @@ let run cfg =
    | None -> ());
   Printf.printf "\n%!";
 
-  (* In CI the registry is the production one (ECR, GCR, Docker Hub).
-     Without --registry, fall back to the k3d local registry so sun deploy
-     works against a local cluster without a --registry flag. *)
   let reg = match cfg.registry with
     | Some r -> r
     | None   -> "sun-registry:5000"
   in
-  let env_target = Sun_cli_env_target.customer_cloud_defaults
-    ~registry:reg
-    ~image_tag:sha
-    ~emit_to:cfg.emit_to
-    ()
-  in
-  (match Sun_cli_env_target.validate env_target with
-   | Ok ()    -> ()
-   | Error msg ->
-     Printf.eprintf "error: %s\n" msg;
-     exit 1);
-  let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
-               Sun_cli_deployment_plan.secret_backend = cfg.secret_backend } in
-  let plan =
-    match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
-    | Ok plan -> plan
+  let env =
+    match Sun_cli_deployment_pipeline.resolve_customer_cloud
+      ~registry:reg ~image_tag:sha ~workspace
+      ~emit_to:cfg.emit_to
+      ~secret_backend:cfg.secret_backend
+    with
+    | Ok env -> env
     | Error err ->
-      Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_pipeline.pipeline_error_to_string err);
       exit 1
   in
-
-  (* Consumer group rename/removal guard (skipped in GitOps/emit-to mode,
-     since that path does not touch the cluster directly). *)
-  if not cfg.dry_run && cfg.emit_to = None then begin
-    let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
-    let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
-    let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
-    if removed <> [] && not cfg.confirm_group_change then begin
+  let req : Sun_cli_deployment_pipeline.request = {
+    workspace;
+    image_tag            = sha;
+    filter_path          = cfg.filter_path;
+    emit_to              = cfg.emit_to;
+    secret_backend       = cfg.secret_backend;
+    confirm_group_change = cfg.confirm_group_change;
+    dry_run              = cfg.dry_run;
+  } in
+  let plan =
+    match Sun_cli_deployment_pipeline.build_plan req env services with
+    | Ok plan -> plan
+    | Error (Sun_cli_deployment_pipeline.Consumer_group_change { removed }) ->
       Printf.eprintf
         "\nwarning: the following consumer group(s) are no longer present in \
          this deploy plan:\n";
@@ -102,10 +92,11 @@ let run cfg =
          from the latest offset when the group is re-added, silently skipping\n\
          any backlog.  Pass --confirm-group-change to acknowledge and proceed.\n\n";
       exit 1
-    end
-  end;
+    | Error err ->
+      Printf.eprintf "error: %s\n" (Sun_cli_deployment_pipeline.pipeline_error_to_string err);
+      exit 1
+  in
 
-  (* Emit plan JSON if requested *)
   (match cfg.emit_plan_to with
    | None -> ()
    | Some path ->
@@ -121,8 +112,14 @@ let run cfg =
        Printf.printf "Plan written to %s\n%!" path
      end);
 
+  let artifacts = Sun_cli_deployment_pipeline.render_artifacts
+    ~secret_backend:cfg.secret_backend
+    plan
+  in
+
   (try
-    List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+    List.iter (fun (artifact : Sun_cli_deployment_pipeline.artifact) ->
+      let spec = artifact.spec in
       Printf.printf "[%s] %s/%s\n%!" (prim_label
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc    -> Svc
@@ -132,16 +129,17 @@ let run cfg =
 
       (match cfg.emit_to with
        | Some dir ->
-         let r = Sun_cli_executor.gitops ~dir ~secret_backend:cfg.secret_backend spec in
+         let r = Sun_cli_deployment_pipeline.emit_artifact ~dir artifact in
          let path = Filename.concat dir
-           (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
+           (Printf.sprintf "%s-%s.yaml" r.Sun_cli_deployment_pipeline.namespace r.Sun_cli_deployment_pipeline.name) in
          Printf.printf "  ✓  %s\n%!" path
        | None ->
-         let r = Sun_cli_executor.direct ~dry_run:cfg.dry_run spec in
+         let r = Sun_cli_deployment_pipeline.apply_artifact ~dry_run:cfg.dry_run artifact in
          if not cfg.dry_run then
-           Printf.printf "  ✓  namespace %s  image %s\n\n%!" r.Sun_cli_executor.namespace r.Sun_cli_executor.image)
+           Printf.printf "  ✓  namespace %s  image %s\n\n%!"
+             r.Sun_cli_deployment_pipeline.namespace r.Sun_cli_deployment_pipeline.image)
 
-    ) plan.Sun_cli_deployment_plan.services
+    ) artifacts
   with Deploy_failed msg ->
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);

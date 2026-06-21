@@ -16,5 +16,6 @@
   test_hosted_url
   test_release_inspection
   test_scaffold
-  test_logs)
+  test_logs
+  test_deployment_pipeline)
  (libraries sun_cli alcotest unix yojson str))

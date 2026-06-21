@@ -16,6 +16,7 @@
   Sun_cli_deployment_plan
   Sun_cli_env_target
   Sun_cli_executor
+  Sun_cli_deployment_pipeline
   Sun_cli_hosted_model
   Sun_cli_release_inspection
   Sun_cli_secret
