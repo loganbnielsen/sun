@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-062
 type: refactor
 severity: high
 source: docs/audits/STYLE_AUDIT.md
+branch: CODEX_STYLE_AUDIT-062/typed-command-requests
+worktree: ../sun-CODEX_STYLE_AUDIT-062-typed-command-requests
 ---
 
 Convert `sun up` and `sun deploy` CLI inputs into typed command requests.
