@@ -26,3 +26,6 @@ never record misleading state.
 - Move deployed-state writes behind a function that requires a successful
   execution result.
 - Add tests for dry-run, failed build/push/apply, and successful apply.
+
+## Review — automated checks passed
+execution_outcome type with Applied/Emitted/Dry_run/Failed variants added; record_outcome is a no-op for Dry_run/Emitted/Failed; cmd_deploy.ml and cmd_up.ml both migrated from save_deployed_groups to record_outcome; tests cover dry-run, failed, emitted, applied, and removed-group edge cases; build clean; no wrapped true; project/tickets/ untouched
