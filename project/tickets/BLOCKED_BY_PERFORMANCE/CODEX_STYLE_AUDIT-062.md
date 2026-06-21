@@ -27,3 +27,6 @@ records before domain logic starts.
   calling deployment pipeline code.
 - Ensure command bodies read as parse/validate -> plan -> execute.
 - Preserve existing flags and behavior.
+
+## Review — automated checks passed
+Typed request records for sun up and sun deploy implemented correctly; build and tests pass; ticket dir untouched
