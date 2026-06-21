@@ -57,8 +57,10 @@ let resolve_service arg =
   end
 
 let deployment_exists ns k8s_name =
-  Sys.command
-    (Printf.sprintf "kubectl get deployment %s -n %s >/dev/null 2>&1" (Filename.quote k8s_name) (Filename.quote ns)) = 0
+  match Sun_cli_process.run
+      (Sun_cli_process.cmd ["kubectl"; "get"; "deployment"; k8s_name; "-n"; ns]) with
+  | Ok r -> r.Sun_cli_process.exit_code = 0
+  | Error _ -> false
 
 let namespace_or_exit ~workspace ~domain =
   match Sun_cli_deployment_plan.namespace_result ~workspace ~domain with
@@ -91,11 +93,12 @@ let run ~service_arg ~follow ~tail ~grafana_base_url : unit =
   let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
   Printf.printf "Grafana logs: %s\n%!" url;
 
-  let follow_flag = if follow then " --follow" else "" in
-  let tail_flag   = Printf.sprintf " --tail=%d" tail in
-  let cmd = Printf.sprintf "kubectl logs -n %s deployment/%s%s%s"
-    (Filename.quote ns) (Filename.quote k8s_name) follow_flag tail_flag in
-  exit (Sys.command cmd)
+  let argv =
+    ["kubectl"; "logs"; "-n"; ns; "deployment/" ^ k8s_name]
+    @ (if follow then ["--follow"] else [])
+    @ ["--tail=" ^ string_of_int tail]
+  in
+  Unix.execvp "kubectl" (Array.of_list argv)
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 
