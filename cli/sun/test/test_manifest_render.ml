@@ -1012,6 +1012,59 @@ let test_live_backend_no_user_secrets_always_succeeds () =
   | Error e ->
     Alcotest.fail ("Expected Ok with no user secrets, got Error: " ^ e))
 
+(* ── artifact_invariants ─────────────────────────────────────────────────── *)
+
+(* Checks the security and operational invariants every Sun-generated artifact
+   must satisfy.  Call with the full workload YAML string returned by
+   [render_spec_ok].  The [label] prefix appears in failure messages so you can
+   tell which primitive violated the invariant.
+
+   Invariants checked here:
+   - runAsNonRoot: true            (pod-level securityContext)
+   - allowPrivilegeEscalation: false  (container-level securityContext)
+   - readOnlyRootFilesystem: true  (container-level securityContext)
+
+   Invariants documented but NOT yet enforced in YAML output:
+   - sun.dev/workspace label  (tracked in CODEX_STYLE_AUDIT-072)
+   - sun.dev/domain label     (tracked in CODEX_STYLE_AUDIT-072) *)
+let assert_k8s_invariants label yaml =
+  assert_contains (label ^ ": runAsNonRoot") yaml "runAsNonRoot: true";
+  assert_contains (label ^ ": allowPrivilegeEscalation") yaml "allowPrivilegeEscalation: false";
+  assert_contains (label ^ ": readOnlyRootFilesystem") yaml "readOnlyRootFilesystem: true"
+
+let test_svc_satisfies_invariants () =
+  let (_ns, workload) = render_spec_ok svc_spec in
+  assert_k8s_invariants "svc" workload
+
+let test_worker_satisfies_invariants () =
+  let (_ns, workload) = render_spec_ok worker_spec in
+  assert_k8s_invariants "worker" workload
+
+let test_fn_satisfies_invariants () =
+  let (_ns, workload) = render_spec_ok fn_spec in
+  assert_k8s_invariants "fn" workload
+
+let test_rollout_canary_satisfies_invariants () =
+  let spec = {
+    svc_spec with
+    progressive_delivery =
+      Some (Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50; Sun_cli_toml.Weight 100 ] });
+  } in
+  let (_ns, workload) = render_spec_ok spec in
+  assert_k8s_invariants "canary rollout" workload
+
+let test_rollout_blue_green_satisfies_invariants () =
+  let spec = { svc_spec with progressive_delivery = Some Sun_cli_toml.Blue_green } in
+  let (_ns, workload) = render_spec_ok spec in
+  assert_k8s_invariants "blue-green rollout" workload
+
+let test_gitops_secret_redacted () =
+  (* Kubernetes_placeholder must not emit real secret values in the YAML output. *)
+  let spec = { svc_spec with secrets = [ "SECRET_KEY", "real-value-must-not-appear" ] } in
+  let (_ns, workload) = render_spec_ok
+      ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
+  assert_absent "no real secret value in gitops output" workload "real-value-must-not-appear"
+
 (* ── workload_shape: direct deployment_doc / rollout_doc coverage ─────────── *)
 
 let test_shape_http_service_deployment_has_ports () =
@@ -1156,5 +1209,13 @@ let () =
       ; Alcotest.test_case "Background_worker deployment no ports"     `Quick test_shape_background_worker_deployment_no_ports
       ; Alcotest.test_case "Http_service rollout has ports"            `Quick test_shape_rollout_http_service_has_ports
       ; Alcotest.test_case "Background_worker rollout no ports"        `Quick test_shape_rollout_background_worker_no_ports
+      ]
+    ; "artifact_invariants", [
+        Alcotest.test_case "svc satisfies security invariants"             `Quick test_svc_satisfies_invariants
+      ; Alcotest.test_case "worker satisfies security invariants"          `Quick test_worker_satisfies_invariants
+      ; Alcotest.test_case "fn satisfies security invariants"              `Quick test_fn_satisfies_invariants
+      ; Alcotest.test_case "canary rollout satisfies security invariants"  `Quick test_rollout_canary_satisfies_invariants
+      ; Alcotest.test_case "blue-green rollout satisfies security invariants" `Quick test_rollout_blue_green_satisfies_invariants
+      ; Alcotest.test_case "GitOps mode redacts secret values"             `Quick test_gitops_secret_redacted
       ]
     ]
