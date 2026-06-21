@@ -3,6 +3,8 @@ id: CODEX_STYLE_AUDIT-047
 type: refactor
 severity: high
 source: style audit
+branch: CODEX_STYLE_AUDIT-047/env-target-variants
+worktree: ../sun-CODEX_STYLE_AUDIT-047-env-target-variants
 ---
 
 Refactor environment targets into mode-specific records.
