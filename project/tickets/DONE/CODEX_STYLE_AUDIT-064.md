@@ -26,3 +26,6 @@ duplicates command details.
 - Existing command modules call these adapters instead of formatting shell
   commands directly.
 - Adapter tests verify argv construction and failure propagation.
+
+## Review — automated checks passed
+All five typed tool adapter modules exist with labeled-parameter signatures; callers migrated; argv and failure-propagation tests pass; no new Sys.command calls; no wrapped true; project/tickets/ untouched
