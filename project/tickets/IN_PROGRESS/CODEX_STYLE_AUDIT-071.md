@@ -1,5 +1,7 @@
 ---
 id: CODEX_STYLE_AUDIT-071
+branch: CODEX_STYLE_AUDIT-071/ci-workflow-contract
+worktree: ../sun-CODEX_STYLE_AUDIT-071-ci-workflow-contract
 type: refactor
 severity: medium
 source: docs/audits/STYLE_AUDIT.md
