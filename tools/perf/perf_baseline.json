@@ -1905,11 +1905,6 @@
           "commit": "2b9b29b",
           "duration_s": 1.769,
           "baseline": true
-        },
-        {
-          "date": "2026-06-20",
-          "commit": "dc44560",
-          "duration_s": 1.662
         }
       ]
     },
