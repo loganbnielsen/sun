@@ -1,5 +1,7 @@
 ---
 id: CODEX_STYLE_AUDIT-049
+branch: CODEX_STYLE_AUDIT-049/refined-toml-fields
+worktree: /home/lbendtly/Code/sun-CODEX-049
 type: refactor
 severity: medium
 source: style audit
