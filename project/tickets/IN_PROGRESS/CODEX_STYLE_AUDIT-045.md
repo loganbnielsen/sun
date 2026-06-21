@@ -1,5 +1,7 @@
 ---
 id: CODEX_STYLE_AUDIT-045
+branch: CODEX_STYLE_AUDIT-045/typed-plan-identifiers
+worktree: ../sun-CODEX_STYLE_AUDIT-045-typed-plan-identifiers
 type: refactor
 severity: medium
 source: style audit
