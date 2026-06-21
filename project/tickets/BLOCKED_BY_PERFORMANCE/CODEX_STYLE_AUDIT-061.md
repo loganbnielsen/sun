@@ -31,3 +31,6 @@ phase inspectable and testable.
 - Keep local, direct, GitOps, and hosted paths consuming the same plan type.
 - Add tests for at least plan construction and artifact rendering without
   shelling out to Kubernetes.
+
+## Review — automated checks passed
+Sun_cli_deployment_pipeline module introduced with all five typed phases (request, resolved_environment, plan, artifact, execution_result); cmd_up.ml and cmd_deploy.ml refactored to delegate to the pipeline; 15 tests covering plan construction, artifact rendering, emit_artifact, resolve_local/customer_cloud, and error formatting all pass; no project/tickets/ changes; wrapped false preserved; no new Sys.command or shell-injection issues introduced (all pre-existing).
