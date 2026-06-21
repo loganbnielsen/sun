@@ -19,5 +19,6 @@
   test_logs
   test_process
   test_tool_adapters
-  test_deployment_state)
+  test_deployment_state
+  test_change_set)
  (libraries sun_cli alcotest unix yojson str))
