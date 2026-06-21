@@ -141,6 +141,22 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 # No KUBECONFIG or cluster credentials are needed for the build-and-test or
 # build-images jobs. The deploy job emits manifests for GitOps instead of
 # applying them directly to a cluster.
+#
+# ── Sun CI contract ──────────────────────────────────────────────────────────
+#
+# PHASE 1 — Build (user-owned, Sun-stable):
+#   Compile and test OCaml code using: eval $(opam env) && dune build && dune runtest
+#   Build and push Docker images using your registry's docker login + docker build/push.
+#   Sun does not own this step today; a future `sun build` command will replace it.
+#
+# PHASE 2 — Deploy (Sun-owned, typed contract):
+#   sun deploy --emit-plan-to plan.json --dry-run   # capture typed deployment intent
+#   sun deploy --emit-to manifests/ --image-tag $SHA  # render K8s YAML (GitOps)
+#
+# Never duplicate the plan/render/execute logic from sun deploy in CI.
+# All deployment decisions (image tags, namespaces, service discovery, secrets)
+# belong in the CLI pipeline. CI only provides inputs (--registry, --image-tag).
+# ─────────────────────────────────────────────────────────────────────────────
 
 name: Sun CI
 
@@ -227,6 +243,8 @@ jobs:
       - name: Build and push images
         run: |
           SHORT_SHA=${IMAGE_TAG::7}
+          # TODO(sun-build): This step will be replaced by `sun build --registry $REGISTRY`
+          # once Sun publishes a stable build command. Until then, build images explicitly.
           # sun up discovers services from app/<domain>/<name>/Dockerfile.
           # Build and push each image explicitly here:
           find app -name Dockerfile | while read dockerfile; do
