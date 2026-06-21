@@ -95,8 +95,7 @@ let run (req : Sun_cli_command_request.up_request) =
      loaded or written, and no blocking question is asked. *)
   if not req.dry_run then begin
     let prev_groups = Sun_cli_deployment_state.load_deployed_groups workspace in
-    let next_groups = List.map Sun_cli_plan_ids.Consumer_group.to_string
-                        plan.Sun_cli_deployment_plan.consumer_groups in
+    let next_groups = plan.Sun_cli_deployment_plan.consumer_groups in
     let removed = Sun_cli_deployment_state.removed_consumer_groups ~prev:prev_groups ~next:next_groups in
     if removed <> [] && not req.confirm_group_change then begin
       Printf.eprintf
@@ -234,8 +233,7 @@ let run (req : Sun_cli_command_request.up_request) =
         namespace = "default";
         name = workspace;
         image = sha;
-        consumer_groups = List.map Sun_cli_plan_ids.Consumer_group.to_string
-                            plan.Sun_cli_deployment_plan.consumer_groups;
+        consumer_groups = plan.Sun_cli_deployment_plan.consumer_groups;
       });
     if !pf_failed then exit 1
   end

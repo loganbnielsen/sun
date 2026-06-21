@@ -46,10 +46,10 @@ type t = {
   workspace        : string;
   environment      : env_config;
   services         : service_spec list;
-  topics           : Sun_cli_plan_ids.Topic_name.t list;
-  migrations       : Sun_cli_plan_ids.Migration_file.t list;
-  schema_subjects  : Sun_cli_plan_ids.Schema_subject.t list;
-  consumer_groups  : Sun_cli_plan_ids.Consumer_group.t list;
+  topics           : string list;
+  migrations       : string list;
+  schema_subjects  : string list;
+  consumer_groups  : string list;
 }
 
 type plan_error =
@@ -161,10 +161,10 @@ let to_json t =
       "secret_backend", secret_backend_to_json env.secret_backend;
     ];
     "services",         `List (List.map service_to_json t.services);
-    "topics",           `List (List.map (fun s -> `String (Sun_cli_plan_ids.Topic_name.to_string s)) t.topics);
-    "migrations",       `List (List.map (fun s -> `String (Sun_cli_plan_ids.Migration_file.to_string s)) t.migrations);
-    "schema_subjects",  `List (List.map (fun s -> `String (Sun_cli_plan_ids.Schema_subject.to_string s)) t.schema_subjects);
-    "consumer_groups",  `List (List.map (fun s -> `String (Sun_cli_plan_ids.Consumer_group.to_string s)) t.consumer_groups);
+    "topics",           `List (List.map (fun s -> `String s) t.topics);
+    "migrations",       `List (List.map (fun s -> `String s) t.migrations);
+    "schema_subjects",  `List (List.map (fun s -> `String s) t.schema_subjects);
+    "consumer_groups",  `List (List.map (fun s -> `String s) t.consumer_groups);
   ]
 
 let pp_summary fmt t =
@@ -189,26 +189,22 @@ let pp_summary fmt t =
    | []     -> ()
    | topics ->
      Format.fprintf fmt "@\n";
-     Format.fprintf fmt "topics:   %s@\n"
-       (String.concat ", " (List.map Sun_cli_plan_ids.Topic_name.to_string topics)));
+     Format.fprintf fmt "topics:   %s@\n" (String.concat ", " topics));
   (match t.migrations with
    | [] -> ()
    | ms ->
      Format.fprintf fmt "@\n";
-     Format.fprintf fmt "migrations:   %s@\n"
-       (String.concat ", " (List.map Sun_cli_plan_ids.Migration_file.to_string ms)));
+     Format.fprintf fmt "migrations:   %s@\n" (String.concat ", " ms));
   (match t.schema_subjects with
    | [] -> ()
    | ss ->
      Format.fprintf fmt "@\n";
-     Format.fprintf fmt "schema subjects:  %s@\n"
-       (String.concat ", " (List.map Sun_cli_plan_ids.Schema_subject.to_string ss)));
+     Format.fprintf fmt "schema subjects:  %s@\n" (String.concat ", " ss));
   (match t.consumer_groups with
    | [] -> ()
    | cgs ->
      Format.fprintf fmt "@\n";
-     Format.fprintf fmt "consumer groups:  %s@\n"
-       (String.concat ", " (List.map Sun_cli_plan_ids.Consumer_group.to_string cgs)))
+     Format.fprintf fmt "consumer groups:  %s@\n" (String.concat ", " cgs))
 
 let discover_schema_subjects = Sun_cli_workspace_scan.discover_schema_subjects
 let discover_topics = Sun_cli_workspace_scan.discover_topics
