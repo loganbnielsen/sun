@@ -72,7 +72,7 @@ Schema registry localhost:8081
 PostgreSQL      localhost:5432
 Loki            localhost:3100
 Grafana         localhost:3000   (admin / admin)
-Pushgateway     localhost:9091
+Prometheus      localhost:9090
 ```
 
 These port-forwards are managed by Sun in the background (PIDs recorded in `~/.local/share/sun/`). `sun dev down` tears everything down. Running `sun dev up` again clears any stale port-forwards first, so repeat runs are safe.
