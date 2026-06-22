@@ -1,28 +1,38 @@
-# Work Summary — Dogfood Alpha complete (2026-06-11)
+# Work Summary — Self-hosted refocus complete (2026-06-22)
 
-## Latest: Post-dogfood gameplan and next tickets
+## Latest: Managed-hosting layer removed; self-hosted identity confirmed
 
-Dogfood Alpha and the first release binary are complete. The planning focus has
-shifted to production hardening and the next larger feature tracks. See
-`docs/planning/POST_DOGFOOD_GAMEPLAN.md`.
+Sun's product direction is confirmed: a self-hosted OCaml production platform.
+Users always own their infrastructure. Sun never owns it on their behalf.
 
-**Current correction:** the high-severity GitOps secret leak is already fixed by
-`FEAT-019` and lives in `DONE`. The remaining secrets work is `FEAT-020`: emit
-GitOps-native secret backend references instead of placeholder Kubernetes
-Secrets.
+The managed-hosting layer (sun cloud deploy/releases/logs, control-plane registry,
+in-memory registry vtables, Postgres-backed release history) was deleted on
+2026-06-22. The README was rewritten to state the self-hosted identity clearly.
+See commit `137328e` for the deletion diff.
 
-**New tickets:**
+All post-dogfood hardening tickets are complete:
 
 | Ticket | State | Description |
 |---|---|---|
-| FEAT-020 | IN_PROGRESS | GitOps secret backend references |
-| FEAT-021 | REVIEW | Deployment plan topics and migrations |
-| FEAT-022 | REVIEW | Self-contained release artifact |
-| FEAT-023 | REVIEW | `sun logs` Grafana pointer |
-| ALPHA-001 | READY_FOR_ENGINEERING | Release-user dogfood after FEAT-020..023 |
-| ALPHA-002 | READY_FOR_ENGINEERING | Public alpha docs/release readiness audit |
-| FEAT-024 | READY_FOR_ENGINEERING | Deployment plan v2 release-review contract |
-| HARDEN-001 | READY_FOR_ENGINEERING | Post-alpha security/reliability audit |
+| FEAT-020 | DONE | GitOps secret backend references |
+| FEAT-021 | DONE | Deployment plan topics and migrations |
+| FEAT-022 | DONE | Self-contained release artifact |
+| FEAT-023 | DONE | `sun logs` Grafana pointer |
+| ALPHA-001 | DONE | Release-user dogfood after FEAT-020..023 |
+| ALPHA-002 | DONE | Public alpha docs/release readiness audit |
+| FEAT-024 | DONE | Deployment plan v2 release-review contract |
+| HARDEN-001 | DONE | Post-alpha security/reliability audit |
+
+**Current open tickets:** DOCS-007 and DOCS-008 (docs cleanup from self-hosted refocus),
+DOGFOOD-010 in BACKLOG (real AWS dogfood — blocked on AWS account).
+
+---
+
+## Previous: Post-dogfood gameplan and next tickets (2026-06-11)
+
+Dogfood Alpha and the first release binary are complete. The planning focus
+shifted to production hardening and the next larger feature tracks. See
+`docs/planning/POST_DOGFOOD_GAMEPLAN.md`.
 
 ---
 
@@ -71,7 +81,8 @@ not a replacement for it.
 | Local Dev | Developer machine; `sun dev up/run/up/status/logs` owns the local substrate loop. |
 | Managed Customer Cloud | Customer cloud account; Sun owns the standard substrate shape and lifecycle. |
 | Exported Self-Managed | Customer owns Terraform/manifests/apply/drift; Sun emits artifacts and can inspect. |
-| Sun Hosted | Sun owns substrate, builders, registry, URLs, TLS, logs, releases, billing. |
+
+Sun Hosted (fourth lane, spiked in Phase 7) was removed on 2026-06-22 — see Latest section above.
 
 ---
 
