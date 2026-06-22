@@ -1987,11 +1987,6 @@
           "date": "2026-06-21",
           "commit": "62e74d1",
           "duration_s": 1.852
-        },
-        {
-          "date": "2026-06-22",
-          "commit": "d4d4d1e",
-          "duration_s": 1.920
         }
       ]
     },
