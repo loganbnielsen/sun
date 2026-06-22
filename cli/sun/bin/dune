@@ -20,7 +20,4 @@
   cmd_rollback
   cmd_secret
   cmd_cloud
-  cmd_cloud_tf
-  cmd_cloud_registry
-  cmd_cloud_deploy
-  cmd_cloud_releases))
+  cmd_cloud_tf))

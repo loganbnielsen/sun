@@ -1,6 +1,10 @@
 # Sun
 
-Sun is a production platform for startups built around autonomous domain teams and typed event contracts. You write the business logic. Sun handles the infrastructure — Kafka, HTTP routing, scheduled functions, observability, and Kubernetes deployment — so a small team of engineers can ship and operate real production services without dedicated DevOps expertise.
+Sun is an OCaml production platform for startups. Write a service, run one command, get Kafka, HTTP routing, PostgreSQL, observability, and Kubernetes deployment — running in your own AWS or GCP account. No Terraform expertise. No hand-written Kubernetes YAML. No dedicated DevOps hire.
+
+**On OCaml:** OCaml's type system catches entire classes of bugs at compile time — no null, errors as values, exhaustive pattern matching. OCaml 5 adds structured concurrency via Eio. The result: services whose failure modes are explicit and typed rather than implicit and surprising. If you're used to Go or Rust, OCaml will feel familiar. If you're coming from Python or JavaScript, expect a learning curve — and a different relationship with production incidents.
+
+**The model:** you own the infrastructure. Sun provisions it, derives manifests from your code, and handles deployments. Your cluster, your cloud account, your bill — no lock-in to Sun's infrastructure.
 
 ---
 
@@ -74,21 +78,11 @@ You focus on the handler. Sun handles the rest.
 
 ---
 
-## Why OCaml
-
-OCaml's type system catches entire classes of bugs at compile time that other languages discover in production. There is no null. Errors are values. Pattern matching is exhaustive. The compiler enforces your business logic's invariants.
-
-OCaml 5 adds a first-class effects system that enables structured concurrency via **Eio** — lightweight fibers with backpressure, cancellation, and composable resource management. Sun's async model is built on this foundation.
-
-The result: services that are fast, and whose failure modes are explicit and typed rather than implicit and surprising.
-
----
-
 ## AI-Agent-First Design
 
-Sun is built with AI-assisted development as a first-class design constraint. Predictable conventions, strong types, and enforced structure mean an AI agent working in a Sun codebase produces accurate output and can't introduce an entire class of infrastructure bugs — because the framework's conventions make the wrong thing hard to express.
+Sun's conventions are regular enough that AI coding agents produce correct output without needing to understand Kubernetes internals. `sun new svc payments/charge-svc` generates a compilable service with routes, Kafka wiring, and observability already connected. The type checker validates every change before it runs.
 
-The intended workflow: an engineer describes what a service should do; an AI agent scaffolds and wires it; the type system catches what slips through. Sun is designed to make this loop fast and reliable from day one.
+The intended workflow: describe what a service should do, let an AI agent scaffold and wire it, let the compiler catch what slips through. Sun is designed to make this loop fast and reliable from day one.
 
 ---
 
@@ -152,7 +146,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Sun CLI — secrets (`sun secret set/list/delete`) | Complete |
 | Production deployment pipeline (`sun deploy`, Terraform, Argo CD) | Complete |
 | Progressive delivery (`[infra.rollout]`, Argo Rollouts) | Complete |
-| Sun-hosted executor (`sun cloud init/deploy/releases/logs`) | `sun cloud init` provisions AWS/GCP infrastructure; `sun cloud deploy` builds Docker images, pushes to `--registry`, and records release history; `sun cloud releases` and `sun cloud logs` surface that history |
+| Cloud infrastructure (`sun cloud init`) | Provisions AWS EKS+ECR or GCP GKE+Artifact Registry via Terraform — experimental, not yet tested against live cloud accounts |
 
 ---
 
@@ -453,20 +447,9 @@ four-level escape-hatch hierarchy.
 
 ---
 
-## Cloud Infrastructure — `sun cloud`
+## Cloud Infrastructure — `sun cloud init`
 
-The `sun cloud` group of subcommands provisions infrastructure and manages hosted releases.
-
-| Command | Description |
-|---------|-------------|
-| `sun cloud init --aws\|--gcp [--var-file FILE] [--dry-run]` | Provision cloud infrastructure via Terraform |
-| `sun cloud deploy [--environment ENV] [--registry URL]` | Build, push, and record a hosted release |
-| `sun cloud releases [--page N]` | List recent hosted releases |
-| `sun cloud logs --release ID` | Stream the deploy log for a release |
-
-### `sun cloud init` — provision cloud infrastructure
-
-`sun cloud init` provisions production-grade cloud infrastructure using the Terraform modules in `platform/infra/aws/` and `platform/infra/gcp/`. It runs `terraform init` followed by `terraform apply -auto-approve` and prints the provisioned endpoints on completion.
+`sun cloud init` provisions production-grade infrastructure in **your own** AWS or GCP account using the Terraform modules in `platform/infra/`. Sun never owns your infrastructure — the provisioned cluster, registry, database, and network all live in your cloud account.
 
 ### Prerequisites
 
@@ -474,11 +457,7 @@ The `sun cloud` group of subcommands provisions infrastructure and manages hoste
 - **Cloud credentials in the environment:**
   - AWS: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` (or an active AWS profile)
   - GCP: `GOOGLE_APPLICATION_CREDENTIALS` pointing to a service-account key file, or `gcloud auth application-default login`
-- **Terraform modules** — the release tarball bundles `platform/infra/` inside the extracted directory. If you are using a source checkout instead of the tarball, set `SUN_HOME` to the repo root:
-  ```bash
-  export SUN_HOME=/path/to/sun
-  ```
-  This is only needed for source checkouts; the tarball bundle resolves modules automatically.
+- **Terraform modules** — the release tarball bundles `platform/infra/`. For source checkouts, set `SUN_HOME` to the repo root.
 
 ### Usage
 
@@ -491,13 +470,12 @@ sun cloud init --gcp
 
 # Dry-run: show terraform plan without creating resources
 sun cloud init --aws --dry-run
-sun cloud init --gcp --dry-run
 
 # Pass a Terraform variables file
 sun cloud init --aws --var-file prod.tfvars
 ```
 
-On success the command prints the key provisioned endpoints, for example:
+On success the command prints the key provisioned endpoints:
 
 ```
   cluster_name                  sun-prod
@@ -509,30 +487,7 @@ On success the command prints the key provisioned endpoints, for example:
 
 Sensitive outputs (database passwords, connection strings) are never printed; retrieve them with `terraform output -raw <name>` if needed.
 
-### `sun cloud deploy` — build and record a hosted release
-
-```bash
-# Build images, push to a registry, and record a release
-sun cloud deploy --environment production --registry ghcr.io/your-org
-
-# Dry-run: print project/env/tag without building or recording
-sun cloud deploy --environment staging --registry ghcr.io/your-org --dry-run
-```
-
-`CLOUD_REGISTRY` may be set in the environment instead of passing `--registry` on every invocation.
-
-### `sun cloud releases` — list recent releases
-
-```bash
-sun cloud releases          # page 1 (default page size: 20)
-sun cloud releases --page 2
-```
-
-### `sun cloud logs` — stream a release's deploy log
-
-```bash
-sun cloud logs --release rel-myworkspace-1718200000000
-```
+Once infrastructure is provisioned, use `sun deploy` to deploy your services into it.
 
 ---
 
