@@ -15,7 +15,13 @@ let string_contains ~needle haystack =
   if nl = 0 then true
   else if nl > hl then false
   else
-    let rec go i = i <= hl - nl && (String.sub haystack i nl = needle || go (i + 1)) in
+    let stop = hl - nl in
+    let rec go i =
+      if i > stop then false
+      else
+        let rec cmp j = j = nl || needle.[j] = haystack.[i + j] && cmp (j + 1) in
+        cmp 0 || go (i + 1)
+    in
     go 0
 
 let read_cmdline pid =

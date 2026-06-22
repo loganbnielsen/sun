@@ -9,30 +9,8 @@ type result = {
   stderr : string;
 }
 
-let signal_number n =
-  if n >= 0 then n
-  else if n = Sys.sigabrt then 6
-  else if n = Sys.sigalrm then 14
-  else if n = Sys.sigfpe then 8
-  else if n = Sys.sighup then 1
-  else if n = Sys.sigill then 4
-  else if n = Sys.sigint then 2
-  else if n = Sys.sigkill then 9
-  else if n = Sys.sigpipe then 13
-  else if n = Sys.sigquit then 3
-  else if n = Sys.sigsegv then 11
-  else if n = Sys.sigterm then 15
-  else if n = Sys.sigusr1 then 10
-  else if n = Sys.sigusr2 then 12
-  else if n = Sys.sigchld then 17
-  else if n = Sys.sigcont then 18
-  else if n = Sys.sigstop then 19
-  else if n = Sys.sigtstp then 20
-  else if n = Sys.sigttin then 21
-  else if n = Sys.sigttou then 22
-  else if n = Sys.sigvtalrm then 26
-  else if n = Sys.sigprof then 27
-  else abs n
+(* ponytail: OCaml stores signals as -(posix_n) on Linux; abs gives the POSIX number *)
+let signal_number n = abs n
 
 let status_of_unix = function
   | Unix.WEXITED n   -> Exited n
