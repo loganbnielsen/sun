@@ -107,7 +107,7 @@ let new_workspace name =
   write ~path:(name ^ "/test/dune")            ~content:(subst v ws_test_dune);
   let linked = link_sun_sources name in
   Printf.printf {|
-Done. 26 files generated.
+Done. 27 files generated.
 
   cd %s
   eval $(opam env) && dune build   # verify the scaffold compiles

@@ -130,7 +130,7 @@ cd pluto
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
-This generates 26 files. Here is what was created and why:
+This generates 27 files. Here is what was created and why:
 
 ```
 pluto/
@@ -146,6 +146,7 @@ pluto/
   events/payments/
     charged.ml                    ← the Charged event contract
     dune
+    sun.toml                      ← declares the Kafka topic name for auto-provisioning
 
   app/payments/charge_svc/
     lib/handler.ml                ← HTTP route handlers
