@@ -11,7 +11,7 @@ integrations/storage/sun-storage/
   lib/
     storage_error.ml/.mli   ← typed error ADT
     db.ml/.mli              ← pool, exec/find/collect/transaction
-    migration.ml/.mli       ← apply/status, sun_schema_migrations tracking
+    migration.ml/.mli       ← apply/status/rollback, tracking table management
     table.ml/.mli           ← Table.Make(SCHEMA) functor
     dune
   test/
@@ -85,17 +85,57 @@ let () =
 ### `Migration`
 
 ```ocaml
-type migration_status = {
+type status = {
   version    : int;
   name       : string;
-  applied_at : string option;
+  applied_at : string option;  (* None if not yet applied *)
 }
 
-val apply  : Db.pool -> dir:string -> (unit, Storage_error.t) result
-val status : Db.pool -> dir:string -> (migration_status list, Storage_error.t) result
+(** Apply all pending SQL migrations from [dir].
+    Pass [~table] to use a per-workspace tracking table, avoiding version-number
+    collisions when multiple workspaces share the same database in development.
+    The default table name is "sun_schema_migrations".
+    Calling apply twice is a no-op for already-applied migrations. *)
+val apply
+  :  ?table:string
+  -> Db.pool
+  -> dir:string
+  -> (unit, Storage_error.t) result
+
+(** Return one entry per migration file, showing whether each version has been
+    applied and when. Pass [~table] to match the table used in [apply]. *)
+val status
+  :  ?table:string
+  -> Db.pool
+  -> dir:string
+  -> (status list, Storage_error.t) result
+
+(** Roll back the last applied migration by running the companion
+    [NNNN_name.down.sql] file and removing the version record from the tracking
+    table. Fails if no migrations are applied or if the down-migration file does
+    not exist. Pass [~table] to match the table used in [apply]. *)
+val rollback
+  :  ?table:string
+  -> Db.pool
+  -> dir:string
+  -> (unit, Storage_error.t) result
 ```
 
-Migration files follow the naming convention `NNNN_description.sql` (e.g. `0001_init.sql`). Applied versions are tracked in a `sun_schema_migrations` table created automatically. Calling `apply` twice is a no-op for already-applied migrations.
+Migration files follow the naming convention `NNNN_description.sql` (e.g. `0001_init.sql`).
+Down-migration files follow `NNNN_description.down.sql` (required for `rollback`).
+Applied versions are tracked in a table created automatically on first `apply`.
+
+**`~table` parameter:** The default tracking table name is `"sun_schema_migrations"`. When
+multiple workspaces share the same database in development (e.g. `sun dev up` with a single
+PostgreSQL instance), pass a workspace-scoped name to avoid version-number collisions:
+
+```ocaml
+Migration.apply ~table:"myworkspace_schema_migrations" pool ~dir:"db/migrations"
+```
+
+The `sun migrate` CLI derives the table name automatically from the workspace directory name
+(`sun_<workspace>_schema_migrations`), so manual `~table` wiring is only needed when calling
+`Migration` directly.
 
 **Tracking table schema:**
 ```sql
@@ -202,5 +242,3 @@ caqti-driver-postgresql
 - Update/upsert helpers (use `Db.exec` with a hand-written query)
 - Query builder / DSL
 - Multiple database backends (PostgreSQL is Sun's opinionated default)
-- Migration rollback (apply is append-only; rollbacks are manual SQL)
-- `sun migrate` CLI command (Phase 5)
