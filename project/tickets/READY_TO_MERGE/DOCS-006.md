@@ -19,3 +19,6 @@ The spec also does not mention the `?table:string` optional parameter on `apply`
 1. Remove the "Out of Scope / one-directional in v1" note.
 2. Add `Migration.rollback` to the spec's API table with its signature.
 3. Add a note explaining the `?table` parameter on all three functions and how it relates to the CLI's workspace-prefixed default.
+
+## Review — automated checks passed
+All remediation items implemented correctly: rollback removed from Out of Scope, sun migrate CLI removed from Out of Scope, rollback documented with correct signature, ~table documented on apply/status/rollback, workspace-isolation use case explained, sun migrate CLI table naming relationship noted, project/tickets/ untouched.

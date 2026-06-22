@@ -19,3 +19,6 @@ The spec also documents `Make(W).run` with only `env`, `config`, and `?ot`. The 
 1. Update the `WORKER` module type section to add `~trace_ctx:Obs_trace.t option` to `handle`.
 2. Update the `Make(W).run` section to show all six parameters with brief descriptions.
 3. Add a short section documenting `retry_strategy` (the `In_memory` vs `Retry_topics` ADT) since it is now a user-configurable type.
+
+## Review — automated checks passed
+All remediation items verified: trace_ctx added to WORKER.handle, Make(W).run documents all 5 optional params, retry_strategy section added, no stale signatures remain, project/tickets/ untouched.

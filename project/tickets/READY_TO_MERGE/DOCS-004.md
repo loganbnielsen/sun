@@ -19,3 +19,6 @@ The spec also states (in a "Note" block) that topic auto-provisioning is "planne
 1. Update the spec's `config` record to include `admin_url : string` and `security : Kafka_security.t`.
 2. Add a callout recommending `Kafka_service.config_of_env ()` as the standard way to construct config from environment variables.
 3. Remove the "planned for v2 / external" note on topic provisioning and replace with accurate description of `register`'s behavior.
+
+## Review — automated checks passed
+All remediation items correctly applied: config record includes admin_url and security, stale v2/external note removed, config_of_env documented, create signature drops clock, register gains ~clock, publish shows ?trace_ctx, consume shows trace_ctx in handler with optional params, consume_partitioned documented, retry_strategy documented, Schema module documented, Confluent_wire documented, example uses config_of_env and updated signatures, no project/tickets/ changes in diff.
