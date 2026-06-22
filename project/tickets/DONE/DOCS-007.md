@@ -19,3 +19,6 @@ ROADMAP.md Deployment Ownership Lanes table and Phase 7 notes reference the remo
 1. Remove the "Sun Hosted" row from the Deployment Ownership Lanes table, or replace it with a brief struck-through entry noting it was removed in favour of the self-hosted model.
 2. Replace the Phase 6 "Sun-hosted executor" forward reference with a note that the spike was removed.
 3. Add a Phase 7 footnote: the hosted executor and model modules were deleted as part of the self-hosted refocus on 2026-06-22.
+
+## Review — automated checks passed
+All three remediation items addressed correctly; diff confined to docs/planning/ROADMAP.md; build passes; no new stale references.

@@ -19,3 +19,6 @@ WORK_SUMMARY.md top-section ticket table and deployment-lane description are sta
 1. Update the status table at the top to reflect that all post-dogfood tickets are in DONE.
 2. Replace the four-lane description with the three-lane model (Local Dev, Exported Self-Managed, Managed Customer Cloud — Sun Hosted removed/deferred).
 3. Add a brief "2026-06-22" entry noting the managed-hosting layer removal and self-hosted refocus.
+
+## Review — automated checks passed
+All three remediation items addressed: ticket table updated to DONE, Sun Hosted lane removed with dated note, 2026-06-22 entry added; diff confined to WORK_SUMMARY.md; build clean.
