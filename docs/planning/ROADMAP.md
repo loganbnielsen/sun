@@ -65,7 +65,8 @@ Sun has one app model and three deployment ownership lanes.
 | Local Dev | Developer machine | `sun dev up`, `sun dev run`, `sun up` | Provision local substrate, run app, expose logs/metrics |
 | Managed Customer Cloud | Customer cloud account, Sun substrate shape | high-level env/provider/tier config | Provision/update Sun's standard substrate, deploy app, operate release workflow |
 | Exported Self-Managed | Customer | generated Terraform/manifests/GitOps artifacts | Generate artifacts and inspect releases; customer owns apply/drift/ops |
-| Sun Hosted | Sun | `sun cloud deploy` | Own substrate, builders, registry, URLs, TLS, logs, release history, billing |
+
+> **Sun Hosted (removed 2026-06-22):** A fourth lane was spiked in Phase 7 and subsequently removed. Sun's identity is a self-hosted platform; users always own their infrastructure. The `sun cloud deploy/releases/logs` commands and the managed-hosting registry and control-plane modules have been deleted.
 
 The overlap is the app model and deployment plan, not shared Terraform editing.
 If a user edits generated Terraform, they have moved from managed customer-cloud
@@ -584,7 +585,7 @@ sun deploy --emit-to /tmp/manifests --image-tag $SHA --registry $REGISTRY
 # → Argo CD detects the change and applies it
 ```
 
-**Sun-hosted executor** — experimental mock boundary only; see Phase 7.
+**Sun-hosted executor** — spiked in Phase 7 and subsequently removed (2026-06-22). Sun's model is self-hosted; `sun cloud deploy` and the hosted runtime modules no longer exist.
 
 ### `sun.toml` supported fields
 
@@ -644,22 +645,25 @@ manual promotion) both supported. Teams opt in by adding a few lines to `sun.tom
 image build/push, deployment plan export, and GitOps manifest emit steps. Secret
 and registry placeholders are explicit.
 
-### ~~Sun-hosted executor spike (FEAT-010)~~ ✓ done
+### ~~Sun-hosted executor spike (FEAT-010)~~ ✓ done → modules removed 2026-06-22
 
-`Sun_cli_hosted_executor` implemented: `submit_mock`, `image_refs_of_plan`, typed release
-response, and the full request/response model. `Sun_cli_hosted_model` covers accounts,
-projects, runtimes, environments, billing guardrails, and release targets. DEC-001..DEC-007
-resolved. Full-stack hosted path unblocked for FEAT-015 (diagnostics) and FEAT-017 (URLs).
+`Sun_cli_hosted_executor` and `Sun_cli_hosted_model` were implemented as a mock
+boundary for the hosted path. DEC-001..DEC-007 resolved. The spike was subsequently
+removed on 2026-06-22 as part of the self-hosted product refocus — these modules no
+longer exist in the codebase.
 
 ### ~~Hosted release inspection and diagnostics (FEAT-015)~~ ✓ done
 
 `Sun_cli_release_inspection` defines the Sun-native release inspection surface:
 deployment-plan summary, image refs, affected services, rollout status, health
 status, error reasons, rendered manifest facts, reconciliation events,
-Kubernetes event summaries, and raw failure details. `Sun_cli_hosted_executor`
-embeds an inspection summary in hosted mock release responses.
+Kubernetes event summaries, and raw failure details.
 
-### ~~Hosted default URLs and custom-domain flow (FEAT-017)~~ ✓ done
+> Note: `Sun_cli_hosted_executor` references in this section were removed with the hosted layer deletion (2026-06-22). `Sun_cli_release_inspection` itself is retained.
+
+### ~~Hosted default URLs and custom-domain flow (FEAT-017)~~ ✓ done → removed 2026-06-22
+
+`Sun_cli_hosted_url` (DNS-safe URL generation) was part of this work and has been deleted.
 
 ---
 
