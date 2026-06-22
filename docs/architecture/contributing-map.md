@@ -45,8 +45,7 @@ workspace scan -> environment resolution -> deployment plan -> executor
 ```
 
 The main owners are `Sun_cli_workspace_scan`, `Sun_cli_env_target`,
-`Sun_cli_deployment_plan`, `Sun_cli_deployment_render`, and
-`Sun_cli_executor`. Hosted behavior belongs behind `Sun_cli_hosted_executor` and
+`Sun_cli_deployment_plan`, and `Sun_cli_executor`. Hosted behavior belongs behind `Sun_cli_hosted_executor` and
 the hosted model/control-plane modules. The architecture direction is documented
 in `docs/architecture/PRODUCT_ARCHITECTURE.md`.
 

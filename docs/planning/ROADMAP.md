@@ -627,7 +627,7 @@ After `terraform apply`, the cluster looks identical to `sun dev up` — same in
 
 ---
 
-## ~~Phase 7 — Progressive Delivery, CI Scaffold, Sun-Hosted Executor~~ ✓ done (core deliverables)
+## ~~Phase 7 — Progressive Delivery, CI Scaffold, Sun-Hosted Executor~~ ✓ done
 
 Phase 7 covered the work remaining after the Phase 6 deployment pipeline.
 
@@ -659,11 +659,7 @@ status, error reasons, rendered manifest facts, reconciliation events,
 Kubernetes event summaries, and raw failure details. `Sun_cli_hosted_executor`
 embeds an inspection summary in hosted mock release responses.
 
-### Remaining Phase 7 work
-
-| Ticket | Description | Blocked on |
-|--------|-------------|------------|
-| FEAT-017 | Hosted default URLs and custom-domain flow | DEC-005 |
+### ~~Hosted default URLs and custom-domain flow (FEAT-017)~~ ✓ done
 
 ---
 

@@ -97,4 +97,4 @@ EXP-005  → READY_TO_MERGE          build ✓  ClusterIP fix verified
 
 Human next steps:
 - `project/tickets/READY_TO_MERGE/` — run `sundev pipeline merge` to merge all branches automatically
-- `project/tickets/READY_FOR_ENGINEERING/` — pick up with `/start` to resume in the existing worktree
+- `project/tickets/READY_FOR_ENGINEERING/` — pick up with `/work <ticket-id>` to resume in the existing worktree

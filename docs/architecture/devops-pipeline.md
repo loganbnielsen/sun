@@ -32,7 +32,7 @@ CLI flags
     │              └─ consumer_groups
     │
     ▼
-[Render]  Sun_cli_deployment_render.render_spec
+[Render]  Sun_cli_deployment_plan.render_spec
     │   Inputs:  service_spec, secret_backend variant
     │   Output:  (namespace_yaml * workload_yaml) result
     │              Workload shape: Render_svc | Render_worker | Render_fn
@@ -259,7 +259,7 @@ Sun_cli_deployment_plan.of_services_result
           │
           │  [sun up: also builds + pushes Docker images here]
           ▼
-Sun_cli_deployment_render.render_spec  (per service)
+Sun_cli_deployment_plan.render_spec  (per service)
           │  (namespace_yaml, workload_yaml) result
           │
           │  Secret backend switch:
@@ -378,8 +378,8 @@ and the `artifact_invariants` test suite.
 | No privilege escalation | `containers[].securityContext.allowPrivilegeEscalation: false` | Enforced | Container-level; all primitives |
 | Read-only root filesystem | `containers[].securityContext.readOnlyRootFilesystem: true` | Enforced | Container-level; all primitives |
 | GitOps secret redaction | `Secret.stringData` values are empty strings | Enforced | `Kubernetes_placeholder` mode only |
-| Workspace label | `metadata.labels["sun.dev/workspace"]` | Planned | Not yet emitted; tracked in CODEX_STYLE_AUDIT-072 |
-| Domain label | `metadata.labels["sun.dev/domain"]` | Planned | Not yet emitted; tracked in CODEX_STYLE_AUDIT-072 |
+| Workspace label | `metadata.labels["sun.dev/workspace"]` | Planned | Not yet emitted; implementation reverted (CODEX_STYLE_AUDIT-072), back to backlog |
+| Domain label | `metadata.labels["sun.dev/domain"]` | Planned | Not yet emitted; implementation reverted (CODEX_STYLE_AUDIT-072), back to backlog |
 
 ### What is covered by `assert_k8s_invariants`
 

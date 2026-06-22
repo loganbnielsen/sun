@@ -30,7 +30,7 @@ sun/
  (libraries <deps>))
 ```
 
-3. Write the design document `<name>.md` in the repo root, following the pattern of `kafka-eio-core.md`:
+3. Write the design document `<name>.md` in the package directory (e.g. `<name>/<name>.md`), following the pattern of `kafka-eio-core/kafka-eio-core.md`:
    - Overview
    - Package Structure
    - Public API (with typed signatures)
