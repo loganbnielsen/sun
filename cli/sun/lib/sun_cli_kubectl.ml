@@ -9,7 +9,10 @@ let apply_dry_run ~file =
   run_ok (cmd ["kubectl"; "apply"; "-f"; file; "--dry-run=server"])
 
 let get ~resource ~name ~namespace ~output =
-  run (cmd ["kubectl"; "get"; resource; name; "-n"; namespace; "-o"; output])
+  match run (cmd ["kubectl"; "get"; resource; name; "-n"; namespace; "-o"; output]) with
+  | Ok r when r.Sun_cli_process.exit_code <> 0 ->
+    Error (Sun_cli_process.Non_zero { exit_code = r.exit_code; stderr = r.stderr })
+  | other -> other
 
 let get_raw ~args =
   run (cmd (["kubectl"] @ args))
