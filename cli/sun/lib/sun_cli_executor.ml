@@ -24,12 +24,6 @@ let local ~dry_run spec =
     Sun_cli_manifest.apply yaml ~dry_run;
     make_result spec
 
-let direct ~dry_run spec =
-  match Sun_cli_deployment_plan.render_spec spec with
-  | Error msg -> failwith msg
-  | Ok yaml ->
-    Sun_cli_manifest.apply yaml ~dry_run;
-    make_result spec
 
 let gitops ~dir ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) spec =
   match Sun_cli_deployment_plan.render_spec ~secret_backend spec with

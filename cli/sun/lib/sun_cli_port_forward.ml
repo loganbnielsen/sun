@@ -10,6 +10,13 @@ type spec = {
 (* Internal helpers                                                     *)
 (* ------------------------------------------------------------------ *)
 
+let string_contains ~needle haystack =
+  let nl = String.length needle and hl = String.length haystack in
+  if nl = 0 then true
+  else if nl > hl then false
+  else
+    let rec go i = i <= hl - nl && (String.sub haystack i nl = needle || go (i + 1)) in
+    go 0
 
 let read_cmdline pid =
   match Sun_cli_process.run
@@ -107,7 +114,7 @@ let is_running name =
             | Unix.Unix_error _ -> true)
       in
       let args = if alive then read_cmdline pid else "" in
-      let ok = alive && Sun_cli_shell.string_contains ~needle:(Printf.sprintf "sun-pf-%s.sh" name) args in
+      let ok = alive && string_contains ~needle:(Printf.sprintf "sun-pf-%s.sh" name) args in
       if not ok then (try Sys.remove pf with _ -> ());
       ok
     with _ ->

@@ -181,28 +181,6 @@ let test_terraform_which_check_returns_bool () =
   let result = Sun_cli_terraform.which_check () in
   check_bool "returns a bool (true or false)" true (result || not result)
 
-(* ── Sun_cli_git ──────────────────────────────────────────────────────────── *)
-
-let test_git_rev_parse_argv () =
-  let c = Sun_cli_process.cmd ["git"; "rev-parse"; "--short"; "HEAD"] in
-  check_str "argv[0]" "git"         (List.nth c.Sun_cli_process.argv 0);
-  check_str "argv[1]" "rev-parse"   (List.nth c.Sun_cli_process.argv 1);
-  check_str "argv[2]" "--short"     (List.nth c.Sun_cli_process.argv 2);
-  check_str "argv[3]" "HEAD"        (List.nth c.Sun_cli_process.argv 3)
-
-let test_git_rev_parse_short_returns_string () =
-  let sha = Sun_cli_git.rev_parse_short () in
-  check_bool "non-empty" true (String.length sha > 0)
-
-let test_git_rev_parse_short_fallback_in_non_repo () =
-  let saved = Unix.getcwd () in
-  let tmpdir = Filename.get_temp_dir_name () in
-  Unix.chdir tmpdir;
-  let sha = Sun_cli_git.rev_parse_short () in
-  Unix.chdir saved;
-  check_bool "fallback is 'dev' or a valid sha" true
-    (sha = "dev" || String.length sha >= 4)
-
 (* ── suite ───────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -244,10 +222,5 @@ let () =
         Alcotest.test_case "apply argv"               `Quick test_terraform_apply_argv;
         Alcotest.test_case "output json argv"         `Quick test_terraform_output_json_argv;
         Alcotest.test_case "which_check returns bool" `Quick test_terraform_which_check_returns_bool;
-      ];
-      "git_argv", [
-        Alcotest.test_case "rev_parse argv"            `Quick test_git_rev_parse_argv;
-        Alcotest.test_case "rev_parse_short returns"   `Quick test_git_rev_parse_short_returns_string;
-        Alcotest.test_case "fallback in non-repo"      `Quick test_git_rev_parse_short_fallback_in_non_repo;
       ];
     ]

@@ -18,11 +18,6 @@ val local : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
     applied.  Pass [~image] indirectly via the spec; callers that need to
     show a push-registry image should override [spec.image] before calling. *)
 
-val direct : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
-(** Apply to the current kube context (CI/production direct-k8s mode).
-    Identical to [local] at the executor level — both apply to whatever
-    context [kubectl] is pointing at.  The distinction is purely in how the
-    surrounding command constructs the env target and plan. *)
 
 val gitops :
   dir:string ->

@@ -412,7 +412,7 @@ let test_local_executor_result_fields () =
     r.Sun_cli_executor.image
 
 let test_direct_executor_result_fields () =
-  let r = Sun_cli_executor.direct ~dry_run:true svc_spec in
+  let r = Sun_cli_executor.local ~dry_run:true svc_spec in
   Alcotest.(check string) "direct namespace" "myapp-payments" r.Sun_cli_executor.namespace;
   Alcotest.(check string) "direct name"      "charge-svc"     r.Sun_cli_executor.name;
   Alcotest.(check string) "direct image"
@@ -435,7 +435,7 @@ let test_local_worker_executor_result_fields () =
   Alcotest.(check string) "local worker name"      "notify-worker" r.Sun_cli_executor.name
 
 let test_direct_fn_executor_result_fields () =
-  let r = Sun_cli_executor.direct ~dry_run:true fn_spec in
+  let r = Sun_cli_executor.local ~dry_run:true fn_spec in
   Alcotest.(check string) "direct fn namespace" "myapp-billing" r.Sun_cli_executor.namespace;
   Alcotest.(check string) "direct fn name"      "invoice-fn"    r.Sun_cli_executor.name
 
@@ -486,7 +486,7 @@ let test_local_and_direct_share_plan_type () =
     List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
   in
   let direct_results =
-    List.map (Sun_cli_executor.direct ~dry_run:true) plan.Sun_cli_deployment_plan.services
+    List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
   in
   Alcotest.(check int) "same result count" (List.length local_results) (List.length direct_results);
   let lr = List.hd local_results and dr = List.hd direct_results in
@@ -504,7 +504,7 @@ let test_gitops_shares_plan_type () =
       List.map (Sun_cli_executor.gitops ~dir) plan.Sun_cli_deployment_plan.services
     in
     let direct_results =
-      List.map (Sun_cli_executor.direct ~dry_run:true) plan.Sun_cli_deployment_plan.services
+      List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
     in
     let gr = List.hd gitops_results and dr = List.hd direct_results in
     Alcotest.(check string) "gitops namespace = direct namespace"

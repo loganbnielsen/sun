@@ -6,12 +6,15 @@ type infra_requirements = {
 }
 
 
-let read_file path =
-  let ic = open_in path in
-  let n = in_channel_length ic in
-  let s = really_input_string ic n in
-  close_in ic;
-  s
+let read_file path = In_channel.with_open_text path In_channel.input_all
+
+let string_contains ~needle haystack =
+  let nl = String.length needle and hl = String.length haystack in
+  if nl = 0 then true
+  else if nl > hl then false
+  else
+    let rec go i = i <= hl - nl && (String.sub haystack i nl = needle || go (i + 1)) in
+    go 0
 
 (** Count .sql files in [dir]/db/migrations.  Returns 0 if the directory does
     not exist.  Used by [sun up] to warn users about unapplied migrations. *)
@@ -40,10 +43,10 @@ let scan ~dir =
           if entry = "dune" then begin
             (try
               let content = read_file path in
-              if Sun_cli_shell.string_contains ~needle:"kafka_eio_service"  content then kafka      := true;
-              if Sun_cli_shell.string_contains ~needle:"sun_storage"        content then postgres   := true;
-              if Sun_cli_shell.string_contains ~needle:"obs_eio_loki"       content then loki       := true;
-              if Sun_cli_shell.string_contains ~needle:"obs_eio_prometheus" content then prometheus := true;
+              if string_contains ~needle:"kafka_eio_service"  content then kafka      := true;
+              if string_contains ~needle:"sun_storage"        content then postgres   := true;
+              if string_contains ~needle:"obs_eio_loki"       content then loki       := true;
+              if string_contains ~needle:"obs_eio_prometheus" content then prometheus := true;
             with _ -> ())
           end else if Sys.is_directory path then
             collect path

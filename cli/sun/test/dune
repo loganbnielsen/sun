@@ -1,13 +1,10 @@
 (tests
  (names
-  test_helm_val
   test_deployment_plan
   test_env_target
   test_manifest_render
   test_executor
-  test_hosted_model
   test_secret
-  test_hosted_executor
   test_registry
   test_control_plane
   test_pg_registry

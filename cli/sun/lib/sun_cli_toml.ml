@@ -352,6 +352,7 @@ let parse_steps path doc =
 (* ── Loader ──────────────────────────────────────────────────────────────── *)
 
 let load_result path =
+  try
   if not (Sys.file_exists path) then Ok empty
   else begin
     let* doc =
@@ -493,10 +494,7 @@ let load_result path =
          schedule;
          topics }
   end
-
-let load_result path =
-  try load_result path with
-  | Otoml.Type_error message -> Error (Validation { path; message })
+  with Otoml.Type_error message -> Error (Validation { path; message })
 
 let load path =
   match load_result path with

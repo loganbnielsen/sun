@@ -4,7 +4,6 @@
  (libraries unix yojson cmdliner otoml sun_process)
  (modules
   Sun_cli_process
-  Sun_cli_shell
   Sun_cli_scaffold
   Sun_cli_scaffold_templates
   Sun_cli_workspace
@@ -14,16 +13,13 @@
   Sun_cli_plan_ids
   Sun_cli_workspace_scan
   Sun_cli_kubernetes_name
-  Sun_cli_deployment_render
   Sun_cli_deployment_plan
   Sun_cli_env_target
   Sun_cli_executor
   Sun_cli_change_set
-  Sun_cli_hosted_model
   Sun_cli_release_inspection
   Sun_cli_secret
   Sun_cli_hosted_url
-  Sun_cli_hosted_executor
   Sun_cli_registry
   Sun_cli_control_plane
   Sun_cli_cmd_new
@@ -36,5 +32,4 @@
   Sun_cli_rollback
   Sun_cli_docker
   Sun_cli_helm
-  Sun_cli_terraform
-  Sun_cli_git))
+  Sun_cli_terraform))

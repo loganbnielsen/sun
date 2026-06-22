@@ -1,5 +1,6 @@
 open Cmdliner
 open Sun_cli_manifest
+open Sun_cli_helm
 
 let check_tool name install_url =
   match Sun_cli_process.run (Sun_cli_process.cmd ["which"; name]) with
@@ -22,12 +23,7 @@ let registry_port = 5000
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
 let helm_install release chart ~namespace ?(values = []) () =
-  let helm_values = List.map (fun (k, v) -> k, match v with
-    | Bool  b -> Sun_cli_helm.Bool b
-    | Float f -> Sun_cli_helm.Float f
-    | Str   s -> Sun_cli_helm.Str s) values
-  in
-  match Sun_cli_helm.upgrade_install ~release ~chart ~namespace ~values:helm_values () with
+  match upgrade_install ~release ~chart ~namespace ~values () with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 

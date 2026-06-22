@@ -1,6 +1,7 @@
 type k8s_name
 type namespace
 
+val validate_dns_label : string -> (unit, string) result
 val make_k8s_name : string -> (k8s_name, string) result
 (** Validate an already-normalized Kubernetes object name. *)
 

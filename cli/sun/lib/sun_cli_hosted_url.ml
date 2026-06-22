@@ -7,17 +7,7 @@ let dns_domain_to_string (Dns_domain s) = s
 let positive_ttl_to_int (Positive_ttl ttl) = ttl
 
 let valid_dns_label s =
-  let len = String.length s in
-  len > 0
-  && len <= 63
-  && (match s.[0], s.[len - 1] with
-      | ('a' .. 'z' | '0' .. '9'), ('a' .. 'z' | '0' .. '9') -> true
-      | _ -> false)
-  && String.for_all
-    (function
-      | 'a' .. 'z' | '0' .. '9' | '-' -> true
-      | _ -> false)
-    s
+  Result.is_ok (Sun_cli_kubernetes_name.validate_dns_label s)
 
 let make_dns_label s =
   let s = String.lowercase_ascii s in

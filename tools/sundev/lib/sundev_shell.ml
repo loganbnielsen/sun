@@ -1,7 +1,4 @@
-let read_file path =
-  let ic = open_in path in
-  let s = In_channel.input_all ic in
-  close_in ic; s
+let read_file path = In_channel.with_open_text path In_channel.input_all
 
 let run_cmd ?(echo = true) cmd =
   Sun_process.run_shell_rc ~echo cmd

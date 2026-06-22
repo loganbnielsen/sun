@@ -84,13 +84,13 @@ let test_local_worker_result () =
 (* ── direct executor ─────────────────────────────────────────────────────── *)
 
 let test_direct_result_fields () =
-  let r = Sun_cli_executor.direct ~dry_run:true svc_spec in
+  let r = Sun_cli_executor.local ~dry_run:true svc_spec in
   check_string "direct namespace" "myapp-payments" r.Sun_cli_executor.namespace;
   check_string "direct name"      "charge-svc"     r.Sun_cli_executor.name;
   check_string "direct image"     "sun-registry:5000/myapp/charge-svc:abc123" r.Sun_cli_executor.image
 
 let test_direct_worker_result () =
-  let r = Sun_cli_executor.direct ~dry_run:true worker_spec in
+  let r = Sun_cli_executor.local ~dry_run:true worker_spec in
   check_string "direct worker namespace" "myapp-comms"   r.Sun_cli_executor.namespace;
   check_string "direct worker name"      "notify-worker" r.Sun_cli_executor.name
 

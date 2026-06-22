@@ -16,19 +16,8 @@ let system_ca_bundle_paths =
   ]
 
 let read_file path =
-  let ic = ref None in
-  try
-    let ch = open_in path in
-    ic := Some ch;
-    let n = in_channel_length ch in
-    let s = Bytes.create n in
-    really_input ch s 0 n;
-    close_in ch;
-    ic := None;
-    Some (Bytes.to_string s)
-  with _ ->
-    Option.iter close_in_noerr !ic;
-    None
+  try Some (In_channel.with_open_text path In_channel.input_all)
+  with _ -> None
 
 let load_certificates ca_paths =
   ca_paths
