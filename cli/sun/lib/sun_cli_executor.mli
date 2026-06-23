@@ -12,6 +12,8 @@ type result = {
 }
 (** Summary of what was applied or emitted for a single service. *)
 
+type mode = Dry_run | Emit_to of string | Apply
+
 val local : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
 (** Apply to the local k3d cluster (current kube context).
     In dry-run mode the rendered YAML is printed to stdout rather than
@@ -30,3 +32,15 @@ val gitops :
     emitted instead of a placeholder Kubernetes Secret.
     Returns [result] with [namespace] and [name] from the spec and
     [image] from the spec. *)
+
+val run_plan :
+  mode:mode ->
+  ?secret_backend:Sun_cli_manifest.secret_backend ->
+  Sun_cli_deployment_plan.t ->
+  (result list, string) Stdlib.result
+(** [run_plan ~mode ?secret_backend plan] renders all service specs upfront
+    (returning [Error msg] on the first render failure before any side effect),
+    then executes according to [mode]:
+    - [Dry_run]    — prints rendered YAML to stdout; no kubectl called.
+    - [Emit_to dir] — writes YAML files under [dir]; no kubectl called.
+    - [Apply]      — applies manifests to the current kube context via kubectl. *)

@@ -56,11 +56,11 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     ~on_decode_error ~on_retry ~handler () =
   let retry_topic_name =
     Kafka_service_intf.topic_name_exn
-      (Kafka_service_intf.topic_name_to_string topic.name ^ "-retry")
+      (topic.name ^ "-retry")
   in
   let dlq_topic_name =
     Kafka_service_intf.topic_name_exn
-      (Kafka_service_intf.topic_name_to_string topic.name ^ "-dlq")
+      (topic.name ^ "-dlq")
   in
   let rk_prod = Kafka_producer.raw_handle svc.producer in
   (match Kafka_service_intf.ensure_topic rk_prod ~topic_name:retry_topic_name
@@ -81,24 +81,23 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     in
     match Eio.Promise.await (
       Kafka_producer.produce_await svc.producer
-        ~topic:(Kafka_service_intf.topic_name_to_string target_topic)
+        ~topic:target_topic
         ~value:raw_bytes ~headers:new_headers ()
     ) with
     | Ok ()  -> Ok ()
     | Error e ->
       Printf.eprintf
         "sun-worker: PUBLISH_FAILED target=%s attempt=%d error=%s — not acking\n%!"
-        (Kafka_service_intf.topic_name_to_string target_topic)
+        target_topic
         attempt (Kafka_error.to_string e);
       Error e
   in
   let consumer_cfg : Kafka_consumer.config = {
     brokers      = svc.brokers;
     group_id;
-    topics       = [Kafka_service_intf.topic_name_to_string topic.name];
+    topics       = [topic.name];
     offset_reset = Kafka_consumer.Latest;
     auto_commit  = false;
-    on_rebalance = None;
     security     = svc.security;
   } in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
@@ -107,10 +106,9 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     let retry_consumer_cfg : Kafka_consumer.config = {
       brokers      = svc.brokers;
       group_id     = group_id ^ "-sun-retry";
-      topics       = [Kafka_service_intf.topic_name_to_string retry_topic_name];
+      topics       = [retry_topic_name];
       offset_reset = Kafka_consumer.Earliest;
       auto_commit  = false;
-      on_rebalance = None;
       security     = svc.security;
     } in
     (match Kafka_consumer.create retry_consumer_cfg ~sw with

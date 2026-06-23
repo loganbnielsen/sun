@@ -67,5 +67,6 @@ val render
 
 exception Deploy_failed of string
 
+val write_tmp : string -> string
 val apply     : string * string -> dry_run:bool -> unit
 val emit_to_dir : string -> string * string -> ns:string -> name:string -> string

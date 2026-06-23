@@ -119,49 +119,39 @@ let run (req : Sun_cli_command_request.deploy_request) =
      end);
 
   let mode =
-    if req.dry_run then Sun_cli_change_set.Dry_run
+    if req.dry_run then Sun_cli_executor.Dry_run
     else match req.emit_to with
-      | Some dir -> Sun_cli_change_set.Emit_to dir
-      | None     -> Sun_cli_change_set.Apply
+      | Some dir -> Sun_cli_executor.Emit_to dir
+      | None     -> Sun_cli_executor.Apply
   in
-  let cs =
-    match Sun_cli_change_set.build ~plan ~mode ~secret_backend:req.secret_backend () with
-    | Ok cs -> cs
-    | Error msg ->
-      Printf.eprintf "\nerror: %s\n" msg;
-      exit 1
-  in
+
+  List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+    Printf.printf "[%s] %s/%s\n%!" (prim_label
+      (match spec.primitive with
+       | Sun_cli_deployment_plan.Svc    -> Svc
+       | Sun_cli_deployment_plan.Worker -> Worker
+       | Sun_cli_deployment_plan.Fn     -> Fn))
+    spec.domain spec.source_name)
+  plan.Sun_cli_deployment_plan.services;
 
   (try
-    List.iter2
-      (fun (spec : Sun_cli_deployment_plan.service_spec) art ->
-         Printf.printf "[%s] %s/%s\n%!" (prim_label
-           (match spec.primitive with
-            | Sun_cli_deployment_plan.Svc    -> Svc
-            | Sun_cli_deployment_plan.Worker -> Worker
-            | Sun_cli_deployment_plan.Fn     -> Fn))
-           spec.domain spec.source_name;
-         ignore art)
-      plan.Sun_cli_deployment_plan.services
-      cs.Sun_cli_change_set.artifacts;
-
-    let results = Sun_cli_change_set.execute cs in
-
-    List.iter2
-      (fun (r : Sun_cli_executor.result) art ->
-         match mode with
-         | Sun_cli_change_set.Emit_to dir ->
-           let path = Filename.concat dir
-             (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
-           Printf.printf "  ✓  %s\n%!" path;
-           ignore art
-         | Sun_cli_change_set.Apply ->
-           Printf.printf "  ✓  namespace %s  image %s\n\n%!" r.Sun_cli_executor.namespace r.Sun_cli_executor.image;
-           ignore art
-         | Sun_cli_change_set.Dry_run ->
-           ignore art)
-      results
-      cs.Sun_cli_change_set.artifacts
+    let results =
+      match Sun_cli_executor.run_plan ~mode ~secret_backend:req.secret_backend plan with
+      | Ok rs -> rs
+      | Error msg ->
+        Printf.eprintf "\nerror: %s\n" msg;
+        exit 1
+    in
+    List.iter (fun (r : Sun_cli_executor.result) ->
+      match mode with
+      | Sun_cli_executor.Emit_to dir ->
+        let path = Filename.concat dir
+          (Printf.sprintf "%s-%s.yaml" r.Sun_cli_executor.namespace r.Sun_cli_executor.name) in
+        Printf.printf "  ✓  %s\n%!" path
+      | Sun_cli_executor.Apply ->
+        Printf.printf "  ✓  namespace %s  image %s\n\n%!" r.Sun_cli_executor.namespace r.Sun_cli_executor.image
+      | Sun_cli_executor.Dry_run -> ())
+    results
   with Deploy_failed msg ->
     Printf.eprintf "\nerror: %s\n" msg;
     exit 1);

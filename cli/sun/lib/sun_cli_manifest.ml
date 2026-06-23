@@ -23,10 +23,9 @@ let secret_backend_to_string = function
 (* ── Service discovery ───────────────────────────────────────────────────── *)
 
 let prim_of_suffix name =
-  let n = String.length name in
-  if   n > 4 && String.sub name (n-4) 4 = "_svc"    then Some Svc
-  else if n > 7 && String.sub name (n-7) 7 = "_worker" then Some Worker
-  else if n > 3 && String.sub name (n-3) 3 = "_fn"     then Some Fn
+  if   String.ends_with ~suffix:"_svc"    name then Some Svc
+  else if String.ends_with ~suffix:"_worker" name then Some Worker
+  else if String.ends_with ~suffix:"_fn"     name then Some Fn
   else None
 
 let discover_services ~filter_path =

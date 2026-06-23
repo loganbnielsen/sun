@@ -13,6 +13,5 @@ let default_consumer_config ~group_id ~topics () : Kafka_consumer.config =
   ; topics
   ; offset_reset = Kafka_consumer.Earliest
   ; auto_commit = false
-  ; on_rebalance = None
   ; security = Kafka_security.default
   }

@@ -10,13 +10,9 @@ type retry_policy = Kafka_consumer.retry_policy = {
   max_attempts : int;
 }
 
-let default_retry = Kafka_consumer.default_retry
-
 type retry_strategy = Kafka_service.retry_strategy =
   | In_memory    of retry_policy
   | Retry_topics of { max_attempts : int }
-
-let default_retry_strategy = Kafka_service.default_retry_strategy
 
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
@@ -50,7 +46,7 @@ module Make (W : WORKER) = struct
                   ; mono_clock: _ Eio.Time.Mono.t
                   ; .. >)
       ~config ?ot ?on_ready ?stop ?max_messages
-      ?(retry_strategy = default_retry_strategy) ?_consume_loop () =
+      ?(retry_strategy = Kafka_service.default_retry_strategy) ?_consume_loop () =
     let msg_count, msg_duration =
       match ot with
       | None -> (None, None)

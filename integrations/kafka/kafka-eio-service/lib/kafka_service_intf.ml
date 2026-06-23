@@ -33,7 +33,6 @@ let topic_name_exn name =
   | Ok topic -> topic
   | Error e -> invalid_arg ("invalid Kafka topic name " ^ Printf.sprintf "%S" name ^ ": " ^ e)
 
-let topic_name_to_string topic_name = topic_name
 
 module type MESSAGE = sig
   type t
@@ -69,7 +68,7 @@ type t = {
 }
 
 let ensure_topic rk ~topic_name ~partitions =
-  let topic_name = topic_name_to_string topic_name in
+
   let err = Kafka_raw.create_topic rk ~topic_name ~partitions ~replication_factor:1 in
   if err <> 0 then
     Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_raw.err2str err))
@@ -105,7 +104,7 @@ let decode_topic_partitions body =
     Error (Topic_admin_malformed_response body)
 
 let query_topic_partitions net ~clock ~admin_url ~topic_name =
-  let topic_name = topic_name_to_string topic_name in
+
   match Kafka_service_http.http_get net ~clock ~base_url:admin_url
           ~path:(Printf.sprintf "/v1/topics/%s" topic_name) with
   | Error e -> Error (Topic_admin_request_failed e)
@@ -114,7 +113,7 @@ let query_topic_partitions net ~clock ~admin_url ~topic_name =
   | Ok (status, body) -> Error (Topic_admin_unexpected_status (status, body))
 
 let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
-  let topic_name = topic_name_to_string topic_name in
+
   let decode_err_count = match ot with
     | None -> None
     | Some o ->

@@ -24,9 +24,6 @@ type retry_policy = Kafka_consumer.retry_policy = {
       indefinitely. Default: [-1]. *)
 }
 
-val default_retry : retry_policy
-(** Exponential backoff starting at 1s, capped at 10 minutes, infinite retries. *)
-
 (** How the worker should handle transient failures from [W.handle].
 
     - [In_memory retry] (default) — exponential back-off sleep in the
@@ -41,9 +38,6 @@ val default_retry : retry_policy
 type retry_strategy = Kafka_service.retry_strategy =
   | In_memory    of retry_policy
   | Retry_topics of { max_attempts : int }
-
-val default_retry_strategy : retry_strategy
-(** [In_memory default_retry] — in-process exponential backoff, infinite retries. *)
 
 module Make (W : WORKER) : sig
   val run

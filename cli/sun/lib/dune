@@ -16,7 +16,6 @@
   Sun_cli_deployment_plan
   Sun_cli_env_target
   Sun_cli_executor
-  Sun_cli_change_set
   Sun_cli_release_inspection
   Sun_cli_secret
   Sun_cli_cmd_new

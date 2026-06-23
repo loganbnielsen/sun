@@ -115,25 +115,12 @@ let redacted_result = function
     String.concat "\n" keys
   | Hosted_unavailable msg -> msg
 
-let run_kubectl_ok argv =
-  match Sun_cli_process.run_ok (Sun_cli_process.cmd argv) with
-  | Ok () -> Ok ()
-  | Error e -> Error (Sun_cli_process.error_to_string e)
-
-let validation_error = function
-  | Ok () -> Ok ()
-  | Error msg -> Error msg
-
-let write_tmp content =
-  let path = Filename.temp_file "sun-secret-" ".yaml" in
-  let oc = open_out path in
-  output_string oc content;
-  close_out oc;
-  path
-
 let apply_manifest yaml =
-  let path = write_tmp yaml in
-  let result = run_kubectl_ok ["kubectl"; "apply"; "-f"; path] in
+  let path = Sun_cli_manifest.write_tmp yaml in
+  let result = match Sun_cli_kubectl.apply ~file:path with
+    | Ok () -> Ok ()
+    | Error e -> Error (Sun_cli_process.error_to_string e)
+  in
   (try Sys.remove path with _ -> ());
   result
 
@@ -173,15 +160,12 @@ let list_workload_secrets namespace =
   | Error _ -> []
   | Ok r when r.Sun_cli_process.exit_code <> 0 -> []
   | Ok r ->
-    let suffix = "-secrets" in
-    let slen = String.length suffix in
     String.split_on_char '\n' r.Sun_cli_process.stdout
     |> List.map String.trim
     |> List.filter (fun name ->
          name <> "" &&
          name <> Sun_cli_manifest.runtime_secret_name &&
-         String.length name >= slen &&
-         String.sub name (String.length name - slen) slen = suffix)
+         String.ends_with ~suffix:"-secrets" name)
 
 let apply_to_named_secret ~secret_name ~namespace ~key ~value =
   let* existing = get_named_secret_json ~name:secret_name namespace in
@@ -208,19 +192,11 @@ let validate_operation_context ~env ~namespaces =
     let* () = require_namespaces namespaces in
     Ok namespaces
 
-let rec iter_namespaces namespaces ~f =
-  match namespaces with
-  | [] -> Ok ()
-  | namespace :: rest ->
-    let* () = f namespace in
-    iter_namespaces rest ~f
+let iter_namespaces namespaces ~f =
+  List.fold_left (fun acc ns -> Result.bind acc (fun () -> f ns)) (Ok ()) namespaces
 
-let rec fold_namespaces namespaces ~init ~f =
-  match namespaces with
-  | [] -> Ok init
-  | namespace :: rest ->
-    let* init = f init namespace in
-    fold_namespaces rest ~init ~f
+let fold_namespaces namespaces ~init ~f =
+  List.fold_left (fun acc ns -> Result.bind acc (fun x -> f x ns)) (Ok init) namespaces
 
 let patch_workload_secrets ~namespace ~key ~value =
   list_workload_secrets namespace
@@ -232,7 +208,7 @@ let patch_workload_secrets ~namespace ~key ~value =
      | _ -> Ok ()
 
 let set ~env ~workspace:_ ~namespaces ~key ~value =
-  let* () = validation_error (validate_key key) in
+  let* () = validate_key key in
   let* namespaces = validate_operation_context ~env ~namespaces in
   let* () =
     iter_namespaces namespaces ~f:(fun namespace ->
@@ -267,7 +243,7 @@ let list ~env ~workspace:_ ~namespaces =
   Ok (Listed (List.sort_uniq String.compare keys))
 
 let delete ~env ~workspace:_ ~namespaces ~key =
-  let* () = validation_error (validate_key key) in
+  let* () = validate_key key in
   let* namespaces = validate_operation_context ~env ~namespaces in
   let patch = Printf.sprintf
     "[{\"op\":\"remove\",\"path\":\"/data/%s\"}]"

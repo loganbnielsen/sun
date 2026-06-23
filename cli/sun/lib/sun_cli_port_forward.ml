@@ -24,12 +24,6 @@ let string_contains ~needle haystack =
     in
     go 0
 
-let read_cmdline pid =
-  match Sun_cli_process.run
-      (Sun_cli_process.cmd ["ps"; "-p"; string_of_int pid; "-o"; "args="]) with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> r.Sun_cli_process.stdout
-  | _ -> ""
-
 let read_last_lines path n =
   try
     let ic = open_in path in
@@ -37,12 +31,7 @@ let read_last_lines path n =
     close_in ic;
     let lines = String.split_on_char '\n' (String.trim content) in
     let total = List.length lines in
-    let tail =
-      if total <= n then lines
-      else
-        let rec drop k lst = if k = 0 then lst else drop (k-1) (List.tl lst) in
-        drop (total - n) lines
-    in
+    let tail = if total <= n then lines else List.filteri (fun i _ -> i >= total - n) lines in
     String.concat "\n" tail
   with _ -> ""
 
@@ -119,7 +108,7 @@ let is_running name =
          with Unix.Unix_error (Unix.ESRCH, _, _) -> false
             | Unix.Unix_error _ -> true)
       in
-      let args = if alive then read_cmdline pid else "" in
+      let args = if alive then String.concat " " (read_proc_cmdline pid) else "" in
       let ok = alive && string_contains ~needle:(Printf.sprintf "sun-pf-%s.sh" name) args in
       if not ok then (try Sys.remove pf with _ -> ());
       ok

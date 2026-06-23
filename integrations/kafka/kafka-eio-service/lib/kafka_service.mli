@@ -5,7 +5,7 @@
 
     Kafka-compatible names are 1-249 bytes, may contain ASCII letters, digits,
     [.], [_], and [-], and may not be [.] or [..]. *)
-type topic_name
+type topic_name = string
 
 val topic_name : string -> (topic_name, string) result
 (** Validate and construct a Kafka topic descriptor. *)
@@ -13,9 +13,6 @@ val topic_name : string -> (topic_name, string) result
 val topic_name_exn : string -> topic_name
 (** Like [topic_name], but raises [Invalid_argument] when the name is invalid.
     Intended for static topic declarations in event modules. *)
-
-val topic_name_to_string : topic_name -> string
-(** Convert a topic descriptor to the Kafka wire/admin string form. *)
 
 (** Message contract — implement this for each topic your service owns. *)
 module type MESSAGE = sig

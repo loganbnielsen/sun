@@ -12,36 +12,20 @@ type request =
       ; body_request : body_request
       }
 
-let request_uri = function
-  | Get { base_url; path }
-  | With_body { base_url; path; _ } ->
-    Uri.of_string (base_url ^ path)
-
-let request_method = function
-  | Get _ -> `GET
-  | With_body { meth; _ } -> (meth :> Http.Method.t)
-
-let request_headers request =
-  let base = Http.Header.of_list
-    [ ("Accept",     "application/json")
-    ; ("Connection", "close")
-    ] in
-  match request with
-  | Get _ -> base
-  | With_body { body_request = { content_type; _ }; _ } ->
-    Http.Header.add base "Content-Type" content_type
-
-let request_body = function
-  | Get _ -> None
-  | With_body { body_request = { body; _ }; _ } ->
-    Some (Cohttp_eio.Body.of_string body)
-
 let http_do_once net ~sw ?https request =
-  let meth = request_method request in
-  let uri = request_uri request in
+  let uri, meth, headers, body = match request with
+    | Get { base_url; path } ->
+      Uri.of_string (base_url ^ path),
+      `GET,
+      Http.Header.of_list [("Accept", "application/json"); ("Connection", "close")],
+      None
+    | With_body { meth; base_url; path; body_request = { content_type; body } } ->
+      Uri.of_string (base_url ^ path),
+      (meth :> Http.Method.t),
+      Http.Header.of_list [("Accept", "application/json"); ("Connection", "close"); ("Content-Type", content_type)],
+      Some (Cohttp_eio.Body.of_string body)
+  in
   let client = Cohttp_eio.Client.make ~https net in
-  let headers = request_headers request in
-  let body = request_body request in
   let resp, resp_body =
     Cohttp_eio.Client.call client ~sw ~headers ?body meth uri
   in
@@ -52,10 +36,13 @@ let http_do_once net ~sw ?https request =
   (status, body_str)
 
 let http_do net ~clock request =
+  let uri = match request with
+    | Get { base_url; path } | With_body { base_url; path; _ } ->
+      Uri.of_string (base_url ^ path)
+  in
   try
     Eio.Time.with_timeout_exn clock 10.0 (fun () ->
       Eio.Switch.run (fun sw ->
-        let uri = request_uri request in
         match Obs_tls.https_for_uri uri with
         | Error error ->
           Error ("kafka_service: " ^ Obs_tls.error_to_string error)

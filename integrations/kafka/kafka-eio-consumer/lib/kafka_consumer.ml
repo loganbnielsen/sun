@@ -7,23 +7,12 @@ type offset_reset =
   | Earliest
   | Latest
 
-type rebalance_event =
-  | Partitions_assigned of partition list
-  | Partitions_revoked  of partition list
-
-and partition = {
-  topic     : string;
-  partition : int32;
-  offset    : int64;
-}
-
 type config = {
   brokers      : string list;
   group_id     : string;
   topics       : string list;
   offset_reset : offset_reset;
   auto_commit  : bool;
-  on_rebalance : (rebalance_event -> unit) option;
   security     : Kafka_security.t;
 }
 

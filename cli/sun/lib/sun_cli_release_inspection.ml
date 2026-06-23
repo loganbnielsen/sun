@@ -97,15 +97,8 @@ let release_state_to_string = function
   | Failed -> "failed"
   | Mock_submitted -> "mock_submitted"
 
-let mode_to_string = function
-  | Sun_cli_deployment_plan.Local -> "local"
-  | Sun_cli_deployment_plan.Customer_cloud -> "customer_cloud"
-  | Sun_cli_deployment_plan.Sun_hosted -> "sun_hosted"
-
-let primitive_to_string = function
-  | Sun_cli_deployment_plan.Svc -> "svc"
-  | Sun_cli_deployment_plan.Worker -> "worker"
-  | Sun_cli_deployment_plan.Fn -> "fn"
+let mode_to_string = Sun_cli_deployment_plan.mode_to_string
+let primitive_to_string = Sun_cli_deployment_plan.prim_to_string
 
 let deployment_plan_summary (plan : Sun_cli_deployment_plan.t) =
   { workspace = plan.workspace;

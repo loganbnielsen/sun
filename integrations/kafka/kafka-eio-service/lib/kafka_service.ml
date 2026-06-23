@@ -4,7 +4,6 @@ type topic_name = Kafka_service_intf.topic_name
 
 let topic_name = Kafka_service_intf.topic_name
 let topic_name_exn = Kafka_service_intf.topic_name_exn
-let topic_name_to_string = Kafka_service_intf.topic_name_to_string
 
 type 'a topic = 'a Kafka_service_intf.topic = {
   name      : topic_name;
@@ -60,7 +59,7 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
   fun svc ~net ~clock (module M) ->
   let ( let* ) = Result.bind in
   let rk = Kafka_producer.raw_handle svc.producer in
-  let raw_topic_name = topic_name_to_string M.topic_name in
+  let raw_topic_name = M.topic_name in
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
             ~admin_url:svc.admin_url ~topic_name:M.topic_name with
@@ -99,7 +98,7 @@ let publish svc topic ?trace_ctx msg =
   in
   let payload = encode_wire ~schema_id:topic.schema_id (topic.encode msg) in
   Kafka_producer.produce_await svc.producer
-    ~topic:(topic_name_to_string topic.name) ~value:payload ~headers ()
+    ~topic:topic.name ~value:payload ~headers ()
 
 type retry_strategy =
   | In_memory    of Kafka_consumer.retry_policy
@@ -123,10 +122,9 @@ let consume svc topic ~group_id ~sw
   let consumer_cfg : Kafka_consumer.config = {
     brokers      = svc.brokers;
     group_id;
-    topics       = [topic_name_to_string topic.name];
+    topics       = [topic.name];
     offset_reset = Kafka_consumer.Latest;
     auto_commit  = false;
-    on_rebalance = None;
     security     = svc.security;
   } in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
@@ -156,10 +154,9 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     let consumer_cfg : Kafka_consumer.config = {
       brokers      = svc.brokers;
       group_id;
-      topics       = [topic_name_to_string topic.name];
+      topics       = [topic.name];
       offset_reset = Kafka_consumer.Latest;
       auto_commit  = false;
-      on_rebalance = None;
       security     = svc.security;
     } in
     (match Kafka_consumer.create ~on_ready consumer_cfg ~sw with

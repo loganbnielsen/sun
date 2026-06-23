@@ -123,7 +123,7 @@ let test_topic_name_accepts_kafka_compatible_names () =
   let check name =
     match Kafka_service.topic_name name with
     | Ok topic ->
-      Alcotest.(check string) name name (Kafka_service.topic_name_to_string topic)
+      Alcotest.(check string) name name topic
     | Error e -> Alcotest.failf "%s should be valid: %s" name e
   in
   List.iter check [

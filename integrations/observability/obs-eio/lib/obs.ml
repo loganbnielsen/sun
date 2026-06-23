@@ -2,6 +2,10 @@
 (* Types                                                               *)
 (* ------------------------------------------------------------------ *)
 
+type counter_fn   = ?labels:(string * string) list -> int   -> unit
+type gauge_fn     = ?labels:(string * string) list -> float -> unit
+type histogram_fn = ?labels:(string * string) list -> float -> unit
+
 type level = Debug | Info | Warn | Error
 
 type log_entry = {
@@ -266,7 +270,7 @@ let validate_metric_labels ~name ~label_names labels =
       invalid_arg
         (Printf.sprintf "Obs.emit_metric %S: extra label %S" name label)
 
-let register_counter t ~name ~help ~label_names : Obs_metrics.counter_fn =
+let register_counter t ~name ~help ~label_names : counter_fn =
   let name = metric_name name in
   let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
@@ -275,7 +279,7 @@ let register_counter t ~name ~help ~label_names : Obs_metrics.counter_fn =
       name; help; kind = `Counter value; labels; context = t.context; service = t.service;
     }
 
-let register_gauge t ~name ~help ~label_names : Obs_metrics.gauge_fn =
+let register_gauge t ~name ~help ~label_names : gauge_fn =
   let name = metric_name name in
   let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
@@ -284,7 +288,7 @@ let register_gauge t ~name ~help ~label_names : Obs_metrics.gauge_fn =
       name; help; kind = `Gauge value; labels; context = t.context; service = t.service;
     }
 
-let register_histogram t ~name ~help ~label_names ?(buckets = []) : Obs_metrics.histogram_fn =
+let register_histogram t ~name ~help ~label_names ?(buckets = []) : histogram_fn =
   let name = metric_name name in
   let label_names = validate_label_names label_names in
   ignore buckets;

@@ -80,6 +80,9 @@ val derive_consumer_groups : string -> service_spec list -> Sun_cli_plan_ids.Con
     [services], sorted and deduplicated.
     Convention: ["<workspace>.<domain>.<worker_name>"]. *)
 
+val mode_to_string : deployment_mode -> string
+val prim_to_string : primitive -> string
+
 val effective_rollout_strategy : service_spec -> effective_rollout_strategy
 (** Resolve the deployment strategy that applies after progressive delivery
     settings have taken precedence over Deployment rollout settings. *)

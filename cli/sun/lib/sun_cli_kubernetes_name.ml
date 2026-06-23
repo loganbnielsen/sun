@@ -1,8 +1,6 @@
 type k8s_name = K8s_name of string
 type namespace = Namespace of string
 
-let max_dns_label_length = 63
-
 let normalize name =
   String.map
     (fun c -> if c = '_' then '-' else Char.lowercase_ascii c)
@@ -20,7 +18,7 @@ let validate_dns_label value =
   let len = String.length value in
   if len = 0 then
     Error "must be between 1 and 63 characters"
-  else if len > max_dns_label_length then
+  else if len > 63 then
     Error "must be between 1 and 63 characters"
   else if not (is_alnum value.[0]) then
     Error "must start with a lowercase alphanumeric character"

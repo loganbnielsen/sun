@@ -292,7 +292,7 @@ let test_decode_error_callback () =
              let raw = Bytes.of_string {|{"id":"raw-no-wire-format"}|} in
              (match Eio.Promise.await
                       (Kafka_producer.produce_await producer
-                         ~topic:(Kafka_service.topic_name_to_string RawTestEvent.topic_name)
+                         ~topic:RawTestEvent.topic_name
                          ~value:raw ()) with
               | Error e ->
                 Alcotest.failf "raw publish failed: %s" (Kafka_error.to_string e)

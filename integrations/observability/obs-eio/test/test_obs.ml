@@ -349,12 +349,12 @@ let test_register_rejects_invalid_metric_name () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
   check_invalid_arg "invalid counter name" (fun () ->
-    let _emit : Obs_metrics.counter_fn =
+    let _emit : Obs.counter_fn =
       Obs.register_counter ot ~name:"bad-name" ~help:"desc" ~label_names:[]
     in
     ());
   check_invalid_arg "invalid gauge name" (fun () ->
-    let _emit : Obs_metrics.gauge_fn =
+    let _emit : Obs.gauge_fn =
       Obs.register_gauge ot ~name:"9bad" ~help:"desc" ~label_names:[]
     in
     ());
@@ -365,13 +365,13 @@ let test_register_rejects_invalid_label_name () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
   check_invalid_arg "invalid counter label" (fun () ->
-    let _emit : Obs_metrics.counter_fn =
+    let _emit : Obs.counter_fn =
       Obs.register_counter ot
         ~name:"requests_total" ~help:"desc" ~label_names:["bad-label"]
     in
     ());
   check_invalid_arg "invalid gauge label" (fun () ->
-    let _emit : Obs_metrics.gauge_fn =
+    let _emit : Obs.gauge_fn =
       Obs.register_gauge ot
         ~name:"queue_depth" ~help:"desc" ~label_names:["9host"]
     in
@@ -386,7 +386,7 @@ let test_register_rejects_duplicate_label_names () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
   check_invalid_arg "duplicate registered label" (fun () ->
-    let _emit : Obs_metrics.counter_fn =
+    let _emit : Obs.counter_fn =
       Obs.register_counter ot
         ~name:"requests_total" ~help:"desc"
         ~label_names:["method"; "method"]

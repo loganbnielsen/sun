@@ -146,12 +146,17 @@ val label_name : string -> label_name
 val label_name_to_string : label_name -> string
 (** [label_name_to_string name] returns the validated label name as a string. *)
 
+type counter_fn   = ?labels:(string * string) list -> int   -> unit
+type gauge_fn     = ?labels:(string * string) list -> float -> unit
+type histogram_fn = ?labels:(string * string) list -> float -> unit
+(** Typed emitter functions returned by [register_*]. *)
+
 val register_counter
   :  t
   -> name:string
   -> help:string
   -> label_names:string list
-  -> Obs_metrics.counter_fn
+  -> counter_fn
 (** Register a counter metric family. Returns an emitter function. Call it once
     at startup, then call the returned function per event. [label_names] must
     be unique; emitted labels must match the declared names exactly.
@@ -166,7 +171,7 @@ val register_gauge
   -> name:string
   -> help:string
   -> label_names:string list
-  -> Obs_metrics.gauge_fn
+  -> gauge_fn
 
 val register_histogram
   :  t
@@ -174,7 +179,7 @@ val register_histogram
   -> help:string
   -> label_names:string list
   -> ?buckets:float list
-  -> Obs_metrics.histogram_fn
+  -> histogram_fn
 (** [buckets] is passed to the backend for bucket boundary configuration.
     The noop and stdout backends ignore it. *)
 
@@ -186,6 +191,6 @@ val register_counter_and_histogram
   -> histogram_name:string
   -> histogram_help:string
   -> histogram_labels:string list
-  -> Obs_metrics.counter_fn * Obs_metrics.histogram_fn
+  -> counter_fn * histogram_fn
 (** Register a counter and histogram metric family together. Use for framework
     startup paths that always expose a count metric plus a duration metric. *)
