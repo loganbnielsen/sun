@@ -208,7 +208,7 @@ let test_publish_consume_roundtrip () =
             ignore (Kafka_service.consume svc topic ~group_id ~sw
               ~on_ready:(fun () -> Eio.Promise.resolve consumer_ready_r ())
               ~handler:(fun msg ~ack ~trace_ctx:_ ->
-                ack ();
+                ignore (ack ());
                 Eio.Promise.resolve received_r msg;
                 Kafka_consumer.Stop
               ) ())
@@ -264,11 +264,11 @@ let test_decode_error_callback () =
               ~on_ready:(fun () -> Eio.Promise.resolve consumer_ready_r ())
               ~on_decode_error:(fun e ~raw_bytes:_ ~ack ->
                 Eio.Stream.add error_stream e;
-                ack ();
+                ignore (ack ());
                 Kafka_consumer.Stop
               )
               ~handler:(fun _msg ~ack ~trace_ctx:_ ->
-                ack ();
+                ignore (ack ());
                 Kafka_consumer.Stop
               ) ())
           );
@@ -284,6 +284,7 @@ let test_decode_error_callback () =
             delivery_mode = Kafka_producer.At_least_once;
             linger_ms     = None;
             security      = Kafka_security.default;
+            properties    = [];
           } in
           (match Kafka_producer.create producer_cfg ~sw with
            | Error e ->
@@ -293,7 +294,7 @@ let test_decode_error_callback () =
              (match Eio.Promise.await
                       (Kafka_producer.produce_await producer
                          ~topic:RawTestEvent.topic_name
-                         ~value:raw ()) with
+                         ~value:(Some raw) ()) with
               | Error e ->
                 Alcotest.failf "raw publish failed: %s" (Kafka_error.to_string e)
               | Ok () -> ());

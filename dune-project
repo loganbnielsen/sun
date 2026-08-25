@@ -16,6 +16,7 @@
   base64
   uri
   cstruct
+  kafka-eio
   tls-eio
   x509
   domain-name

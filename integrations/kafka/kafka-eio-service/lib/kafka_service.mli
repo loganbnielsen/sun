@@ -151,9 +151,9 @@ val consume
   -> group_id:string
   -> sw:Eio.Switch.t
   -> ?on_ready:(unit -> unit)
-  -> ?on_decode_error:(string -> raw_bytes:bytes -> ack:(unit -> unit) -> Kafka_consumer.handler_result)
+  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
   -> ?ot:Obs.t
-  -> handler:('a -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+  -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
   -> unit
   -> (unit, Kafka_error.t) result
 
@@ -193,10 +193,10 @@ val consume_partitioned
   -> sw:Eio.Switch.t
   -> clock:_ Eio.Time.clock
   -> ?on_ready:(unit -> unit)
-  -> ?on_decode_error:(string -> raw_bytes:bytes -> ack:(unit -> unit) -> Kafka_consumer.handler_result)
+  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
   -> ?retry_strategy:retry_strategy
   -> ?on_retry:(partition:int32 -> attempt:int -> delay_s:float -> unit)
   -> ?ot:Obs.t
-  -> handler:('a -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+  -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
   -> unit
   -> (unit, Kafka_error.t) result

@@ -4,12 +4,12 @@ let hdr_attempt  = "X-Sun-Attempt"
 let hdr_retry_at = "X-Sun-Retry-At"
 
 let get_int_hdr key headers =
-  match List.assoc_opt key headers with
+  match Option.join (List.assoc_opt key headers) with
   | Some s -> Option.value ~default:0 (int_of_string_opt s)
   | None   -> 0
 
 let get_float_hdr key headers =
-  match List.assoc_opt key headers with
+  match Option.join (List.assoc_opt key headers) with
   | Some s -> Option.value ~default:0.0 (float_of_string_opt s)
   | None   -> 0.0
 
@@ -33,14 +33,14 @@ let decide_action ~retry_topic ~dlq_topic ~max_attempts ~attempt =
 (** Execute the side-effecting part of a retry action: publish then ack. *)
 let execute_action action ~raw_msg ~attempt ~publish_raw ~ack =
   match action with
-  | Ack -> ack ()
+  | Ack -> ignore (ack ())
   | Forward_retry { target; delay_s } ->
     (match publish_raw ~target_topic:target ~attempt
              ~raw_bytes:raw_msg.Kafka_consumer.value
              ~headers:raw_msg.Kafka_consumer.headers
              ~delay_s
              ~partition:raw_msg.Kafka_consumer.partition with
-     | Ok ()   -> ack ()
+     | Ok ()   -> ignore (ack ())
      | Error _ -> ())
   | Forward_dlq { target } ->
     (match publish_raw ~target_topic:target ~attempt
@@ -48,7 +48,7 @@ let execute_action action ~raw_msg ~attempt ~publish_raw ~ack =
              ~headers:raw_msg.Kafka_consumer.headers
              ~delay_s:0.0
              ~partition:raw_msg.Kafka_consumer.partition with
-     | Ok ()   -> ack ()
+     | Ok ()   -> ignore (ack ())
      | Error _ -> ())
 
 let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
@@ -62,12 +62,11 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     Kafka_service_intf.topic_name_exn
       (topic.name ^ "-dlq")
   in
-  let rk_prod = Kafka_producer.raw_handle svc.producer in
-  (match Kafka_service_intf.ensure_topic rk_prod ~topic_name:retry_topic_name
+  (match Kafka_service_intf.ensure_topic svc.producer ~topic_name:retry_topic_name
            ~partitions:svc.partitions with
    | Error e -> Printf.eprintf "warn: kafka_service: %s\n%!" e
    | Ok ()   -> ());
-  (match Kafka_service_intf.ensure_topic rk_prod ~topic_name:dlq_topic_name
+  (match Kafka_service_intf.ensure_topic svc.producer ~topic_name:dlq_topic_name
            ~partitions:svc.partitions with
    | Error e -> Printf.eprintf "warn: kafka_service: %s\n%!" e
    | Ok ()   -> ());
@@ -75,8 +74,8 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     on_retry ~partition ~attempt ~delay_s;
     let retry_at = Unix.gettimeofday () +. delay_s in
     let new_headers =
-      (hdr_attempt,  string_of_int   attempt) ::
-      (hdr_retry_at, string_of_float retry_at) ::
+      (hdr_attempt,  Some (string_of_int   attempt)) ::
+      (hdr_retry_at, Some (string_of_float retry_at)) ::
       strip_sun_hdrs headers
     in
     match Eio.Promise.await (
@@ -99,6 +98,7 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     offset_reset = Kafka_consumer.Latest;
     auto_commit  = false;
     security     = svc.security;
+    properties   = [];
   } in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
@@ -110,14 +110,12 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
       offset_reset = Kafka_consumer.Earliest;
       auto_commit  = false;
       security     = svc.security;
+      properties   = [];
     } in
     (match Kafka_consumer.create retry_consumer_cfg ~sw with
      | Error e ->
        Printf.eprintf "warn: kafka_service: retry consumer: %s\n%!" (Kafka_error.to_string e)
      | Ok retry_consumer ->
-       let retry_rk =
-         Kafka_consumer_handle.to_raw (Kafka_consumer.handle retry_consumer)
-       in
        let decode_retry raw_msg ~ack ~attempt =
          match Kafka_service_schema.decode_message topic raw_msg with
          | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
@@ -140,19 +138,17 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
            let attempt  = get_int_hdr   hdr_attempt  raw_msg.Kafka_consumer.headers in
            let retry_at = get_float_hdr hdr_retry_at raw_msg.Kafka_consumer.headers in
            let delay = max 0.0 (retry_at -. Unix.gettimeofday ()) in
-           if delay > 0.001 then begin
-             Kafka_raw.pause_partition retry_rk
-               raw_msg.Kafka_consumer.topic raw_msg.Kafka_consumer.partition;
-             Eio.Time.sleep clock delay;
-             Kafka_raw.resume_partition retry_rk
-               raw_msg.Kafka_consumer.topic raw_msg.Kafka_consumer.partition
-           end;
+           (* ponytail: kafka-eio 0.1 hid Kafka_raw, so this loop can no longer
+              librdkafka-pause the partition during the backoff sleep; the retry
+              stream's bounded capacity still caps how far ahead librdkafka can
+              prefetch. Revisit if that prefetch overhead matters. *)
+           if delay > 0.001 then Eio.Time.sleep clock delay;
            let acked = ref false in
            let ack () =
              if not !acked then begin
                acked := true;
-               ignore (Kafka_consumer.commit retry_consumer raw_msg)
-             end
+               Kafka_consumer.commit retry_consumer raw_msg
+             end else Ok ()
            in
            (match decode_retry raw_msg ~ack ~attempt with
             | Kafka_consumer.Stop                                 -> ()
