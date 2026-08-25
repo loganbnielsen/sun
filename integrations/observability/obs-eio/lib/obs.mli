@@ -66,6 +66,9 @@ type backend = {
   emit_span   : span_event   -> unit;
   emit_metric : metric_event -> unit;
 }
+(** A caller-supplied backend may raise; callers of [with_span], [log_t], and
+    the [register_*] emitters never see that exception — it is caught and
+    logged to stderr, so a broken backend cannot crash application code. *)
 
 val noop    : backend
 (** Drops all events. Use in tests and CI. *)
@@ -74,7 +77,10 @@ val stdout  : backend
 (** Pretty-prints spans and metrics to stdout. Use for local development. *)
 
 val compose : backend -> backend -> backend
-(** Fan-out to two backends, e.g. [compose prometheus_backend loki_backend]. *)
+(** Fan-out to two backends, e.g. [compose prometheus_backend loki_backend].
+    Each backend's [emit_span]/[emit_metric] is called independently: if one
+    raises, the exception is logged to stderr and the other backend still
+    receives the event. *)
 
 (* ------------------------------------------------------------------ *)
 (* Handle                                                              *)
@@ -159,7 +165,9 @@ val register_counter
   -> counter_fn
 (** Register a counter metric family. Returns an emitter function. Call it once
     at startup, then call the returned function per event. [label_names] must
-    be unique; emitted labels must match the declared names exactly.
+    be unique; emitted labels must match the declared names exactly. The
+    emitter raises [Invalid_argument] on a negative delta — Prometheus
+    counters are monotonic.
     {[
       let reqs = Obs.register_counter ot ~name:"http_requests_total"
                    ~help:"Total HTTP requests" ~label_names:["method";"status"] in
@@ -178,10 +186,12 @@ val register_histogram
   -> name:string
   -> help:string
   -> label_names:string list
-  -> ?buckets:float list
   -> histogram_fn
-(** [buckets] is passed to the backend for bucket boundary configuration.
-    The noop and stdout backends ignore it. *)
+(** [label_names] must not include ["le"] — raises [Invalid_argument] if it
+    does, since the Prometheus backend synthesizes an ["le"] label per
+    bucket sample and a caller-declared one would collide with it.
+    Bucket boundaries are backend-defined (e.g. [Obs_prometheus]'s
+    [default_bounds]); there is currently no per-metric override. *)
 
 val register_counter_and_histogram
   :  t

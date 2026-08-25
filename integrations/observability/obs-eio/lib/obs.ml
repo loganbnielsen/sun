@@ -115,9 +115,20 @@ let stdout =
         (if e.context = [] then "" else " ctx={"    ^ pp_kv e.context ^ "}"));
   }
 
+(* A backend is caller-supplied and may be buggy; isolate its failures so
+   one broken backend can neither crash application code nor block delivery
+   to a sibling backend in [compose]. *)
+let safe_call ~what f =
+  try f () with exn ->
+    Printf.eprintf "Obs: backend %s raised: %s\n%!" what (Printexc.to_string exn)
+
 let compose a b = {
-  emit_span   = (fun e -> a.emit_span e;   b.emit_span e);
-  emit_metric = (fun e -> a.emit_metric e; b.emit_metric e);
+  emit_span   = (fun e ->
+    safe_call ~what:"emit_span"   (fun () -> a.emit_span e);
+    safe_call ~what:"emit_span"   (fun () -> b.emit_span e));
+  emit_metric = (fun e ->
+    safe_call ~what:"emit_metric" (fun () -> a.emit_metric e);
+    safe_call ~what:"emit_metric" (fun () -> b.emit_metric e));
 }
 
 (* ------------------------------------------------------------------ *)
@@ -159,14 +170,15 @@ let with_span t ?parent name f =
     ~finally:(fun () ->
       let end_ns = now_ns t in
       let log_entries = List.rev !(sp.sp_log_buf) in
-      t.backend.emit_span {
-        trace_ctx = sp_ctx; name; service = t.service;
-        start_ns = sp_start; end_ns;
-        status = !outcome;
-        fields = [];
-        log_entries;
-        context = t.context;
-      })
+      safe_call ~what:"emit_span" (fun () ->
+        t.backend.emit_span {
+          trace_ctx = sp_ctx; name; service = t.service;
+          start_ns = sp_start; end_ns;
+          status = !outcome;
+          fields = [];
+          log_entries;
+          context = t.context;
+        }))
     (fun () ->
       match f sp with
       | v -> v
@@ -270,12 +282,17 @@ let validate_metric_labels ~name ~label_names labels =
       invalid_arg
         (Printf.sprintf "Obs.emit_metric %S: extra label %S" name label)
 
+let emit_metric t event = safe_call ~what:"emit_metric" (fun () -> t.backend.emit_metric event)
+
 let register_counter t ~name ~help ~label_names : counter_fn =
   let name = metric_name name in
   let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
     validate_metric_labels ~name ~label_names labels;
-    t.backend.emit_metric {
+    if value < 0 then
+      invalid_arg
+        (Printf.sprintf "Obs.emit_metric %S: counter delta must be >= 0, got %d" name value);
+    emit_metric t {
       name; help; kind = `Counter value; labels; context = t.context; service = t.service;
     }
 
@@ -284,17 +301,21 @@ let register_gauge t ~name ~help ~label_names : gauge_fn =
   let label_names = validate_label_names label_names in
   fun ?(labels = []) value ->
     validate_metric_labels ~name ~label_names labels;
-    t.backend.emit_metric {
+    emit_metric t {
       name; help; kind = `Gauge value; labels; context = t.context; service = t.service;
     }
 
-let register_histogram t ~name ~help ~label_names ?(buckets = []) : histogram_fn =
+let register_histogram t ~name ~help ~label_names : histogram_fn =
   let name = metric_name name in
+  if List.mem "le" label_names then
+    invalid_arg
+      (Printf.sprintf
+         "Obs.register_histogram %S: label name \"le\" is reserved for the \
+          Prometheus bucket boundary" name);
   let label_names = validate_label_names label_names in
-  ignore buckets;
   fun ?(labels = []) value ->
     validate_metric_labels ~name ~label_names labels;
-    t.backend.emit_metric {
+    emit_metric t {
       name; help; kind = `Histogram value; labels; context = t.context; service = t.service;
     }
 
@@ -312,6 +333,5 @@ let register_counter_and_histogram t
       ~name:histogram_name
       ~help:histogram_help
       ~label_names:histogram_labels
-      ?buckets:None
   in
   (counter, histogram)

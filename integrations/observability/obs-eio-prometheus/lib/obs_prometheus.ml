@@ -57,6 +57,17 @@ let log_kind_conflict ~name ~existing ~incoming =
     (string_of_metric_kind existing)
     (string_of_metric_kind incoming)
 
+(* A metric name must map to exactly one help string; the first registration
+   wins the rendered # HELP line. This only catches a divergent help text,
+   not a divergent label-name set — Obs.t has no cross-registration registry
+   of declared label names to check that against. *)
+let warn_on_help_mismatch ~name ~existing ~incoming =
+  if existing <> incoming then
+    Printf.eprintf
+      "obs-prometheus: metric %s registered with conflicting help text \
+       (keeping %S, ignoring %S)\n%!"
+      name existing incoming
+
 type registry = {
   r_families : (string, family) Hashtbl.t;
   r_mutex    : Mutex.t;
@@ -85,7 +96,8 @@ let emit reg (e : Obs.metric_event) =
           FCounter { f_help = e.help; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FCounter { f_series; _ } ->
+       | FCounter { f_help; f_series } ->
+         warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
          let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
          s.c_value <- s.c_value +. float_of_int delta
        | other ->
@@ -96,7 +108,8 @@ let emit reg (e : Obs.metric_event) =
           FGauge { f_help = e.help; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FGauge { f_series; _ } ->
+       | FGauge { f_help; f_series } ->
+         warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
          let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
          s.g_value <- v
        | other ->
@@ -111,7 +124,8 @@ let emit reg (e : Obs.metric_event) =
           })
       in
       (match fam with
-       | FHistogram { f_bounds; f_series; _ } ->
+       | FHistogram { f_help; f_bounds; f_series } ->
+         warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
          let n_bounds = Array.length f_bounds in
          let s =
            get_or_create f_series key (fun () -> {
@@ -170,6 +184,18 @@ let snapshot reg =
   Mutex.unlock reg.r_mutex;
   List.sort (fun (a, _) (b, _) -> String.compare a b) result
 
+(* Prometheus text exposition: HELP text is not quoted, so only backslash
+   and newline need escaping (no '"' — that escape is only for label values). *)
+let escape_help_text s =
+  let buf = Buffer.create (String.length s) in
+  String.iter (fun c ->
+    match c with
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '\n' -> Buffer.add_string buf "\\n"
+    | c    -> Buffer.add_char buf c
+  ) s;
+  Buffer.contents buf
+
 let escape_label_value s =
   let buf = Buffer.create (String.length s) in
   String.iter (fun c ->
@@ -204,7 +230,7 @@ let render reg =
     List.iter (fun (name, snap) ->
       match snap with
       | SCounter (help, series) ->
-        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ help ^ "\n");
+        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ escape_help_text help ^ "\n");
         Buffer.add_string buf ("# TYPE " ^ name ^ " counter\n");
         List.iter (fun (labels, v) ->
           Buffer.add_string buf
@@ -212,7 +238,7 @@ let render reg =
         ) series;
         Buffer.add_char buf '\n'
       | SGauge (help, series) ->
-        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ help ^ "\n");
+        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ escape_help_text help ^ "\n");
         Buffer.add_string buf ("# TYPE " ^ name ^ " gauge\n");
         List.iter (fun (labels, v) ->
           Buffer.add_string buf
@@ -220,7 +246,7 @@ let render reg =
         ) series;
         Buffer.add_char buf '\n'
       | SHistogram (help, bounds, series) ->
-        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ help ^ "\n");
+        Buffer.add_string buf ("# HELP " ^ name ^ " " ^ escape_help_text help ^ "\n");
         Buffer.add_string buf ("# TYPE " ^ name ^ " histogram\n");
         List.iter (fun (labels, counts, sum, count) ->
           Array.iteri (fun i le ->
@@ -264,9 +290,9 @@ let push ~net ~clock ~url ~job renderer =
     (try
        Eio.Time.with_timeout_exn clock 5.0 (fun () ->
          Eio.Switch.run (fun sw ->
-           match Obs_tls.https_for_uri target with
+           match Obs_prometheus_tls.https_for_uri target with
            | Error error ->
-             Error ("Pushgateway push: " ^ Obs_tls.error_to_string error)
+             Error ("Pushgateway push: " ^ Obs_prometheus_tls.error_to_string error)
            | Ok https ->
              let client = Cohttp_eio.Client.make ~https net in
              let (resp, _body) =

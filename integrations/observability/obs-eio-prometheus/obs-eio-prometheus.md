@@ -10,9 +10,14 @@ and renders them as Prometheus text exposition format on demand. Designed for lo
 integrations/observability/obs-eio-prometheus/
   lib/
     obs_prometheus.ml/.mli
+    obs_prometheus_tls.ml  ← HTTPS support for Pushgateway; own copy, not
+                              shared with obs-eio-loki's obs_loki_tls.ml
+                              (two libraries can't both export a module
+                              named plain Obs_tls without a link clash)
     dune
   test/
     test_prometheus.ml
+    test_obs_tls.ml
     dune
 ```
 
@@ -52,8 +57,10 @@ The Prometheus backend builds a registry keyed on `name` when the first event ar
 | `register_gauge` | `gauge` | Replaces current value per `(name, labels)` |
 | `register_histogram` | `histogram` | Sorts observation into pre-defined buckets |
 
-Default histogram buckets (if none specified via `~buckets`):
-`[0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.0; 2.5; 5.0; 10.0]`
+Histogram buckets are always
+`[0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.0; 2.5; 5.0; 10.0]` — there is currently no
+per-metric override. `Obs.register_histogram` has no `~buckets` parameter; deleting it
+was the honest choice over an option that looked configurable but was silently ignored.
 
 ## Rendered Output Format
 
@@ -91,7 +98,13 @@ type registry = {
 ## Implementation Notes
 
 - **Registry key:** `name` string. `label_names` and `help` are stored on first event;
-  subsequent events only update the value map.
+  subsequent events only update the value map. A later event with a different `help`
+  string for the same `name` is logged to stderr and ignored — the first `help` wins.
+  A metric-kind conflict (e.g. a `counter` registered where a `gauge` already exists
+  under that `name`) is logged and the conflicting event is dropped entirely.
+- **HELP text:** backslash and newline are escaped in the rendered `# HELP` line
+  (label values additionally escape `"`, since label values are quoted and HELP text
+  is not).
 - **Value key inside a family:** `labels` association list, sorted by key for stable
   lookup. Sort on write, not on every read.
 - **Counter:** accumulate with `+= delta`. Never reset.
@@ -117,8 +130,7 @@ let msgs_processed = Obs.register_counter ot
 let request_latency = Obs.register_histogram ot
   ~name:"request_duration_seconds"
   ~help:"Request latency"
-  ~label_names:["route"]
-  ~buckets:[0.01; 0.05; 0.1; 0.5; 1.0] in
+  ~label_names:["route"] in
 
 (* In your handler: *)
 msgs_processed ~labels:[("topic", "payments"); ("status", "ok")] 1;

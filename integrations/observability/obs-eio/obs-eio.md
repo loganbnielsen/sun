@@ -2,6 +2,10 @@
 
 Observability library for Sun — distributed tracing, structured logging, and metrics in a single capability-passed handle. Designed for OCaml 5 / Eio concurrency, with swappable backends (noop, stdout, Prometheus + Loki, Datadog).
 
+A small Eio-native observability event model with built-in backend adapters, not a
+replacement for every OCaml observability package — see `obs-eio-prometheus`'s notes on
+`prometheus`/`prometheus-eio` for how this positions against existing packages.
+
 ## Package Structure
 
 ```
@@ -9,13 +13,13 @@ integrations/observability/
   obs-eio/
     lib/
       obs_trace.ml/.mli   ← W3C trace context, header propagation
-      obs_metrics.ml/.mli ← emitter function type aliases
-      obs.ml/.mli         ← main handle, spans, logging, metrics
+      obs.ml/.mli         ← handle, spans, logging, metrics, and the emitter
+                             function type aliases (counter_fn/gauge_fn/histogram_fn)
     test/
       test_obs.ml
 ```
 
-Concrete backend packages: `obs-eio-loki` (next), `obs-eio-prometheus` (after), `obs-eio-datadog` (backlog).
+Concrete backend packages: `obs-eio-loki`, `obs-eio-prometheus`, `obs-eio-datadog` (backlog).
 
 ## Public API
 
@@ -37,7 +41,12 @@ val extract_from_headers : (string * string) list -> t option
 val inject_to_headers    : t -> (string * string) list -> (string * string) list
 ```
 
-### `Obs_metrics`
+`generate`'s randomness is a self-seeded PRNG state private to this module — no caller
+`Random.self_init ()` call needed, and no risk of every process sharing the stdlib
+`Random` module's fixed default seed. Not cryptographically strong; fine for correlation
+and collision-avoidance, not for anything security-sensitive.
+
+### `Obs` — metric emitter types
 
 ```ocaml
 type counter_fn   = ?labels:(string * string) list -> int   -> unit
@@ -90,10 +99,16 @@ val with_span : t -> ?parent:Obs_trace.t -> string -> (span -> 'a) -> 'a
 val log             : span -> level -> ?fields:(string * string) list -> string -> unit
 val current_trace_ctx : span -> Obs_trace.t
 
-val register_counter   : t -> name:string -> help:string -> label_names:string list -> Obs_metrics.counter_fn
-val register_gauge     : t -> name:string -> help:string -> label_names:string list -> Obs_metrics.gauge_fn
-val register_histogram : t -> name:string -> help:string -> label_names:string list -> ?buckets:float list -> Obs_metrics.histogram_fn
+val register_counter   : t -> name:string -> help:string -> label_names:string list -> counter_fn
+val register_gauge     : t -> name:string -> help:string -> label_names:string list -> gauge_fn
+val register_histogram : t -> name:string -> help:string -> label_names:string list -> histogram_fn
 ```
+
+`register_counter`'s emitter raises `Invalid_argument` on a negative delta — Prometheus
+counters are monotonic. `register_histogram` raises `Invalid_argument` if `label_names`
+includes `"le"`, since the Prometheus backend synthesizes an `"le"` label per bucket
+sample. Bucket boundaries are backend-defined (`obs-eio-prometheus`'s `default_bounds`);
+there is no per-metric override.
 
 ## Configuration
 
@@ -134,6 +149,7 @@ ignore handle
 - **OTel-compatible tracing**: `Obs_trace.t` carries W3C `traceparent`-compatible fields. `extract_from_headers` / `inject_to_headers` connect producers, brokers, and consumers into a single distributed trace.
 - **Pre-registered metrics**: `register_counter` / `register_gauge` / `register_histogram` return typed emitter closures. The Prometheus backend uses the registration metadata (name, help, label names) to declare metric families before first emission.
 - **Backend composition**: `compose a b` fans out to two backends — use for e.g. `compose prometheus_backend loki_backend`.
+- **Backend failure isolation**: a caller-supplied backend may raise; `with_span`, `log_t`, and the `register_*` emitters catch it and log to stderr rather than propagate it, so a broken backend cannot crash application code. `compose` isolates each sibling the same way, so one broken backend cannot also block delivery to the other.
 
 ## Out of Scope (this package)
 

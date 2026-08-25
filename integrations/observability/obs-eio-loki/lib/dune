@@ -1,5 +1,5 @@
 (library
  (name obs_eio_loki)
  (wrapped false)
- (modules Obs_loki)
- (libraries obs_eio eio unix cohttp-eio uri http yojson))
+ (modules Obs_loki Obs_loki_tls)
+ (libraries obs_eio eio eio.unix unix cohttp-eio uri http yojson tls-eio x509 domain-name ptime))

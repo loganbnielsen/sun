@@ -43,9 +43,9 @@ let http_do net ~clock request =
   try
     Eio.Time.with_timeout_exn clock 10.0 (fun () ->
       Eio.Switch.run (fun sw ->
-        match Obs_tls.https_for_uri uri with
+        match Kafka_service_tls.https_for_uri uri with
         | Error error ->
-          Error ("kafka_service: " ^ Obs_tls.error_to_string error)
+          Error ("kafka_service: " ^ Kafka_service_tls.error_to_string error)
         | Ok https -> Ok (http_do_once net ~sw ?https request)))
   with
   | Eio.Time.Timeout -> Error "HTTP request timed out after 10s"

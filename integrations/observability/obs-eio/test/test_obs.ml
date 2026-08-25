@@ -393,6 +393,26 @@ let test_register_rejects_duplicate_label_names () =
     in
     ())
 
+let test_register_counter_rejects_negative_delta () =
+  Eio_main.run @@ fun env ->
+  let emitted = ref 0 in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ()); emit_metric = (fun _ -> incr emitted) } in
+  let c = Obs.register_counter ot ~name:"reqs_total" ~help:"desc" ~label_names:[] in
+  check_invalid_arg "negative counter delta" (fun () -> c (-1));
+  Alcotest.(check int) "backend not called for negative delta" 0 !emitted
+
+let test_register_histogram_rejects_le_label () =
+  Eio_main.run @@ fun env ->
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
+  check_invalid_arg "\"le\" as a declared histogram label" (fun () ->
+    let _emit : Obs.histogram_fn =
+      Obs.register_histogram ot
+        ~name:"request_duration_seconds" ~help:"desc"
+        ~label_names:["le"]
+    in
+    ())
+
 let test_noop_compiles_and_runs () =
   Eio_main.run @@ fun env ->
   let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock ~backend:Obs.noop in
@@ -416,39 +436,35 @@ let test_compose_fans_out () =
   Alcotest.(check int) "backend_a received span" 1 !spans_a;
   Alcotest.(check int) "backend_b received span" 1 !spans_b
 
-(* ------------------------------------------------------------------ *)
-(* TLS helper                                                          *)
-(* ------------------------------------------------------------------ *)
+let test_compose_isolates_a_raising_sibling () =
+  Eio_main.run @@ fun env ->
+  let spans_b = ref 0 and metrics_b = ref 0 in
+  let backend_a =
+    { Obs.emit_span = (fun _ -> failwith "boom span"); emit_metric = (fun _ -> failwith "boom metric") } in
+  let backend_b =
+    { Obs.emit_span = (fun _ -> incr spans_b); emit_metric = (fun _ -> incr metrics_b) } in
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:(Obs.compose backend_a backend_b) in
+  Obs.with_span ot "op" (fun _sp -> ());
+  let c = Obs.register_counter ot ~name:"n" ~help:"" ~label_names:[] in
+  c 1;
+  Alcotest.(check int) "sibling still received span despite a's exception" 1 !spans_b;
+  Alcotest.(check int) "sibling still received metric despite a's exception" 1 !metrics_b
 
-let test_tls_authenticator_fails_closed_without_ca_bundle () =
-  Alcotest.(check bool) "missing CA paths are rejected"
-    true
-    (match Obs_tls.authenticator
-             ~ca_paths:["/sun/does/not/exist/ca-certificates.crt"] () with
-     | Error `No_system_ca_bundle -> true
-     | _ -> false)
+let test_with_span_survives_raising_backend () =
+  Eio_main.run @@ fun env ->
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> failwith "boom"); emit_metric = (fun _ -> ()) } in
+  (* Must not raise: a broken backend cannot crash application code. *)
+  Obs.with_span ot "op" (fun _sp -> ())
 
-let test_tls_authenticator_ignores_invalid_ca_bundle () =
-  let path = Filename.temp_file "sun-invalid-ca" ".pem" in
-  Fun.protect
-    (fun () ->
-       let oc = open_out path in
-       output_string oc "not a pem certificate";
-       close_out oc;
-       Alcotest.(check bool) "invalid CA file is rejected"
-         true
-         (match Obs_tls.authenticator ~ca_paths:[path] () with
-          | Error `No_system_ca_bundle -> true
-          | _ -> false))
-    ~finally:(fun () -> Sys.remove path)
-
-let test_tls_wrapper_returns_typed_error_without_ca_bundle () =
-  Alcotest.(check bool) "wrapper setup returns typed CA error"
-    true
-    (match Obs_tls.make_https_wrapper
-             ~ca_paths:["/sun/does/not/exist/ca-certificates.crt"] () with
-     | Error `No_system_ca_bundle -> true
-     | _ -> false)
+let test_register_counter_survives_raising_backend () =
+  Eio_main.run @@ fun env ->
+  let ot = Obs.create ~service:"svc" ~mono_clock:env#mono_clock
+    ~backend:{ Obs.emit_span = (fun _ -> ()); emit_metric = (fun _ -> failwith "boom") } in
+  let c = Obs.register_counter ot ~name:"n" ~help:"" ~label_names:[] in
+  (* Must not raise. *)
+  c 1
 
 (* ------------------------------------------------------------------ *)
 (* Test runner                                                         *)
@@ -491,17 +507,16 @@ let () =
       test_case "register rejects invalid metric names" `Quick test_register_rejects_invalid_metric_name;
       test_case "register rejects invalid label names" `Quick test_register_rejects_invalid_label_name;
       test_case "register rejects duplicate label names" `Quick test_register_rejects_duplicate_label_names;
+      test_case "register_counter rejects negative delta" `Quick test_register_counter_rejects_negative_delta;
+      test_case "register_histogram rejects \"le\" label" `Quick test_register_histogram_rejects_le_label;
       test_case "noop backend runs silently"   `Quick test_noop_compiles_and_runs;
     ];
     "compose", [
       test_case "compose fans out to both backends" `Quick test_compose_fans_out;
+      test_case "compose isolates a raising sibling backend" `Quick test_compose_isolates_a_raising_sibling;
     ];
-    "tls", [
-      test_case "authenticator fails closed without CA bundle" `Quick
-        test_tls_authenticator_fails_closed_without_ca_bundle;
-      test_case "authenticator ignores invalid CA bundle" `Quick
-        test_tls_authenticator_ignores_invalid_ca_bundle;
-      test_case "wrapper returns typed error without CA bundle" `Quick
-        test_tls_wrapper_returns_typed_error_without_ca_bundle;
+    "backend_failure_isolation", [
+      test_case "with_span survives a raising backend"        `Quick test_with_span_survives_raising_backend;
+      test_case "register_counter survives a raising backend" `Quick test_register_counter_survives_raising_backend;
     ];
   ]
