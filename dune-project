@@ -27,6 +27,7 @@
   pg-eio
   digestif
   aws-eio
+  s3-eio
   lambda-eio
   otoml
   (alcotest :with-test)))

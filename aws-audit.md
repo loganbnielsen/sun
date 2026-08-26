@@ -42,6 +42,12 @@ all. Live smoke test written (`S3_EIO_LIVE=1`), not yet run against a real bucke
 live testing across all of `s3-eio`/`dynamo-eio`/`lambda-eio` is deliberately held until
 everything is built and reviewed.
 
+**`s3-eio` extracted 2026-08-26** to a standalone package at
+[github.com/loganbnielsen/s3-eio](https://github.com/loganbnielsen/s3-eio), pinned into
+the switch (`git+file:///home/lbendtly/Code/s3-eio#main`). The in-tree
+`integrations/aws/s3-eio/` directory is gone; `s3-eio` is now a `sun.opam` dependency
+like `aws-eio` (no in-tree consumer yet, same as `aws-eio`'s own pre-consumer history).
+
 **Layer 3 (`dynamo-eio`) built 2026-08-26**: `Dynamo_client` (PutItem/GetItem/
 DeleteItem/Query, single-page) and the `Dynamo_table.Index`/`Entity` typed layer at
 `integrations/aws/dynamo-eio/`. The negative-compilation guarantee (mismatched index
