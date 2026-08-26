@@ -154,10 +154,22 @@ opam install https-eio obs-eio obs-loki-eio obs-prometheus-eio pg-eio kafka-eio 
 
 Acceptance:
 
-- [ ] All packages resolve in one clean switch.
-- [ ] No package relies on another repo being checked out beside it.
-- [ ] No link-name clashes.
-- [ ] Sun builds against the pinned packages.
+- [x] All packages resolve in one clean switch.
+- [x] No package relies on another repo being checked out beside it.
+- [x] No link-name clashes.
+- [x] Sun builds against the pinned packages.
+
+Evidence (2026-08-26): Created switch `sun-foundation-all`, OCaml 5.4.0. Pinned all
+seven packages (`https-eio`, `obs-eio`, `obs-loki-eio`, `obs-prometheus-eio`, `pg-eio`,
+`kafka-eio`, `aws-eio`) via `git+file://...#main`, then `opam install <all seven>
+--with-test -y` — exit 0, every package and its full transitive dependency tree
+installed, each package's own test suite ran and passed as part of `--with-test`, no
+install-time file conflicts (which is how a link-name clash would surface). Then
+`opam install . --deps-only --with-test` (in `sun`) and `dune build` under this same
+switch — clean. `dune test framework/ integrations/kafka/kafka-eio-service/` — all
+suites passed, including `kafka_service_integration`'s real-local-broker roundtrip
+test, confirming `kafka-eio`'s C stubs/librdkafka linkage work correctly from this
+switch, not just from the pre-populated dev switch used for everything up to now.
 
 ### Phase 4: Sun E2E On Local Substrate
 
@@ -265,8 +277,10 @@ Tracking tickets:
 - 2026-08-26: Completed the `awskit` comparison. Decision: keep `aws-eio`, do not redirect to `awskit` — it explicitly does not support EKS IRSA (Sun's real credential source), and its Eio HTTP adapter's use of `Cohttp_eio.Client` carries the same SigV4 wire-byte-encoding risk `aws-eio`'s custom transport was built to avoid.
 - 2026-08-26: Locked down branch protection (`enforce_admins: true`, squash-only merge, no force-push) across all five `-eio` repos with CI. Rewrote `obs-loki-eio`/`obs-prometheus-eio` git history to squash the CI-red commits each had accumulated (including their tagged `v0.1.0` release commits) into clean, individually-green commits, and moved both `v0.1.0` tags accordingly.
 - 2026-08-26: Found and fixed a real bug in the `kafka-eio` opam-repository submission (PR #30557): it declared `depexts` directly (against opam-repository's lint convention, which reserves that for dedicated `conf-` packages) and that `depexts` only covered debian/ubuntu/alpine/homebrew — missing archlinux/centos/fedora/opensuse/freebsd, and even the alpine entry was wrong (`librdkafka` instead of `librdkafka-dev`, so headers were never installed). Fixed by adding a new `conf-librdkafka` package to the opam-repository fork, verified per-distro package names against real package indices.
-- 2026-08-26: Fixed `aws-eio/README.md`'s stale `Aws_tls` references (same class of doc-drift already fixed in `obs-loki-eio`/`obs-prometheus-eio`); open as `aws-eio` PR #1.
+- 2026-08-26: Fixed `aws-eio/README.md`'s stale `Aws_tls` references (same class of doc-drift already fixed in `obs-loki-eio`/`obs-prometheus-eio`); merged as `aws-eio` PR #1 (`ada1811`).
+- 2026-08-26: Added the STS `GetCallerIdentity` live smoke test from `AWS-001` (gated by `AWS_EIO_LIVE=1`, skipped by default and in CI), merged as `aws-eio` PR #2 (`855dd51`). Ran it live against real AWS using a short-lived STS session token (`sts:GetSessionToken`-minted, ~15 min TTL, from an IAM user with no other permissions) — passed: real AWS accepted a request signed by `aws-eio`'s own SigV4 implementation. This is the strongest evidence yet that `aws-eio` is correct against the real service, not just internally consistent against its own conformance-suite vectors and mocks. `AWS-001`'s S3 tiny-object smoke (steps 3-4) remains undone.
+- 2026-08-26: Phase 3 cross-package pin test passed. Fresh switch `sun-foundation-all`, all seven packages installed together with `--with-test` (each package's own tests ran and passed), `sun` builds and its full test suite passes against the pinned foundation, including the real-broker Kafka integration test. No link-name clashes, no hidden cross-repo assumptions.
 
 ## Next Action
 
-Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). `aws-eio` PR #1 (README fix) merged 2026-08-26 (`ada1811`); next is running `aws-eio` through the same local lint/build/clean-switch checks as the other packages before submitting it to opam-repository.
+Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). `aws-eio` has now cleared local lint/build, the cross-package clean-switch test (Phase 3), and a real live-AWS STS smoke test — it is ready to submit to opam-repository whenever that's wanted. Remaining before calling the foundation fully proven: `AWS-001`'s S3 tiny-object smoke (steps 3-4, needs a caller-provided bucket), and Phase 4 (Sun end-to-end via `sun new workspace` / `sun dev up` / `sun deploy --dry-run` against the pinned foundation, not just `dune build`/`dune test`).
