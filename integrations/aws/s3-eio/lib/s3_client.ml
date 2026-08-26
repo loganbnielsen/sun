@@ -73,20 +73,40 @@ let resolve_credentials ~net ~clock config =
    Correct but not free for Web_identity/Container/Imdsv2 (an extra network
    round trip per S3 call); caching until resolved.expiration approaches is
    real, deferred work — see s3-eio.md's "Out of Scope". *)
+(* aws-eio's signed_request already converts every non-2xx status into
+   Error (Http_error (status, body)) before returning — found by an
+   adversarial review round: interpret_put/get/delete/head's own non-2xx
+   branches (the whole point of S3_error's typed classification) were
+   unreachable dead code through the real call path, only ever exercised by
+   this package's own unit tests calling interpret_* directly with a
+   synthetic non-2xx status. Fixed by re-threading Http_error's already-
+   carried (status, body) back into the same Ok shape interpret_*
+   expects — the interpreters themselves needed no change, since their
+   non-2xx handling was always correct, just unreachable. Headers are lost
+   on this path ([]), matching Aws_http.signed_request's own documented
+   choice to only return headers on success. Factored out as its own pure
+   function (rather than left inline in call) specifically so this fix is
+   unit-testable without a real network call — this package's tests can't
+   spin up a local mock server at all (see the test-strategy note above),
+   so this is the only way to actually exercise the fix pre-live-test. *)
+let reclassify_transport_result :
+    (int * (string * string) list * string, Aws_error.t) result -> (int * (string * string) list * string, S3_error.t) result
+    = function
+  | Error (Aws_error.Http_error (status, body)) -> Ok (status, [], body)
+  | Error e -> Error (S3_error.Aws e)
+  | Ok (status, headers, body) -> Ok (status, headers, body)
+
 let call ~net ~clock config ~meth ~key ?query ?body () =
   let* () = validate_config config in
   let* creds = resolve_credentials ~net ~clock config in
   let host, port, path = host_port_and_path config ~key in
-  match
-    Aws_http.signed_request ~net ~clock
-      ~access_key_id:creds.access_key_id
-      ~secret_access_key:creds.secret_access_key
-      ?session_token:creds.session_token
-      ~region:config.region ~service:"s3" ~normalize_path:false
-      ~meth ~host ?port ~path ?query ?body ()
-  with
-  | Error e -> Error (S3_error.Aws e)
-  | Ok (status, headers, body) -> Ok (status, headers, body)
+  reclassify_transport_result
+    (Aws_http.signed_request ~net ~clock
+       ~access_key_id:creds.access_key_id
+       ~secret_access_key:creds.secret_access_key
+       ?session_token:creds.session_token
+       ~region:config.region ~service:"s3" ~normalize_path:false
+       ~meth ~host ?port ~path ?query ?body ())
 
 let header_ci name headers =
   List.find_map (fun (k, v) -> if String.lowercase_ascii k = name then Some v else None) headers

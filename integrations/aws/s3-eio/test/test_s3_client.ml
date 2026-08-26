@@ -63,12 +63,43 @@ let test_validate_config_accepts_normal_config () =
   in
   Alcotest.(check bool) "ordinary config passes" true (Result.is_ok (S3_client.validate_config config))
 
+let not_found_xml = {|<?xml version="1.0"?><Error><Code>NoSuchKey</Code><Message>x</Message></Error>|}
+
+(* Regression test for the most severe finding of the review round: aws-eio's
+   signed_request converts every non-2xx status into Error (Http_error (status,
+   body)) before call ever sees it, so interpret_*'s non-2xx branches (the
+   whole point of S3_error's classification) were unreachable through the
+   real call path — a 404 GetObject would have surfaced as
+   Error (Aws (Http_error (404, body))), never Error Not_found, despite that
+   being the documented, tested behavior. reclassify_transport_result is the
+   fix; this proves the full pipeline (transport error -> reclassify ->
+   interpret) actually produces the documented result, not just that
+   interpret_get does when called directly with a synthetic status. *)
+let test_reclassify_then_interpret_get_not_found () =
+  let transport_result : (int * (string * string) list * string, Aws_error.t) result =
+    Error (Aws_error.Http_error (404, not_found_xml))
+  in
+  match Result.bind (S3_client.reclassify_transport_result transport_result) S3_client.interpret_get with
+  | Error Not_found -> ()
+  | Error e -> Alcotest.failf "expected Not_found, got %s" (S3_error.to_string e)
+  | Ok _ -> Alcotest.fail "expected an error"
+
+let test_reclassify_passes_through_genuine_transport_errors () =
+  let transport_result : (int * (string * string) list * string, Aws_error.t) result =
+    Error (Aws_error.Network_error "connection refused")
+  in
+  Alcotest.(check bool) "a genuine transport error (not an HTTP status) stays S3_error.Aws" true
+    (match S3_client.reclassify_transport_result transport_result with Error (Aws _) -> true | _ -> false)
+
+let test_reclassify_passes_through_success () =
+  let transport_result : (int * (string * string) list * string, Aws_error.t) result = Ok (200, [], "hi") in
+  Alcotest.(check bool) "a 2xx Ok passes through unchanged" true
+    (S3_client.reclassify_transport_result transport_result = Ok (200, [], "hi"))
+
 (* interpret_* mappers are pure — see s3_client.ml's top comment on why
    operation tests exercise these directly instead of a mock server
    (signed_request always negotiates real TLS, which a bare-IP loopback mock
    can't satisfy). *)
-
-let not_found_xml = {|<?xml version="1.0"?><Error><Code>NoSuchKey</Code><Message>x</Message></Error>|}
 
 let test_interpret_put_success () =
   Alcotest.(check bool) "200 -> Ok ()" true (Result.is_ok (S3_client.interpret_put (200, [], "")))
@@ -130,6 +161,13 @@ let () =
         [ Alcotest.test_case "rejects CRLF in bucket" `Quick test_validate_config_rejects_crlf_in_bucket;
           Alcotest.test_case "rejects CRLF in region" `Quick test_validate_config_rejects_crlf_in_region;
           Alcotest.test_case "accepts an ordinary config" `Quick test_validate_config_accepts_normal_config;
+        ] );
+      ( "reclassify_transport_result",
+        [ Alcotest.test_case "reclassified 404 -> interpret_get -> Not_found" `Quick
+            test_reclassify_then_interpret_get_not_found;
+          Alcotest.test_case "genuine transport error stays Aws" `Quick
+            test_reclassify_passes_through_genuine_transport_errors;
+          Alcotest.test_case "2xx Ok passes through unchanged" `Quick test_reclassify_passes_through_success;
         ] );
       ( "interpret",
         [ Alcotest.test_case "put: success" `Quick test_interpret_put_success;

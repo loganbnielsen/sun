@@ -54,6 +54,14 @@ val validate_config : config -> (unit, S3_error.t) result
 (** The CR/LF fail-closed check every operation runs before building a
     request — see the [Invalid_config] doc above. *)
 
+val reclassify_transport_result :
+  (int * (string * string) list * string, Aws_error.t) result -> (int * (string * string) list * string, S3_error.t) result
+(** [Aws_http.signed_request] already converts every non-2xx status into
+    [Error (Http_error (status, body))] — this re-threads that back into the
+    [Ok] shape [interpret_*] expects, so their non-2xx classification
+    branches are actually reachable. See [s3_client.ml]'s comment on why
+    this had to be pulled out as its own testable function. *)
+
 val interpret_put : int * (string * string) list * string -> (unit, S3_error.t) result
 val interpret_get : int * (string * string) list * string -> (string, S3_error.t) result
 val interpret_delete : int * (string * string) list * string -> (unit, S3_error.t) result
