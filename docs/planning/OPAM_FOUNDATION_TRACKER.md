@@ -20,7 +20,7 @@ This tracker is not a replacement for package READMEs. Each package README remai
 | `obs-prometheus-eio` | `~/Code/obs-prometheus-eio` | Prometheus backend for `obs-eio` | Clean-switch install/build/test pass; uses `https-eio`; README fix merged | Cross-package pin test with Kafka/AWS once ready |
 | `pg-eio` | `~/Code/pg-eio` | Caqti/Postgres helpers, migrations, table functor | Clean-switch install/build/test pass | Cross-package pin test with Kafka/AWS once ready |
 | `kafka-eio` | `~/Code/kafka-eio` | Eio Kafka producer/consumer/core over librdkafka | Local lint/build pass; OPAM PR open with metadata fixes | Track opam-repository PR #30557 |
-| `aws-eio` | `~/Code/aws-eio` | SigV4, credentials, minimal AWS HTTP transport | `awskit` comparison done (keep as-is, see below); CI added; README fix open as PR #1 | Merge PR #1, then submit to opam-repository |
+| `aws-eio` | `~/Code/aws-eio` | SigV4, credentials, minimal AWS HTTP transport | `awskit` comparison done (keep as-is, see below); CI added; README fix merged (PR #1, `ada1811`) | Clean-switch check, then submit to opam-repository |
 | `kafka-eio-service` | `sun/integrations/kafka/kafka-eio-service` | Sun-level typed message/schema service layer | In Sun; uses `https-eio` | Decide whether it remains Sun-specific after foundation packages settle |
 
 ## Current Evidence
@@ -55,7 +55,7 @@ Readiness gaps found by sidecar audit:
 - Branch protection tightened 2026-08-26 across all of `aws-eio`/`https-eio`/`kafka-eio`/`obs-loki-eio`/`obs-prometheus-eio`: `enforce_admins: true` (no bypass, including for repo admins), required `test` status check, squash-only merge, no force-push. Direct pushes to `main` are no longer possible on any of these repos — all changes now go through a feature branch + PR + green CI + squash-merge.
 - The local `kafka-eio` checkout still shows raw `depexts`; the open OPAM PR currently carries the `conf-librdkafka` metadata fix.
 - `https-eio` had no local `v0.1.0` tag; fixed on 2026-08-26 after `opam lint` and `dune build @install @runtest` passed.
-- `aws-eio/README.md` stale `Aws_tls` references fixed 2026-08-26: `https://github.com/loganbnielsen/aws-eio/pull/1` (open, CI pending; will squash-merge once green — branch protection now requires it, no more direct pushes to `main`).
+- `aws-eio/README.md` stale `Aws_tls` references fixed and merged 2026-08-26: `https://github.com/loganbnielsen/aws-eio/pull/1`, squash-merge commit `ada1811f14f8e91cab5ed7236117ee75e52b0a2f`.
 
 README/release evidence checked 2026-08-26:
 
@@ -124,8 +124,8 @@ Packages to check:
 - [x] Tag `https-eio` `v0.1.0` after confirming its current commit is the intended release commit
 - [ ] Track `https-eio` PR #30570 through opam-repository CI/review/merge
 - [ ] Clean-switch install for `kafka-eio` after PR #30557's metadata shape is mirrored locally or merged upstream
-- [x] `awskit` comparison done; README TLS correction open as `aws-eio` PR #1
-- [ ] Clean-switch install for `aws-eio` once PR #1 merges
+- [x] `awskit` comparison done; README TLS correction merged (`aws-eio` PR #1, `ada1811`)
+- [ ] Clean-switch install for `aws-eio`
 
 Clean-switch evidence:
 
@@ -269,4 +269,4 @@ Tracking tickets:
 
 ## Next Action
 
-Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). Merge `aws-eio` PR #1 (README fix) once its own repo CI is green, then run `aws-eio` through the same local lint/build/clean-switch checks as the other packages before submitting it to opam-repository.
+Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). `aws-eio` PR #1 (README fix) merged 2026-08-26 (`ada1811`); next is running `aws-eio` through the same local lint/build/clean-switch checks as the other packages before submitting it to opam-repository.
