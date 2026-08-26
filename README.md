@@ -149,7 +149,8 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Cloud infrastructure (`sun cloud init`) | Provisions AWS EKS+ECR or GCP GKE+Artifact Registry via Terraform — experimental, not yet tested against live cloud accounts |
 | AWS application-level integration (`aws-eio`: credentials + SigV4 + HTTP transport) | Complete — proven against a live AWS endpoint (see `aws-audit.md`) |
 | AWS S3 client (`s3-eio`) | Implementation in progress — v1 scope (put/get/delete/head_object) built, local tests passing; live smoke test written, not yet run against a real bucket |
-| AWS DynamoDB / Lambda integration (`dynamo-eio`, `lambda-eio`) | Not started — see `aws-audit.md` |
+| AWS DynamoDB client (`dynamo-eio`) | Implementation in progress — v1 scope (Client + typed Index/Entity layer) built, local tests passing; live smoke test written, not yet run against a real table |
+| AWS Lambda integration (`lambda-eio`) | Not started — see `aws-audit.md` |
 
 ---
 

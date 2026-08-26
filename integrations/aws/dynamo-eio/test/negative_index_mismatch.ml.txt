@@ -1,0 +1,47 @@
+(* This file deliberately does NOT compile — that is the entire point. It is
+   named .ml.txt, not .ml, so dune never picks it up as a compilation unit;
+   there is no automated CI check re-verifying this on every build (a
+   fragile hand-rolled dune rule invoking ocamlfind/ocamlopt against
+   internal _build paths, or a nested `dune build` subprocess, was judged
+   more likely to break than the property it would protect — see
+   dynamo-eio.md's design notes). The claim this file records was verified
+   by hand on 2026-08-26: renaming this to negative_index_mismatch.ml,
+   copying it into test/, and building it against the built dynamo_eio
+   library fails with exactly:
+
+     Error: This constructor has type [> `Email of string ]
+            but an expression was expected of type User_primary.pk
+            The second variant type does not allow tag(s) `Email
+
+   Re-verify by hand if Dynamo_table.Index's signature ever changes —
+   passing one index's key to another index's functions must remain a type
+   error, not a runtime bug; that guarantee is enforced by dynamo_table.mli
+   declaring Index(I).get/query against I.pk/I.sk specifically, not by
+   anything this file's presence checks automatically. *)
+
+module User_primary = struct
+  type pk = [ `Org of string ]
+  type sk = [ `User of string ]
+  let index_name = None
+  let format_pk (`Org id) = "ORG#" ^ id
+  let format_sk (`User id) = "USER#" ^ id
+  let pk_attribute = "PK"
+  let sk_attribute = "SK"
+end
+
+module User_by_email = struct
+  type pk = [ `Email of string ]
+  type sk = [ `Metadata ]
+  let index_name = Some "gsi1"
+  let format_pk (`Email e) = "EMAIL#" ^ e
+  let format_sk `Metadata = "METADATA"
+  let pk_attribute = "GSI1PK"
+  let sk_attribute = "GSI1SK"
+end
+
+module Primary = Dynamo_table.Index (User_primary)
+module By_email = Dynamo_table.Index (User_by_email)
+
+let bad ~net ~clock config =
+  (* Primary.get expects User_primary.pk = [ `Org of string ], not [ `Email of string ] *)
+  Primary.get ~net ~clock config ~pk:(`Email "x") ~sk:(`User "y")

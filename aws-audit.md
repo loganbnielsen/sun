@@ -26,6 +26,58 @@ short-lived STS session token). The all-seven-package cross-pin test (Phase 3 of
 OPAM foundation tracker) also passed — no link-name clashes with `obs-eio`/`pg-eio`/
 `kafka-eio`/etc. `s3-eio`, `dynamo-eio`, and `lambda-eio` (layers 2–4 below) are next.
 
+**Layer 2 (`s3-eio`) built 2026-08-26**: v1 scope (put/get/delete/head_object) at
+`integrations/aws/s3-eio/`, committed to `sun`. Required and got a small `aws-eio` API
+fix along the way — response headers were silently dropped, which `head_object`'s
+entire purpose depends on (`aws-eio` commit `a6cf864`, already merged). An adversarial
+review round found and fixed two real bugs: `config.bucket`/`region` spliced
+unvalidated into the Host header (CRLF header-injection risk, fixed with a fail-closed
+`validate_config` check) and an IPv6-endpoint parsing bug (`split_host_port` split on
+the last colon, landing inside a bracketed IPv6 literal). Also documented, not
+code-fixed (a real transport limitation): the local-test-server endpoint-override path
+needs a real DNS-resolvable hostname and real TLS termination, since `aws-eio`'s
+`signed_request` always negotiates TLS/SNI and rejects IP literals — found while
+discovering this package's own tests couldn't use a lightweight local mock server at
+all. Live smoke test written (`S3_EIO_LIVE=1`), not yet run against a real bucket —
+live testing across all of `s3-eio`/`dynamo-eio`/`lambda-eio` is deliberately held until
+everything is built and reviewed.
+
+**Layer 3 (`dynamo-eio`) built 2026-08-26**: `Dynamo_client` (PutItem/GetItem/
+DeleteItem/Query, single-page) and the `Dynamo_table.Index`/`Entity` typed layer at
+`integrations/aws/dynamo-eio/`. The negative-compilation guarantee (mismatched index
+key = type error) was verified by hand, not via an automated dune rule — a hand-rolled
+rule invoking `ocamlfind`/nested `dune build` against internal `_build` paths was
+judged more likely to break than the property itself, which is a first-principles
+consequence of `Index`'s functor signature rather than something that regresses
+silently.
+
+**`dynamo-eio`'s review round found a serious cross-package bug that also silently broke
+`s3-eio`, now fixed in both**: `aws-eio`'s `signed_request` already converts every
+non-2xx status into `Error (Http_error (status, body))` before returning — meaning
+`S3_client`/`Dynamo_client`'s own `call` functions never actually saw a non-2xx status
+arrive via `Ok`, so `interpret_*`'s entire non-2xx classification branch (the whole
+reason `S3_error`/`Dynamo_error` exist as typed error types, not just a thin `Aws_error`
+passthrough) was unreachable dead code through every real `put`/`get`/`delete`/`head`/
+`query` call — only ever exercised by each package's own unit tests calling
+`interpret_*` directly with a synthetic status. A real 404 `GetObject` or
+`ResourceNotFoundException` would have surfaced as `Error (Aws (Http_error (status,
+body)))`, never the documented `Error Not_found`/`Error Resource_not_found`. Fixed in
+both packages with a `reclassify_transport_result` function that re-threads
+`Http_error`'s already-carried `(status, body)` back into the `Ok` shape `interpret_*`
+expects, factored out as its own pure function specifically so the fix is
+unit-testable without a real network call (neither package can exercise the real
+wire/TLS path locally at all — see each package's test-strategy notes). Three smaller
+real bugs also found and fixed in `dynamo-eio`: `config.region` had the same
+CRLF-header-injection gap `s3-eio`'s `validate_config` was built to close, not
+originally carried over; `Index.get` assumed a fully-specified pk+sk always identifies
+at most one item, which is only true for a table's own primary key — DynamoDB does not
+enforce that uniqueness on secondary indexes, so `get` now fails loud (not silently
+picks the first match) when more than one item comes back; and `Dynamo_error.of_response`
+used `Yojson.Safe.Util.member`, which raises `Type_error` on a non-2xx body that's valid
+JSON but not a JSON object, crashing what's documented as a pure, always-`Result`
+classifier — fixed by switching to plain `List.assoc_opt` pattern matching, which never
+raises.
+
 ## Short version
 
 Four packages, following the same layering `obs-eio`/`obs-loki-eio`/`obs-prometheus-eio`
