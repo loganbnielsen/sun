@@ -118,6 +118,14 @@ left as documented, tested (new regression test added), generically-useful Runti
 surface for other callers rather than forcing one. Full test suite: 9 lambda_runtime + 8
 sun-fn, all passing.
 
+**`lambda-eio` extracted 2026-08-26** to a standalone package at
+[github.com/loganbnielsen/lambda-eio](https://github.com/loganbnielsen/lambda-eio),
+pinned into the switch (`git+file:///home/lbendtly/Code/lambda-eio#main`), matching the
+extraction pattern already used for `kafka-eio`/`obs-eio`/`pg-eio`/`aws-eio`. The in-tree
+`integrations/aws/lambda-eio/` directory is gone; `sun-fn`'s `lib/dune` now depends on it
+as `lambda-eio` (the external package's public name) instead of the in-tree `lambda_eio`
+module name.
+
 ## Short version
 
 Four packages, following the same layering `obs-eio`/`obs-loki-eio`/`obs-prometheus-eio`

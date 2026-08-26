@@ -1,4 +1,4 @@
 (library
  (name sun_fn)
  (wrapped false)
- (libraries eio eio.unix obs-eio obs-prometheus-eio lambda_eio))
+ (libraries eio eio.unix obs-eio obs-prometheus-eio lambda-eio))

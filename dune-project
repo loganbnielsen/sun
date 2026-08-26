@@ -17,12 +17,16 @@
   uri
   cstruct
   kafka-eio
-  tls-eio
-  x509
-  domain-name
-  ptime
+  obs-eio
+  obs-loki-eio
+  obs-prometheus-eio
+  https-eio
   mtime
   caqti-eio
   caqti-driver-postgresql
+  pg-eio
+  digestif
+  aws-eio
+  lambda-eio
   otoml
   (alcotest :with-test)))
