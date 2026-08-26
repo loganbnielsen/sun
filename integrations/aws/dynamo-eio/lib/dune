@@ -1,5 +1,0 @@
-(library
- (name dynamo_eio)
- (wrapped false)
- (modules dynamo_error dynamo_value dynamo_client dynamo_table)
- (libraries aws-eio eio yojson base64))

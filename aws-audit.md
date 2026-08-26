@@ -84,6 +84,16 @@ JSON but not a JSON object, crashing what's documented as a pure, always-`Result
 classifier — fixed by switching to plain `List.assoc_opt` pattern matching, which never
 raises.
 
+**`dynamo-eio` extracted 2026-08-26** to a standalone package at
+[github.com/loganbnielsen/dynamo-eio](https://github.com/loganbnielsen/dynamo-eio),
+pinned into the switch (`git+file:///home/lbendtly/Code/dynamo-eio#main`). The in-tree
+`integrations/aws/dynamo-eio/` directory is gone; `dynamo-eio` is now a `sun.opam`
+dependency like `aws-eio`/`s3-eio` (no in-tree consumer yet). All three of `s3-eio`,
+`dynamo-eio`, and `lambda-eio` are now extracted, matching the pattern already used for
+`kafka-eio`/`obs-eio`/`pg-eio`/`aws-eio`. Remaining deferred work: live testing
+(`S3_EIO_LIVE`, `DYNAMO_EIO_LIVE`, and a Lambda RIE/live check) against real AWS
+resources — not started yet.
+
 **Layer 4 (`lambda-eio`) built 2026-08-26**: `Lambda_runtime` (the invoke-next/respond/
 error loop against `AWS_LAMBDA_RUNTIME_API`, using `Cohttp_eio.Client` directly — no
 `aws-eio` dependency, matching the plan, since this is unsigned local HTTP) and
