@@ -78,6 +78,46 @@ JSON but not a JSON object, crashing what's documented as a pure, always-`Result
 classifier — fixed by switching to plain `List.assoc_opt` pattern matching, which never
 raises.
 
+**Layer 4 (`lambda-eio`) built 2026-08-26**: `Lambda_runtime` (the invoke-next/respond/
+error loop against `AWS_LAMBDA_RUNTIME_API`, using `Cohttp_eio.Client` directly — no
+`aws-eio` dependency, matching the plan, since this is unsigned local HTTP) and
+`Lambda_event` (S3/SQS/DynamoDB-Streams event envelope parsing). Unlike `s3-eio`/
+`dynamo-eio`, this package's wire path genuinely runs against a real local mock server
+in its own tests (plain HTTP, no TLS/SNI blocker), so its protocol correctness is tested
+end to end, not just via pure-function interpretation. Two `Eio.Cancel.Cancelled`-
+swallowing bugs (the same class already found in `s3-eio`/`dynamo-eio`'s review rounds)
+were caught and fixed before ever reaching a review round this time, by checking the
+new code directly against the established rule. `framework/sun-fn`'s `FN` module type
+changed as planned: `schedule : string` → `trigger : trigger` (`Cron of string |
+Lambda`); `Make(F).run` dispatches on it, `Cron` behavior unchanged, `Lambda` loops via
+`Lambda_runtime.run_loop`. The scaffold template (`sun_cli_scaffold_templates.ml`'s
+`fn_lib_ml`, used by `sun new fn`) was updated to match — newly-scaffolded `-fn`
+projects would otherwise fail to compile against the new signature. `sun.toml`'s
+deployment-level `schedule` field (read by `sun_cli_manifest_yaml.ml`/
+`sun_cli_deployment_plan.ml` to render a Kubernetes CronJob) is a separate, unrelated
+layer, confirmed by reading both call sites — not touched, matching the plan's own
+scoping (Lambda deploy-target rendering, i.e. actually deploying *to* Lambda instead of
+a k8s CronJob, is separate, not-yet-started work). Adversarial review round found 6
+findings, all real, all fixed: (1) `read_body`'s `Eio.Buf_read.parse_exn` could raise
+`Failure` from inside a `match ... with resp, body -> ...` success branch — outside the
+`exception` guard that only covered the preceding network call, the same class of mistake
+already caught once in `dynamo_error.ml`'s `Yojson.Safe.Util` bug; fixed by moving the
+body read inside the guarded match. (2/3) cancellation could fire mid-ack, abandoning an
+already-completed invocation's response to the Runtime API, and `fn.ml`'s `push_metrics`
+swallowed `Eio.Cancel.Cancelled` in its blanket `with exn`; fixed together — `run_loop`
+now wraps the handler-and-ack sequence in `Eio.Cancel.protect` so a stop signal can only
+take effect while waiting on `next_invocation`, never mid-ack, and `push_metrics` now
+re-raises `Cancelled` before its catch-all. (4) if `F.run ()` raised instead of returning
+`Error`, `record_and_push` was skipped, undercounting failed Lambda invocations in
+metrics; fixed by catching (and converting, `Cancelled` excepted) inside the handler
+closure before recording. (5) `next_invocation` didn't check the invocation/next
+response's HTTP status, relying only on incidental header presence; fixed to reject
+non-2xx explicitly. (6) `init_error` had zero callers — real, but there's no actual
+sun-fn init step between obtaining `base` and entering `run_loop` to wire it to yet, so
+left as documented, tested (new regression test added), generically-useful Runtime API
+surface for other callers rather than forcing one. Full test suite: 9 lambda_runtime + 8
+sun-fn, all passing.
+
 ## Short version
 
 Four packages, following the same layering `obs-eio`/`obs-loki-eio`/`obs-prometheus-eio`

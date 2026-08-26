@@ -1,5 +1,7 @@
+type trigger = Cron of string | Lambda
+
 module type FN = sig
-  val schedule : string
+  val trigger : trigger
   val run : unit -> (unit, string) result
 end
 
@@ -35,19 +37,24 @@ let install_signal_handler ~sw resolver =
 
 module Make (F : FN) = struct
 
+  let default_job = function
+    | Cron sched -> sched
+    | Lambda -> "lambda"
+
   let run ~(env : < net       : _ Eio.Net.t
                   ; clock     : _ Eio.Time.clock
                   ; mono_clock: _ Eio.Time.Mono.t
                   ; .. >)
-      ?pushgateway_url ?(job = F.schedule) ?backend () =
+      ?pushgateway_url ?job ?backend () =
+    let job = Option.value job ~default:(default_job F.trigger) in
     let backend, renderer =
       match backend with
       | Some pair -> pair
       | None      -> Obs_prometheus.create ()
     in
-    let ot = Obs.create ~service:job ~mono_clock:env#mono_clock ~backend in
+    let ot = Obs_eio.create ~service:job ~mono_clock:env#mono_clock ~backend in
     let invocations, duration_h =
-      Obs.register_counter_and_histogram ot
+      Obs_eio.register_counter_and_histogram ot
         ~counter_name:"sun_fn_invocations_total"
         ~counter_help:"Total function invocations by status"
         ~counter_labels:["status"]
@@ -55,33 +62,70 @@ module Make (F : FN) = struct
         ~histogram_help:"Function run duration in seconds"
         ~histogram_labels:[]
     in
-    let t0 = Eio.Time.now env#clock in
-    let stop, stop_r = Eio.Promise.create () in
-    (* Fiber.first arms return a typed outcome only — no telemetry inside *)
-    let outcome =
-      Eio.Switch.run (fun sw ->
-        install_signal_handler ~sw stop_r;
-        Eio.Fiber.first
-          (fun () -> `Completed (F.run ()))
-          (fun () -> Eio.Promise.await stop; `Signalled))
-    in
-    let dt = Eio.Time.now env#clock -. t0 in
-    duration_h dt;
-    (match outcome with
-     | `Completed (Ok ())   -> invocations ~labels:[("status","ok")]        1
-     | `Completed (Error _) -> invocations ~labels:[("status","error")]     1
-     | `Signalled           -> invocations ~labels:[("status","cancelled")] 1);
-    (* Push errors are always swallowed — push never blocks exit *)
+    (* Push errors are always swallowed — push never blocks exit (Cron) or
+       the next loop iteration (Lambda). *)
     let push_metrics url =
-      match (try Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer
-             with exn -> Error (Printexc.to_string exn)) with
+      match
+        (try Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
+         | Eio.Cancel.Cancelled _ as exn -> raise exn
+         | exn -> Error (Printexc.to_string exn))
+      with
       | Ok ()     -> ()
       | Error msg -> Printf.eprintf "sun-fn: push failed (swallowed): %s\n%!" msg
     in
-    Option.iter push_metrics pushgateway_url;
-    match outcome with
-    | `Completed (Ok ())     -> ()
-    | `Completed (Error msg) -> raise (Failure msg)
-    | `Signalled             -> exit 130
+    let record_and_push ~t0 outcome =
+      let dt = Eio.Time.now env#clock -. t0 in
+      duration_h dt;
+      (match outcome with
+       | `Completed (Ok ())   -> invocations ~labels:[("status","ok")]        1
+       | `Completed (Error _) -> invocations ~labels:[("status","error")]     1
+       | `Signalled           -> invocations ~labels:[("status","cancelled")] 1);
+      Option.iter push_metrics pushgateway_url
+    in
+    match F.trigger with
+    | Cron _ ->
+      let stop, stop_r = Eio.Promise.create () in
+      let t0 = Eio.Time.now env#clock in
+      let outcome =
+        Eio.Switch.run (fun sw ->
+          install_signal_handler ~sw stop_r;
+          Eio.Fiber.first
+            (fun () -> `Completed (F.run ()))
+            (fun () -> Eio.Promise.await stop; `Signalled))
+      in
+      record_and_push ~t0 outcome;
+      (match outcome with
+       | `Completed (Ok ())     -> ()
+       | `Completed (Error msg) -> raise (Failure msg)
+       | `Signalled             -> exit 130)
+    | Lambda -> (
+      match Lambda_runtime.runtime_api_base () with
+      | Error msg -> raise (Failure ("sun-fn: " ^ msg))
+      | Ok base ->
+        let stop, stop_r = Eio.Promise.create () in
+        Eio.Switch.run (fun sw ->
+          install_signal_handler ~sw stop_r;
+          Eio.Fiber.first
+            (fun () ->
+              Lambda_runtime.run_loop ~net:env#net ~sw ~base
+                ~handler:(fun (_ : Lambda_runtime.invocation) ->
+                  let t0 = Eio.Time.now env#clock in
+                  let result =
+                    try F.run () with
+                    | Eio.Cancel.Cancelled _ as exn -> raise exn
+                    | exn -> Error (Printexc.to_string exn)
+                  in
+                  record_and_push ~t0 (`Completed result);
+                  match result with
+                  | Ok ()     -> Ok {|{"status":"ok"}|}
+                  | Error msg -> Error msg))
+            (fun () -> Eio.Promise.await stop))
+        (* Fiber.first's normal cleanup contract cancels and discards the
+           losing fiber's Cancelled internally — when stop resolves first,
+           run_loop's Cancelled (correctly re-raised by Lambda_runtime's own
+           exception handlers, not swallowed there) never escapes this
+           Switch.run; it completes normally, which is exactly "stop the
+           loop, don't exit the process" — the execution environment, not
+           this function, decides when the process itself ends. *))
 
 end

@@ -1,0 +1,5 @@
+(library
+ (name lambda_eio)
+ (wrapped false)
+ (modules lambda_runtime lambda_event)
+ (libraries eio eio.unix cohttp-eio uri yojson))

@@ -1,6 +1,7 @@
-# obs-eio-prometheus — push (deferred spec)
+# Obs_prometheus.push (used by sun-fn)
 
-The `push` function is called by `Sun.Fn.Make` at the end of every invocation to push
+The `push` function (from the external `obs-prometheus-eio` package) is called by
+`Sun.Fn.Make` at the end of every invocation to push
 metrics to a Prometheus Pushgateway. It is the correct solution for ephemeral processes
 that cannot be scraped.
 
@@ -51,7 +52,7 @@ module Make (F : FN) : sig
              mono_clock : _ Eio.Time.Mono.t; .. >
     -> ?pushgateway_url:string
     -> ?job:string
-    -> ?backend:(Obs.backend * (unit -> string))
+    -> ?backend:(Obs_eio.backend * (unit -> string))
     -> unit
     -> unit
 end

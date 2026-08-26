@@ -1,0 +1,9 @@
+(test
+ (name test_lambda_event)
+ (modules test_lambda_event)
+ (libraries lambda_eio alcotest yojson))
+
+(test
+ (name test_lambda_runtime)
+ (modules test_lambda_runtime)
+ (libraries lambda_eio alcotest eio_main cohttp-eio))

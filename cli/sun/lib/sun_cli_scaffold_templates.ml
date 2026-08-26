@@ -542,7 +542,7 @@ let ws_storage_dune = {tpl|(library
  (name {{name}}_storage)
  (wrapped false)
  (modules Notification)
- (libraries sun_storage caqti))
+ (libraries pg-eio caqti))
 |tpl}
 
 (* app/payments/charge_svc/lib/handler.ml *)
@@ -634,7 +634,7 @@ let ws_svc_bin_ml = {tpl|let env_nonempty name =
   | _ -> None
 
 let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
+  | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
@@ -655,9 +655,9 @@ let () =
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, render = Obs_prometheus.create () in
   let ot =
-    Obs.with_context
-      (Obs.create ~service:"{{name}}-charge-svc" ~mono_clock:env#mono_clock
-         ~backend:(Obs.compose log_backend prom))
+    Obs_eio.with_context
+      (Obs_eio.create ~service:"{{name}}-charge-svc" ~mono_clock:env#mono_clock
+         ~backend:(Obs_eio.compose log_backend prom))
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
@@ -680,8 +680,8 @@ let ws_svc_bin_dune = {tpl|(executable
  (name main)
  (libraries
   {{name}}_payments_charge_svc
-  sun_svc kafka_eio_service obs_eio obs_eio_loki obs_eio_prometheus
-  sun_storage caqti-eio caqti-eio.unix caqti-driver-postgresql
+  sun_svc kafka_eio_service obs-eio obs-loki-eio obs-prometheus-eio
+  pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))
 |tpl}
 
@@ -690,27 +690,27 @@ let ws_worker_ml = {tpl|(* Inject pool and observability handle via functor so t
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
   val pool : Db.pool option
-  val ot   : Obs.t
+  val ot   : Obs_eio.t
 end) = struct
 
   module Message = Charged
 
   let group_id = "{{name}}-comms-notify-worker"
 
-  let handle (msg : Message.t) ~ack ~trace_ctx:_ =
-    Obs.log_t Config.ot Obs.Info
+  let handle (msg : Message.t) ~trace_ctx:_ =
+    Obs_eio.log_t Config.ot Obs_eio.Info
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
                ("amount_cents", string_of_int msg.amount_cents)]
       "charge event received";
     match Config.pool with
-    | None -> ack (); Ok ()
+    | None -> Ok ()
     | Some pool ->
       (match Notification.insert pool
               ~charge_id:msg.id ~customer_id:msg.customer_id
               ~amount_cents:msg.amount_cents ~currency:msg.currency with
-       | Ok ()   -> ack (); Ok ()
+       | Ok ()   -> Ok ()
        | Error e ->
-         Obs.log_t Config.ot Obs.Error
+         Obs_eio.log_t Config.ot Obs_eio.Error
            ~fields:[("error", Storage_error.to_string e)]
            "db insert failed";
          Error (Storage_error.to_string e))
@@ -725,7 +725,7 @@ let ws_worker_lib_dune = {tpl|(library
  (modules Notify_worker)
  (libraries
   {{name}}_storage {{name}}_payments_events
-  kafka_eio_service obs_eio sun_storage))
+  kafka_eio_service obs-eio pg-eio))
 |tpl}
 
 (* app/comms/notify_worker/bin/main.ml *)
@@ -735,7 +735,7 @@ let ws_worker_bin_ml = {tpl|let env_nonempty name =
   | _ -> None
 
 let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
+  | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
@@ -752,9 +752,9 @@ let () =
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, _render = Obs_prometheus.create () in
   let ot =
-    Obs.with_context
-      (Obs.create ~service:"{{name}}-notify-worker" ~mono_clock:env#mono_clock
-         ~backend:(Obs.compose log_backend prom))
+    Obs_eio.with_context
+      (Obs_eio.create ~service:"{{name}}-notify-worker" ~mono_clock:env#mono_clock
+         ~backend:(Obs_eio.compose log_backend prom))
       [("team", "comms")]
   in
   Eio.Switch.run @@ fun sw ->
@@ -772,8 +772,8 @@ let ws_worker_bin_dune = {tpl|(executable
  (name main)
  (libraries
   {{name}}_comms_notify sun_worker kafka_eio_service
-  obs_eio obs_eio_loki obs_eio_prometheus
-  sun_storage caqti-eio caqti-eio.unix caqti-driver-postgresql
+  obs-eio obs-loki-eio obs-prometheus-eio
+  pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))
 |tpl}
 
@@ -875,11 +875,11 @@ end
 
 let group_id = "{{domain}}-{{name}}-worker"
 
-let handle (msg : Message.t) ~ack ~trace_ctx:_ =
+let handle (msg : Message.t) ~trace_ctx:_ =
   Printf.printf "[{{name}}-worker] received id=%s\n%!" msg.id;
-  (* Add side effects here. Call ack() only after all side effects succeed.
-     Returning Error without acking causes the message to be retried. *)
-  ack ();
+  (* Add side effects here, then return Ok (). The worker acknowledges
+     (commits the offset) for you, only after this returns Ok — there is no
+     ack to call. Returning Error causes the message to be retried. *)
   Ok ()
 |tpl}
 
@@ -905,7 +905,7 @@ let worker_bin_dune = {tpl|(executable
 |tpl}
 
 (* Generic fn: lib/<name>_fn.ml — satisfies Fn.FN *)
-let fn_lib_ml = {tpl|let schedule = "0 * * * *"
+let fn_lib_ml = {tpl|let trigger = Fn.Cron "0 * * * *"
 
 let run () =
   Printf.printf "[{{name}}-fn] running\n%!";

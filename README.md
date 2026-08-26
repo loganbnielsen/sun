@@ -150,7 +150,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | AWS application-level integration (`aws-eio`: credentials + SigV4 + HTTP transport) | Complete — proven against a live AWS endpoint (see `aws-audit.md`) |
 | AWS S3 client (`s3-eio`) | Implementation in progress — v1 scope (put/get/delete/head_object) built, local tests passing; live smoke test written, not yet run against a real bucket |
 | AWS DynamoDB client (`dynamo-eio`) | Implementation in progress — v1 scope (Client + typed Index/Entity layer) built, local tests passing; live smoke test written, not yet run against a real table |
-| AWS Lambda integration (`lambda-eio`) | Not started — see `aws-audit.md` |
+| AWS Lambda integration (`lambda-eio`) | Implementation in progress — Runtime API loop + event parsing built, local tests passing (protocol tested end to end against a real local mock server); `sun-fn`'s `FN.trigger` variant (`Cron`/`Lambda`) wired in |
 
 ---
 
