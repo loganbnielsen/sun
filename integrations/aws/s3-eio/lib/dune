@@ -1,0 +1,5 @@
+(library
+ (name s3_eio)
+ (wrapped false)
+ (modules s3_error s3_client)
+ (libraries aws-eio eio))

@@ -147,6 +147,9 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Production deployment pipeline (`sun deploy`, Terraform, Argo CD) | Complete |
 | Progressive delivery (`[infra.rollout]`, Argo Rollouts) | Complete |
 | Cloud infrastructure (`sun cloud init`) | Provisions AWS EKS+ECR or GCP GKE+Artifact Registry via Terraform — experimental, not yet tested against live cloud accounts |
+| AWS application-level integration (`aws-eio`: credentials + SigV4 + HTTP transport) | Complete — proven against a live AWS endpoint (see `aws-audit.md`) |
+| AWS S3 client (`s3-eio`) | Implementation in progress — v1 scope (put/get/delete/head_object) built, local tests passing; live smoke test written, not yet run against a real bucket |
+| AWS DynamoDB / Lambda integration (`dynamo-eio`, `lambda-eio`) | Not started — see `aws-audit.md` |
 
 ---
 
@@ -324,7 +327,7 @@ Before streaming, `sun logs` prints a copyable Grafana Explore URL with a pre-bu
 sun logs payments/charge_svc --grafana-base-url http://grafana.internal:3000
 ```
 
-**Note:** `sun logs` streams stdout/stderr from the container pod. Application-level logs (emitted via `Obs.log_t`) are routed to Loki and appear in Grafana, not in the kubectl stream. Use the Grafana URL printed by `sun logs` to query Loki-routed logs for the same service.
+**Note:** `sun logs` streams stdout/stderr from the container pod. Application-level logs (emitted via `Obs_eio.log_t`) are routed to Loki and appear in Grafana, not in the kubectl stream. Use the Grafana URL printed by `sun logs` to query Loki-routed logs for the same service.
 
 For historical log search — spanning multiple services, time ranges, or correlated by trace ID — open Grafana at http://localhost:3000 and use the Explore view with Loki as the data source. Query `{service=~"pluto-.*"} | logfmt` to search across all services in a workspace.
 
@@ -503,16 +506,16 @@ sun/
     sun-worker/           # Kafka consumer, schema registration, metrics
     sun-fn/               # scheduled function, Pushgateway metrics push
   integrations/kafka/
-    kafka-eio-core/       # shared FFI bindings and error types
-    kafka-eio-producer/   # Eio-native Kafka producer
-    kafka-eio-consumer/   # Eio-native Kafka consumer
     kafka-eio-service/    # high-level typed message + schema layer
-  integrations/observability/
-    obs-eio/              # core tracing, logging, metrics API
-    obs-eio-loki/         # Loki push backend
-    obs-eio-prometheus/   # Prometheus exposition backend
-  integrations/storage/
-    sun-storage/          # PostgreSQL pool, typed queries, migrations, Table.Make functor
+                          # (producer/consumer/FFI core moved to the
+                          # external `kafka-eio` opam package, ~/Code/kafka-eio)
+  # obs-eio / obs-loki-eio / obs-prometheus-eio (tracing, logging, metrics API +
+  # Loki/Prometheus backends) moved to standalone opam packages, ~/Code/obs-eio,
+  # ~/Code/obs-loki-eio, ~/Code/obs-prometheus-eio
+  # pg-eio (PostgreSQL pool, typed queries, migrations, Table.Make functor) moved to
+  # a standalone opam package, ~/Code/pg-eio
+  # aws-eio (SigV4 signing, credentials, HTTP transport — foundation for planned
+  # AWS integrations, no in-tree consumer yet) lives at ~/Code/aws-eio
   platform/
     deploy/               # local infra scripts, Dockerfile, k8s manifests, schemas
     infra/                # Terraform, Argo CD, CI deployment references
@@ -524,6 +527,7 @@ sun/
   examples/local-demo/          # legacy single-team demo
   docs/                   # architecture, guides, planning, audit checklists
     architecture/contributing-map.md  # contributor ownership and extension map
+    planning/OPAM_FOUNDATION_TRACKER.md  # OPAM readiness and low-cost AWS smoke plan
   project/
     audits/               # dated audit outputs
     test/                 # hooks and performance baselines
@@ -559,7 +563,7 @@ ln -sf "$(pwd)/_build/default/tools/sundev/bin/main.exe" ~/.local/bin/sundev
 
 ```bash
 # Unit tests (no broker needed)
-dune test integrations/kafka/kafka-eio-core/test/ integrations/observability/obs-eio/test/
+dune test framework/ integrations/kafka/kafka-eio-service/test/
 
 # Full integration tests (requires Redpanda + Loki)
 bash platform/local/scripts/ensure-broker.sh
