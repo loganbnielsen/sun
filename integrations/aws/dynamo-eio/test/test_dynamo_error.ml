@@ -38,12 +38,9 @@ let test_json_without_type_field () =
      | Unparseable_error_response _ -> true
      | _ -> false)
 
-(* Regression test: of_response used Yojson.Safe.Util.member/to_string_option,
-   which raise Type_error on anything that isn't the exact shape expected —
-   a non-2xx body that's valid JSON but not an object (e.g. a bare array or
-   string, as a misconfigured proxy/WAF in front of the real endpoint might
-   return) crashed what's documented as a pure, always-Result classifier.
-   Found by an adversarial review round. *)
+(* of_response is documented as a pure, always-Result classifier, so a
+   non-2xx body that's valid JSON but not an object (e.g. a bare array or
+   string) must not raise. *)
 let test_valid_json_non_object_does_not_raise () =
   Alcotest.(check bool) "a bare JSON array body -> Unparseable_error_response, not an exception" true
     (match Dynamo_error.of_response ~status:503 ~body:{|["Service","Unavailable"]|} with

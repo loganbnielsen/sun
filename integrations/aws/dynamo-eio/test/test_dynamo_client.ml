@@ -1,10 +1,7 @@
-(* Regression test for the most severe finding of the review round (same
-   root cause as s3-eio's): aws-eio's signed_request converts every non-2xx
-   status into Error (Http_error (status, body)) before call ever sees it,
-   so interpret_*'s non-2xx branches were unreachable through the real call
-   path — a ResourceNotFoundException would have surfaced as
-   Error (Aws (Http_error (400, body))), never Error Resource_not_found.
-   reclassify_transport_result is the fix; this proves the full pipeline. *)
+(* aws-eio's signed_request converts every non-2xx status into
+   Error (Http_error (status, body)) before returning; reclassify_transport_result
+   restores it so a ResourceNotFoundException still classifies as
+   Resource_not_found through the real call path. *)
 let test_reclassify_then_interpret_get () =
   let body = {|{"__type":"com.amazonaws.dynamodb.v20120810#ResourceNotFoundException","message":"x"}|} in
   let transport_result : (int * (string * string) list * string, Aws_error.t) result =

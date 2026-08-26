@@ -15,15 +15,11 @@ let exception_name full_type =
   | Some i -> String.sub full_type (i + 1) (String.length full_type - i - 1)
   | None -> full_type
 
-(* Deliberately avoids Yojson.Safe.Util's member/to_string_option: those
-   raise Type_error on anything that isn't the exact shape they expect
-   (e.g. Util.member on a bare JSON array or string, not an object) — found
-   by an adversarial review round. Yojson.Safe.from_string body succeeding
-   only proves body is *some* valid JSON, not that it's a JSON object; a
-   misconfigured proxy/WAF in front of the real endpoint returning a non-2xx
-   with a valid-but-non-object JSON body (a bare string, an array) would
-   have raised uncaught out of what is documented as a pure, always-Result
-   classifier. Plain List.assoc_opt pattern matching below never raises. *)
+(* Avoids Yojson.Safe.Util's member/to_string_option: those raise Type_error
+   on anything that isn't the exact shape expected (a bare JSON array or
+   string, not an object) — Yojson.Safe.from_string succeeding only proves
+   body is *some* valid JSON. Plain List.assoc_opt pattern matching below
+   never raises, keeping this a pure, always-Result classifier. *)
 let of_response ~status ~body =
   match Yojson.Safe.from_string body with
   | exception _ -> Unparseable_error_response { status; body }

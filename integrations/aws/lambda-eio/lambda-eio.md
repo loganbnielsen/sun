@@ -100,9 +100,9 @@ val dynamodb_stream_records_of_json : Yojson.Safe.t -> (dynamodb_stream_record l
 
 ## Sun-specific glue (not in this package — stays in `framework/sun-fn/`)
 
-Per this session's scoping decision (matching `aws-audit.md`): `-fn` only for v1 —
-Lambda fronting `-svc` over API Gateway is a different integration point (request/
-response cycle, not "run once and exit") and out of scope. `sun-fn`'s `FN` module type
+`-fn` only for v1 — Lambda fronting `-svc` over API Gateway is a different integration
+point (request/response cycle, not "run once and exit") and out of scope. `sun-fn`'s
+`FN` module type
 gains a `trigger` variant:
 
 ```ocaml
@@ -129,7 +129,7 @@ and loop back to `next_invocation`).
 - Threading the event payload into `F.run` for a Lambda-triggered `sun-fn` — v1 treats
   the event as opaque, matching `-fn`'s existing "run and report status" contract.
 - Lambda fronting `-svc` (API Gateway integration) — a different, real integration
-  point, explicitly deferred per this session's decision.
+  point, deferred.
 - Streaming responses, Lambda extensions API, provisioned-concurrency init hooks.
 - Any event shape beyond S3/SQS/DynamoDB Streams (e.g. Kinesis, EventBridge, Cognito
   triggers) — add as needed, not speculatively.

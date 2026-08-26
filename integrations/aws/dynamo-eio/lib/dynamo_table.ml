@@ -11,15 +11,10 @@ end
 
 module Index (I : INDEX) = struct
   (* DynamoDB only guarantees pk+sk uniqueness on a table's own primary key
-     (I.index_name = None) — it does NOT enforce uniqueness on global/local
-     secondary indexes, so a fully-specified pk+sk can legitimately match
-     more than one item when this is a secondary index. Found by an
-     adversarial review round: silently taking the first result and
-     dropping the rest would misreport "found exactly one item" for a
-     genuinely non-unique match. Fail loud instead — callers who need every
-     match on a non-unique index should use query, not get. Factored out as
-     its own pure function (rather than left inline in get) so this is
-     unit-testable with a synthetic item list, no network call needed. *)
+     (I.index_name = None), not on secondary indexes — a fully-specified
+     pk+sk can legitimately match more than one item there. Fail loud rather
+     than silently return the first match; callers needing every match on a
+     non-unique index should use query, not get. *)
   let interpret_get_results = function
     | [] -> Ok None
     | [ item ] -> Ok (Some item)

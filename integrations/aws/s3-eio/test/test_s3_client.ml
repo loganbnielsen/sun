@@ -32,11 +32,9 @@ let test_host_and_path_endpoint_override () =
     ("127.0.0.1", "/my-bucket/path/to/object")
     (S3_client.host_and_path config ~key:"path/to/object")
 
-(* Regression test for a real finding: config.bucket/region become an
-   unencoded Host header and TCP connection target with no percent-encoding
-   pass (unlike key), so a caller building config from less-trusted input
-   (e.g. a per-tenant bucket name) could otherwise inject extra header
-   lines. validate_config must fail closed, not silently proceed. *)
+(* config.bucket/region go straight into the Host header and connection
+   target, unencoded (unlike key) — validate_config must reject CRLF or a
+   less-trusted bucket/region value could inject extra header lines. *)
 let test_validate_config_rejects_crlf_in_bucket () =
   let config =
     { S3_client.bucket = "evil\r\nX-Injected: 1"; region = "us-east-1";
@@ -65,16 +63,11 @@ let test_validate_config_accepts_normal_config () =
 
 let not_found_xml = {|<?xml version="1.0"?><Error><Code>NoSuchKey</Code><Message>x</Message></Error>|}
 
-(* Regression test for the most severe finding of the review round: aws-eio's
-   signed_request converts every non-2xx status into Error (Http_error (status,
-   body)) before call ever sees it, so interpret_*'s non-2xx branches (the
-   whole point of S3_error's classification) were unreachable through the
-   real call path — a 404 GetObject would have surfaced as
-   Error (Aws (Http_error (404, body))), never Error Not_found, despite that
-   being the documented, tested behavior. reclassify_transport_result is the
-   fix; this proves the full pipeline (transport error -> reclassify ->
-   interpret) actually produces the documented result, not just that
-   interpret_get does when called directly with a synthetic status. *)
+(* aws-eio's signed_request turns every non-2xx status into
+   Error (Http_error (status, body)) before interpret_* ever sees it;
+   reclassify_transport_result restores the status/body so a 404 GetObject
+   still classifies as Not_found through the real call path, not just when
+   interpret_get is called directly with a synthetic status. *)
 let test_reclassify_then_interpret_get_not_found () =
   let transport_result : (int * (string * string) list * string, Aws_error.t) result =
     Error (Aws_error.Http_error (404, not_found_xml))

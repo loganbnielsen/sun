@@ -25,15 +25,10 @@ let read_body ~max_size body = Eio.Buf_read.(parse_exn take_all) body ~max_size
 
 let client net = Cohttp_eio.Client.make ~https:None net
 
-(* Parsing the invocation-next response headers into an {!invocation} is
-   pure and separated from the network call so it's directly unit-testable
-   with a synthetic Http.Header.t, matching this session's established
-   pattern — even though, unlike s3-eio/dynamo-eio, this package's wire path
-   genuinely can be exercised locally (plain HTTP, no TLS/SNI blocker), so
-   test_lambda_runtime.ml also runs the full loop against a real local mock
-   server. Both are worth having: the pure test pins the header-parsing
-   contract precisely; the mock-server test proves the whole request/
-   response cycle. *)
+(* Parsing invocation-next's response headers is pure and separated from
+   the network call so it's directly unit-testable with a synthetic
+   Http.Header.t, in addition to the mock-server tests that exercise the
+   whole request/response cycle. *)
 let invocation_of_headers ~headers ~payload =
   match Http.Header.get headers "Lambda-Runtime-Aws-Request-Id" with
   | None -> Error "invocation/next response missing Lambda-Runtime-Aws-Request-Id header"
@@ -47,12 +42,9 @@ let invocation_of_headers ~headers ~payload =
     let trace_id = Http.Header.get headers "Lambda-Runtime-Trace-Id" in
     Ok { request_id; deadline_ms; invoked_function_arn; trace_id; payload }
 
-(* Eio.Cancel.Cancelled is deliberately excluded below and always re-raised,
-   never converted into an Error — same rule this codebase's obs-eio/
-   aws-eio document for their own backend calls: a cancellation has to
-   unwind the caller's structured concurrency correctly (e.g. sun-fn's
-   Lambda-mode graceful shutdown, which cancels an in-flight run_loop),
-   not get reported as an ordinary result. *)
+(* Eio.Cancel.Cancelled is always re-raised, never converted to an Error —
+   it has to unwind the caller's structured concurrency correctly, not get
+   reported as an ordinary result. *)
 let next_invocation ~net ~sw ~base =
   let uri = Uri.of_string (Printf.sprintf "http://%s/2018-06-01/runtime/invocation/next" base) in
   match

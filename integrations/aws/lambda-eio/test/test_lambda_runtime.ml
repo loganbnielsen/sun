@@ -145,19 +145,11 @@ let test_init_error_posts_to_the_right_path () =
       | Ok () -> ()
       | Error msg -> Alcotest.fail msg)
 
-(* A regression test for "next_invocation/post/run_loop's handler wrapper
-   re-raise Eio.Cancel.Cancelled instead of swallowing it into an Error"
-   (a real bug this file's exception handlers had until fixed, matching
-   the rule aws-eio/obs-eio document for their own backend calls) was
-   attempted here and removed: Eio.Fiber.first swallows its losing fiber's
-   Cancelled as part of its own normal cleanup contract regardless of
-   whether the loser itself re-raised or wrongly caught it, so a test built
-   on racing Fiber.first can't actually distinguish the fixed code from the
-   bug — it would pass or fail for the wrong reason either way. The fix
-   itself is a mechanical, three-line pattern copied faithfully from
-   aws_http.ml's own already-proven convention (`exception (Eio.Cancel.Cancelled
-   _ as exn) -> raise exn`, checked before the generic handler) — verified
-   correct by inspection and precedent, not by a bespoke test here. *)
+(* No automated test for Cancelled re-raising in next_invocation/post: any
+   test built on Eio.Fiber.first racing a cancellation swallows the losing
+   fiber's Cancelled as part of its own cleanup regardless of whether the
+   loser's code is correct or buggy, so it can't distinguish the two.
+   Verified by inspection instead. *)
 
 let () =
   Alcotest.run "lambda_runtime"

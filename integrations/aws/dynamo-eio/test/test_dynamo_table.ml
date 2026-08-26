@@ -48,10 +48,9 @@ let test_functor_instances_are_distinct () =
      negative-compile check deliberately does. *)
   ignore (Primary.get, Primary.query, By_email.get, By_email.query)
 
-(* Regression test: Index.get used to take Query's first result and
-   silently drop any others, which is wrong for a secondary index —
-   DynamoDB does not enforce pk+sk uniqueness there the way it does on a
-   table's own primary key. Found by an adversarial review round. *)
+(* DynamoDB doesn't enforce pk+sk uniqueness on a secondary index the way
+   it does on a table's own primary key, so Index.get must not silently
+   take the first result and drop the rest. *)
 let test_get_results_empty () =
   Alcotest.(check bool) "no items -> Ok None" true (Primary.interpret_get_results [] = Ok None)
 

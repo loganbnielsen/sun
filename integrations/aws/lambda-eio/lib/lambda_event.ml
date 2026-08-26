@@ -18,11 +18,9 @@ type dynamodb_stream_record = {
 
 let ( let* ) = Result.bind
 
-(* Deliberately plain pattern matching throughout this module, not
-   Yojson.Safe.Util (member/to_string_option etc. raise Type_error on
-   anything that isn't the exact shape they expect) — the same class of bug
-   found and fixed in Dynamo_error.of_response by an adversarial review
-   round. Every accessor here returns a Result, nothing raises. *)
+(* Plain pattern matching throughout, not Yojson.Safe.Util — member/
+   to_string_option etc. raise Type_error on unexpected shapes. Every
+   accessor here returns a Result instead. *)
 
 let string_field key fields =
   match List.assoc_opt key fields with
