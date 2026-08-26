@@ -20,7 +20,7 @@ This tracker is not a replacement for package READMEs. Each package README remai
 | `obs-prometheus-eio` | `~/Code/obs-prometheus-eio` | Prometheus backend for `obs-eio` | Clean-switch install/build/test pass; uses `https-eio`; README fix merged | Cross-package pin test with Kafka/AWS once ready |
 | `pg-eio` | `~/Code/pg-eio` | Caqti/Postgres helpers, migrations, table functor | Clean-switch install/build/test pass | Cross-package pin test with Kafka/AWS once ready |
 | `kafka-eio` | `~/Code/kafka-eio` | Eio Kafka producer/consumer/core over librdkafka | Local lint/build pass; OPAM PR open with metadata fixes | Track opam-repository PR #30557 |
-| `aws-eio` | `~/Code/aws-eio` | SigV4, credentials, minimal AWS HTTP transport | Owned by other engineer for current OPAM fixes | Rejoin after their OPAM PR/fix pass lands |
+| `aws-eio` | `~/Code/aws-eio` | SigV4, credentials, minimal AWS HTTP transport | `awskit` comparison done (keep as-is, see below); CI added; README fix open as PR #1 | Merge PR #1, then submit to opam-repository |
 | `kafka-eio-service` | `sun/integrations/kafka/kafka-eio-service` | Sun-level typed message/schema service layer | In Sun; uses `https-eio` | Decide whether it remains Sun-specific after foundation packages settle |
 
 ## Current Evidence
@@ -42,15 +42,20 @@ External status:
 - `kafka-eio.0.1.0` has an open opam-repository PR: `https://github.com/ocaml/opam-repository/pull/30557`. As of 2026-08-26 it has 3 commits, including a `conf-librdkafka` package so `kafka-eio` can depend on a normal OPAM package instead of carrying raw `depexts`; Windows CI and opam-repo linter were green, with `opam-ci` still pending.
 - Existing published AWS packages to account for before publishing `aws-eio`: `awskit` 0.2.0 covers SigV4 signing, credentials, endpoints, core types, and a runtime interface; `awskit-eio` 0.2.0 is the Eio/Cohttp adapter; `awskit-s3-eio` 0.2.0 is the Eio S3 adapter. Sources checked: `https://opam.ocaml.org/packages/awskit/awskit.0.1.0/`, `https://opam.ocaml.org/packages/awskit-eio/awskit-eio.0.1.0/`, `https://opam.ocaml.org/packages/awskit-s3-eio/`.
 - `aws-eio` OPAM-readiness work is currently owned by another engineer; this tracker should not duplicate that implementation work.
+- **`awskit` comparison completed 2026-08-26 (resolves the Phase 1 gate below).** Decision: keep `aws-eio`, do not redirect to `awskit`. Two concrete, verified reasons:
+  1. `awskit`'s own `SUPPORT.md` (`https://github.com/abdufelsayed/awskit`) explicitly lists "Web identity ... assume-role profiles" as **unsupported, pending additional implementation**. That is EKS IRSA (`AssumeRoleWithWebIdentity` via a projected Kubernetes service-account token) — Sun's actual production credential source (`platform/infra/aws/main.tf` provisions EKS with IRSA already). `aws-eio`'s `Aws_credentials.Web_identity` covers exactly this gap.
+  2. `awskit-eio`'s HTTP transport (`packages/awskit/eio/runtime.ml`, `do_with_response`) builds the request URI via `Uri.of_string` on a raw path+query string and passes it straight into `Cohttp_eio.Client.call`. That is the same code shape `aws-eio`'s own design notes warn about: `Cohttp_eio.Client`'s internals re-derive the wire path via `Uri.path_and_query`, which un-escapes characters (`! * ' ( ) : @ $ , +`) that SigV4's `UriEncode()` requires percent-escaped — a request signed one way and sent another fails AWS's signature check. Not empirically proven broken (would need a live request with those characters in a query value to confirm), but a real, plausible risk, not a settled non-issue — `aws-eio`'s custom `Aws_http` exists specifically to avoid this class of bug, validated against AWS's own SigV4 conformance suite (37/37 cases).
+  - Not re-litigated: `Aws_sigv4`'s signing math itself may well be redundant with `awskit`'s (both are presumably conformant), but switching would mean depending on a single-maintainer third-party package for a security-critical signing implementation instead of this repo's own conformance-suite-validated one, for no functional gain. Not worth it absent a maintenance-burden reason to reconsider.
 
 Readiness gaps found by sidecar audit:
 
 - `obs-loki-eio/README.md` stale TLS references were fixed and merged on 2026-08-26: `https://github.com/loganbnielsen/obs-loki-eio/pull/1`, merge commit `3261d8928dd32196f0f82ba99fb3982647c9ae08`.
 - `obs-prometheus-eio/README.md` stale TLS references were fixed and merged on 2026-08-26: `https://github.com/loganbnielsen/obs-prometheus-eio/pull/1`, merge commit `856c2352e708a55d6636b437428a80561aa6df04`.
-- Local `main` branches in `obs-loki-eio` and `obs-prometheus-eio` diverged after squash merge; remote `origin/main` has the merged fixes.
+- Local `main` branches in `obs-loki-eio` and `obs-prometheus-eio` diverged after squash merge (stray local-only commits, including an empty commit and a redundant copy of the README fix); resolved 2026-08-26 by resetting both local checkouts to `origin/main` after diffing to confirm no content was lost.
+- Branch protection tightened 2026-08-26 across all of `aws-eio`/`https-eio`/`kafka-eio`/`obs-loki-eio`/`obs-prometheus-eio`: `enforce_admins: true` (no bypass, including for repo admins), required `test` status check, squash-only merge, no force-push. Direct pushes to `main` are no longer possible on any of these repos — all changes now go through a feature branch + PR + green CI + squash-merge.
 - The local `kafka-eio` checkout still shows raw `depexts`; the open OPAM PR currently carries the `conf-librdkafka` metadata fix.
 - `https-eio` had no local `v0.1.0` tag; fixed on 2026-08-26 after `opam lint` and `dune build @install @runtest` passed.
-- `aws-eio/README.md` still says TLS is via a private `Aws_tls`, but the current package metadata and library link to `https-eio`; fix or confirm in the other engineer's `aws-eio` pass.
+- `aws-eio/README.md` stale `Aws_tls` references fixed 2026-08-26: `https://github.com/loganbnielsen/aws-eio/pull/1` (open, CI pending; will squash-merge once green — branch protection now requires it, no more direct pushes to `main`).
 
 README/release evidence checked 2026-08-26:
 
@@ -86,7 +91,7 @@ Goal: remove accidental private copies where an accepted package already exists.
 - [x] Adopt `ca-certs` in `https-eio`.
 - [x] Make `obs-loki-eio`, `obs-prometheus-eio`, `aws-eio`, and Sun's `kafka-eio-service` use `https-eio` in current local state.
 - [ ] Keep `aws_http.ml` custom unless a replacement preserves SigV4 wire bytes exactly.
-- [ ] Compare `aws-eio` against published `awskit`/`awskit-eio`/`awskit-s3-eio` before submitting any `aws-eio` OPAM PR; keep `aws-eio` only for behavior those packages do not cover or cannot preserve.
+- [x] Compare `aws-eio` against published `awskit`/`awskit-eio`/`awskit-s3-eio` before submitting any `aws-eio` OPAM PR; keep `aws-eio` only for behavior those packages do not cover or cannot preserve. Decision 2026-08-26: keep `aws-eio` as-is — see External status above (IRSA credential support `awskit` explicitly lacks; SigV4 wire-byte fidelity `awskit-eio`'s `Cohttp_eio.Client` usage puts at risk).
 - [ ] Keep package boundaries described in READMEs, not separate scope docs.
 - [ ] Fold in the other engineer's accepted audit decisions once they are final.
 
@@ -119,7 +124,8 @@ Packages to check:
 - [x] Tag `https-eio` `v0.1.0` after confirming its current commit is the intended release commit
 - [ ] Track `https-eio` PR #30570 through opam-repository CI/review/merge
 - [ ] Clean-switch install for `kafka-eio` after PR #30557's metadata shape is mirrored locally or merged upstream
-- [ ] `aws-eio` after current engineer's OPAM work lands, including README TLS correction and `awskit` comparison
+- [x] `awskit` comparison done; README TLS correction open as `aws-eio` PR #1
+- [ ] Clean-switch install for `aws-eio` once PR #1 merges
 
 Clean-switch evidence:
 
@@ -256,7 +262,11 @@ Tracking tickets:
 - 2026-08-26: Merged README fixes for `obs-loki-eio` and `obs-prometheus-eio` so docs now match the extracted `https-eio` TLS wrapper.
 - 2026-08-26: Submitted `https-eio.0.1.0` to opam-repository as PR #30570.
 - 2026-08-26: Found published `awskit`/`awskit-eio`/`awskit-s3-eio`; require explicit comparison before publishing `aws-eio`.
+- 2026-08-26: Completed the `awskit` comparison. Decision: keep `aws-eio`, do not redirect to `awskit` — it explicitly does not support EKS IRSA (Sun's real credential source), and its Eio HTTP adapter's use of `Cohttp_eio.Client` carries the same SigV4 wire-byte-encoding risk `aws-eio`'s custom transport was built to avoid.
+- 2026-08-26: Locked down branch protection (`enforce_admins: true`, squash-only merge, no force-push) across all five `-eio` repos with CI. Rewrote `obs-loki-eio`/`obs-prometheus-eio` git history to squash the CI-red commits each had accumulated (including their tagged `v0.1.0` release commits) into clean, individually-green commits, and moved both `v0.1.0` tags accordingly.
+- 2026-08-26: Found and fixed a real bug in the `kafka-eio` opam-repository submission (PR #30557): it declared `depexts` directly (against opam-repository's lint convention, which reserves that for dedicated `conf-` packages) and that `depexts` only covered debian/ubuntu/alpine/homebrew — missing archlinux/centos/fedora/opensuse/freebsd, and even the alpine entry was wrong (`librdkafka` instead of `librdkafka-dev`, so headers were never installed). Fixed by adding a new `conf-librdkafka` package to the opam-repository fork, verified per-distro package names against real package indices.
+- 2026-08-26: Fixed `aws-eio/README.md`'s stale `Aws_tls` references (same class of doc-drift already fixed in `obs-loki-eio`/`obs-prometheus-eio`); open as `aws-eio` PR #1.
 
 ## Next Action
 
-Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review. Rejoin `aws-eio` after its active OPAM metadata work settles, with an explicit `awskit` comparison before any OPAM submission.
+Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). Merge `aws-eio` PR #1 (README fix) once its own repo CI is green, then run `aws-eio` through the same local lint/build/clean-switch checks as the other packages before submitting it to opam-repository.
