@@ -24,7 +24,7 @@ jobs:
 
       - name: Pin extracted opam packages
         run: |
-          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#v0.1.0 -y
+          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#v0.1.1 -y
           opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#v0.1.0 -y
           opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#v0.1.0 -y
           opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#v0.1.0 -y
