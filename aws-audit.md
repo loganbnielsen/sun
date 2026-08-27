@@ -1,4 +1,4 @@
-# AWS integration audit (`aws-eio`, `s3-eio`, `dynamo-eio`, `lambda-eio`)
+# AWS integration audit (`aws-eio`, `s3-eio`, `dynamodb-eio`, `lambda-eio`)
 
 Pre-**build** audit — not pre-extraction like `obs-audit.md`/`storage-audit.md`. None of this
 code exists yet; the goal here is to settle the hard design questions and name the real
@@ -24,7 +24,7 @@ custom HTTP transport was built to avoid). **Proven against a live AWS endpoint
 real AWS (`aws-eio`'s `test/test_aws_live.ml`, gated by `AWS_EIO_LIVE=1`, run against a
 short-lived STS session token). The all-seven-package cross-pin test (Phase 3 of the
 OPAM foundation tracker) also passed — no link-name clashes with `obs-eio`/`pg-eio`/
-`kafka-eio`/etc. `s3-eio`, `dynamo-eio`, and `lambda-eio` (layers 2–4 below) are next.
+`kafka-eio`/etc. `s3-eio`, `dynamodb-eio`, and `lambda-eio` (layers 2–4 below) are next.
 
 **Layer 2 (`s3-eio`) built 2026-08-26**: v1 scope (put/get/delete/head_object) at
 `integrations/aws/s3-eio/`, committed to `sun`. Required and got a small `aws-eio` API
@@ -39,7 +39,7 @@ needs a real DNS-resolvable hostname and real TLS termination, since `aws-eio`'s
 `signed_request` always negotiates TLS/SNI and rejects IP literals — found while
 discovering this package's own tests couldn't use a lightweight local mock server at
 all. Live smoke test written (`S3_EIO_LIVE=1`), not yet run against a real bucket —
-live testing across all of `s3-eio`/`dynamo-eio`/`lambda-eio` is deliberately held until
+live testing across all of `s3-eio`/`dynamodb-eio`/`lambda-eio` is deliberately held until
 everything is built and reviewed.
 
 **`s3-eio` extracted 2026-08-26** to a standalone package at
@@ -48,21 +48,21 @@ the switch (`git+file:///home/lbendtly/Code/s3-eio#main`). The in-tree
 `integrations/aws/s3-eio/` directory is gone; `s3-eio` is now a `sun.opam` dependency
 like `aws-eio` (no in-tree consumer yet, same as `aws-eio`'s own pre-consumer history).
 
-**Layer 3 (`dynamo-eio`) built 2026-08-26**: `Dynamo_client` (PutItem/GetItem/
-DeleteItem/Query, single-page) and the `Dynamo_table.Index`/`Entity` typed layer at
-`integrations/aws/dynamo-eio/`. The negative-compilation guarantee (mismatched index
+**Layer 3 (`dynamodb-eio`) built 2026-08-26**: `Dynamodb_client` (PutItem/GetItem/
+DeleteItem/Query, single-page) and the `Dynamodb_table.Index`/`Entity` typed layer at
+`integrations/aws/dynamodb-eio/`. The negative-compilation guarantee (mismatched index
 key = type error) was verified by hand, not via an automated dune rule — a hand-rolled
 rule invoking `ocamlfind`/nested `dune build` against internal `_build` paths was
 judged more likely to break than the property itself, which is a first-principles
 consequence of `Index`'s functor signature rather than something that regresses
 silently.
 
-**`dynamo-eio`'s review round found a serious cross-package bug that also silently broke
+**`dynamodb-eio`'s review round found a serious cross-package bug that also silently broke
 `s3-eio`, now fixed in both**: `aws-eio`'s `signed_request` already converts every
 non-2xx status into `Error (Http_error (status, body))` before returning — meaning
-`S3_client`/`Dynamo_client`'s own `call` functions never actually saw a non-2xx status
+`S3_client`/`Dynamodb_client`'s own `call` functions never actually saw a non-2xx status
 arrive via `Ok`, so `interpret_*`'s entire non-2xx classification branch (the whole
-reason `S3_error`/`Dynamo_error` exist as typed error types, not just a thin `Aws_error`
+reason `S3_error`/`Dynamodb_error` exist as typed error types, not just a thin `Aws_error`
 passthrough) was unreachable dead code through every real `put`/`get`/`delete`/`head`/
 `query` call — only ever exercised by each package's own unit tests calling
 `interpret_*` directly with a synthetic status. A real 404 `GetObject` or
@@ -73,35 +73,35 @@ both packages with a `reclassify_transport_result` function that re-threads
 expects, factored out as its own pure function specifically so the fix is
 unit-testable without a real network call (neither package can exercise the real
 wire/TLS path locally at all — see each package's test-strategy notes). Three smaller
-real bugs also found and fixed in `dynamo-eio`: `config.region` had the same
+real bugs also found and fixed in `dynamodb-eio`: `config.region` had the same
 CRLF-header-injection gap `s3-eio`'s `validate_config` was built to close, not
 originally carried over; `Index.get` assumed a fully-specified pk+sk always identifies
 at most one item, which is only true for a table's own primary key — DynamoDB does not
 enforce that uniqueness on secondary indexes, so `get` now fails loud (not silently
-picks the first match) when more than one item comes back; and `Dynamo_error.of_response`
+picks the first match) when more than one item comes back; and `Dynamodb_error.of_response`
 used `Yojson.Safe.Util.member`, which raises `Type_error` on a non-2xx body that's valid
 JSON but not a JSON object, crashing what's documented as a pure, always-`Result`
 classifier — fixed by switching to plain `List.assoc_opt` pattern matching, which never
 raises.
 
-**`dynamo-eio` extracted 2026-08-26** to a standalone package at
-[github.com/loganbnielsen/dynamo-eio](https://github.com/loganbnielsen/dynamo-eio),
-pinned into the switch (`git+file:///home/lbendtly/Code/dynamo-eio#main`). The in-tree
-`integrations/aws/dynamo-eio/` directory is gone; `dynamo-eio` is now a `sun.opam`
+**`dynamodb-eio` extracted 2026-08-26** to a standalone package at
+[github.com/loganbnielsen/dynamodb-eio](https://github.com/loganbnielsen/dynamodb-eio),
+pinned into the switch (`git+file:///home/lbendtly/Code/dynamodb-eio#main`). The in-tree
+`integrations/aws/dynamodb-eio/` directory is gone; `dynamodb-eio` is now a `sun.opam`
 dependency like `aws-eio`/`s3-eio` (no in-tree consumer yet). All three of `s3-eio`,
-`dynamo-eio`, and `lambda-eio` are now extracted, matching the pattern already used for
+`dynamodb-eio`, and `lambda-eio` are now extracted, matching the pattern already used for
 `kafka-eio`/`obs-eio`/`pg-eio`/`aws-eio`. Remaining deferred work: live testing
-(`S3_EIO_LIVE`, `DYNAMO_EIO_LIVE`, and a Lambda RIE/live check) against real AWS
+(`S3_EIO_LIVE`, `DYNAMODB_EIO_LIVE`, and a Lambda RIE/live check) against real AWS
 resources — not started yet.
 
 **Layer 4 (`lambda-eio`) built 2026-08-26**: `Lambda_runtime` (the invoke-next/respond/
 error loop against `AWS_LAMBDA_RUNTIME_API`, using `Cohttp_eio.Client` directly — no
 `aws-eio` dependency, matching the plan, since this is unsigned local HTTP) and
 `Lambda_event` (S3/SQS/DynamoDB-Streams event envelope parsing). Unlike `s3-eio`/
-`dynamo-eio`, this package's wire path genuinely runs against a real local mock server
+`dynamodb-eio`, this package's wire path genuinely runs against a real local mock server
 in its own tests (plain HTTP, no TLS/SNI blocker), so its protocol correctness is tested
 end to end, not just via pure-function interpretation. Two `Eio.Cancel.Cancelled`-
-swallowing bugs (the same class already found in `s3-eio`/`dynamo-eio`'s review rounds)
+swallowing bugs (the same class already found in `s3-eio`/`dynamodb-eio`'s review rounds)
 were caught and fixed before ever reaching a review round this time, by checking the
 new code directly against the established rule. `framework/sun-fn`'s `FN` module type
 changed as planned: `schedule : string` → `trigger : trigger` (`Cron of string |
@@ -148,7 +148,7 @@ Four packages, following the same layering `obs-eio`/`obs-loki-eio`/`obs-prometh
 established:
 
 ```text
-        s3-eio          dynamo-eio          lambda-eio
+        s3-eio          dynamodb-eio          lambda-eio
            \                |                    |
             \_______________|                    |
                     aws-eio                  (no dependency on aws-eio —
@@ -196,7 +196,7 @@ happy path for Sun's own deployment target doesn't work. Resolution order should
 **This needs the same "Security on Day 1" treatment `Kafka_security.t` gets** — both
 `README.md` and `.claude/CLAUDE.md` state this as a repo-wide principle, not something
 optional to bolt on later. Concretely: an `Aws_credentials.t` type that is a **required**
-field on every `s3-eio`/`dynamo-eio` config record, with a variant per source
+field on every `s3-eio`/`dynamodb-eio` config record, with a variant per source
 (`Static of {access_key; secret_key; session_token}` | `Web_identity of {role_arn; token_path}`
 | `Container` | `Imdsv2` | `Env_chain` — an explicit "try them in order" option, not a
 silent default), the same way `Kafka_security.t` forces every environment to state its
@@ -239,16 +239,16 @@ introduce a second one.
 **Retry/backoff is not optional for this layer.** DynamoDB throttles
 (`ProvisionedThroughputExceededException`) and both DynamoDB and S3 return retryable 5xxs
 under normal operation — an AWS client without exponential backoff + jitter will misbehave
-under any real load. This belongs in `aws-eio`'s transport so `s3-eio`/`dynamo-eio` get it
+under any real load. This belongs in `aws-eio`'s transport so `s3-eio`/`dynamodb-eio` get it
 for free, not reimplemented per backend.
 
 ### Error type
 
 `Aws_error.t` — shared base (`Http_error of int * string`, `Signature_error of string`,
-`Network_error of string`, `Credential_error of string`) that `s3-eio`/`dynamo-eio` extend
+`Network_error of string`, `Credential_error of string`) that `s3-eio`/`dynamodb-eio` extend
 with service-specific variants, the same relationship `kafka-eio-service` has to
 `Kafka_error.t`. Neither of the design drafts this audit is responding to actually defined
-this type — `Dynamo_eio.error` was referenced but never specified. Every public API returns
+this type — `Dynamodb_eio.error` was referenced but never specified. Every public API returns
 `(_, Aws_error.t)` (or an extension) `result`. Never raise — this repo has zero exceptions
 escaping a storage/Kafka layer today (`docs/audits/AUDIT.md`), and an AWS layer is no
 exception to that rule literally.
@@ -265,7 +265,7 @@ REST-with-headers signing, no XML. `list_objects_v2` (XML response) and multipar
 (session state across several signed requests) are real additional scope — defer past v1,
 track as a follow-up rather than silently expanding this package's first cut.
 
-## Layer 3: `dynamo-eio` — the ElectroDB-replacement layer
+## Layer 3: `dynamodb-eio` — the ElectroDB-replacement layer
 
 This is the part worth getting right before writing any code — it's the actual value
 proposition, not a thin client wrapper, so it ships once, correctly, rather than as a
@@ -326,8 +326,8 @@ end
    function anywhere that accepts "any index's key". Passing User_by_email's `Email pk to
    a query built from Table.Index(User_primary) is a type error: [ `Org of string ] and
    [ `Email of string ] don't unify. That's the actual guarantee ElectroDB can't offer. *)
-module Primary = Dynamo_eio.Table.Index(User_primary)
-module ByEmail = Dynamo_eio.Table.Index(User_by_email)
+module Primary = Dynamodb_eio.Table.Index(User_primary)
+module ByEmail = Dynamodb_eio.Table.Index(User_by_email)
 
 let _ = Primary.get      client ~pk:(`Org "org_9") ~sk:(`User "usr_1")
 let _ = ByEmail.query    client ~pk:(`Email "a@example.com") ()
@@ -343,12 +343,12 @@ the exact "forgetting the discriminator" case ElectroDB requires you to set up b
 
 ### Package boundary
 
-Keep this **inside** `dynamo-eio`, not a separate `sun-electro`/`dynamo-electro` package.
+Keep this **inside** `dynamodb-eio`, not a separate `sun-electro`/`dynamo-electro` package.
 `pg-eio` didn't split its low-level `Db` module from `Table.Make` into two packages, and this
-layer is dynamo-eio's whole reason to exist here rather than someone just reaching for
+layer is dynamodb-eio's whole reason to exist here rather than someone just reaching for
 `ocaml-aws`'s DynamoDB bindings directly (once those get an Eio-compatible fork, which they
-don't have today). One package, `Dynamo_eio.Table.Index(...)` living alongside a lower-level
-`Dynamo_eio.Client` for callers who want raw `PutItem`/`Query`/`UpdateItem` access.
+don't have today). One package, `Dynamodb_eio.Table.Index(...)` living alongside a lower-level
+`Dynamodb_eio.Client` for callers who want raw `PutItem`/`Query`/`UpdateItem` access.
 
 ### Open design gaps, not yet resolved by this audit
 
@@ -398,7 +398,7 @@ don't have today). One package, `Dynamo_eio.Table.Index(...)` living alongside a
 integrations/aws/
   aws-eio/            lib/, test/, aws-eio.md      -- credentials, SigV4, HTTP transport, Aws_error
   s3-eio/              lib/, test/, s3-eio.md        -- put/get/delete/head_object
-  dynamo-eio/          lib/, test/, dynamo-eio.md    -- Client + Table.Index/Table.Entity
+  dynamodb-eio/          lib/, test/, dynamodb-eio.md    -- Client + Table.Index/Table.Entity
   lambda-eio/          lib/, test/, lambda-eio.md    -- generic Runtime API loop, event parsing
 ```
 
@@ -409,7 +409,7 @@ Matches the confirmed layout convention (`integrations/<domain>/<package-name>/{
 `kafka-eio-service`.
 
 Recommended OPAM names when/if these follow `kafka-eio`/`obs-eio`/`pg-eio` out to standalone
-repos: `aws-eio`, `s3-eio`, `dynamo-eio`, `lambda-eio` — no naming ambiguity like `pg-eio` had
+repos: `aws-eio`, `s3-eio`, `dynamodb-eio`, `lambda-eio` — no naming ambiguity like `pg-eio` had
 (`obs-eio-loki` → `obs-loki-eio`), these are new packages with no prior in-tree name to diverge
 from.
 
@@ -422,7 +422,7 @@ from.
 - [ ] Every public API returns `(_, Aws_error.t)`-or-extension `result`; nothing raises.
 - [ ] Retry/backoff with jitter exists in `aws-eio`'s transport, exercised by a test that
       forces a throttling response.
-- [ ] `Dynamo_eio.Table.Index(WrongIndex).get` with another index's key type fails to
+- [ ] `Dynamodb_eio.Table.Index(WrongIndex).get` with another index's key type fails to
       *compile* — this is the one test that has to be a `dune` negative-compilation check
       (or equivalent), not a runtime assertion, since compile-time rejection is the entire
       point of the design.
@@ -433,7 +433,7 @@ from.
 ## What not to do
 
 - Don't add `h2`/`httpaf` or any HTTP stack beyond `cohttp-eio` — no precedent, no need.
-- Don't ship `dynamo-eio` as a low-level client first and the typed modeling layer later —
+- Don't ship `dynamodb-eio` as a low-level client first and the typed modeling layer later —
   the modeling layer is why this package exists over reaching for a generic DynamoDB binding.
 - Don't build S3's XML-based operations (`list_objects_v2`, multipart) in v1 — REST-with-
   headers-only operations first, XML parsing is separate, real scope.
@@ -447,7 +447,7 @@ from.
    before either backend is written.
 2. `s3-eio`: the four REST-only operations, proves the transport layer end-to-end against a
    real bucket.
-3. `dynamo-eio`: `Client` (raw `PutItem`/`GetItem`/`Query`) first, then `Table.Index`/
+3. `dynamodb-eio`: `Client` (raw `PutItem`/`GetItem`/`Query`) first, then `Table.Index`/
    `Table.Entity` on top — the hard part is the typed layer, get the wire protocol working
    first so the typed layer has something real underneath it.
 4. `lambda-eio`: Runtime API loop (generic, no dependency on the other three) + `sun-fn`'s

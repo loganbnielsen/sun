@@ -216,7 +216,7 @@ Order:
 - [ ] STS `GetCallerIdentity` signed request smoke.
 - [ ] S3 tiny-object smoke against one pre-created bucket and a `sun-live-test/` prefix: `PutObject`, `HeadObject`, `GetObject`, `DeleteObject`.
 - [ ] S3 error-path smoke: `HeadObject` on a known-missing key.
-- [ ] Optional DynamoDB smoke only if/when `dynamo-eio` exists.
+- [ ] Optional DynamoDB smoke only if/when `dynamodb-eio` exists.
 - [ ] Full `sun cloud init --aws` dogfood only after the above is boring.
 
 Minimal IAM shape for the first S3 lane:
