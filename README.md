@@ -150,7 +150,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | AWS application-level integration (`aws-eio`: credentials + SigV4 + HTTP transport) | Complete — proven against a live AWS endpoint (see `aws-audit.md`) |
 | AWS S3 client (`s3-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/s3-eio) — v1 scope (put/get/delete/head_object) built, local tests passing; live smoke test written, not yet run against a real bucket |
 | AWS DynamoDB client (`dynamodb-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/dynamodb-eio) — v1 scope (Client + typed Index/Entity layer) built, local tests passing; live smoke test written, not yet run against a real table |
-| AWS Lambda integration (`lambda-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/lambda-eio) — local tests passing (protocol tested end to end against a real local mock server); not yet run in a real Lambda execution environment or the RIE. `sun-fn`'s `FN.trigger` variant (`Cron`/`Lambda`) wired in |
+| AWS Lambda integration (`lambda-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/lambda-eio) — local tests passing (protocol tested end to end against a local mock server and AWS's Runtime Interface Emulator); container-image deployment path proven via `examples/echo-lambda/`, not yet run in a real Lambda execution environment on AWS itself. `sun-fn`'s `FN.trigger` variant (`Cron`/`Lambda`) wired in |
 
 ---
 
