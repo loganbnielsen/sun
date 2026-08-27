@@ -75,7 +75,7 @@ let with_server_obs env ~sw f =
 (* Make an HTTP request and return (status_code, body_string). *)
 let http_call env ~sw ~port ~meth ~path ?(headers=[]) ?(body="") () =
   let client = Cohttp_eio.Client.make ~https:None env#net in
-  let uri = Uri.of_string (Printf.sprintf "http://localhost:%d%s" port path) in
+  let uri = Uri.of_string (Printf.sprintf "http://127.0.0.1:%d%s" port path) in
   let hdrs = Http.Header.of_list (("connection", "close") :: headers) in
   let body_val = if body = "" then None else Some (Cohttp_eio.Body.of_string body) in
   let resp, resp_body =
