@@ -266,7 +266,7 @@ let test_plan_svc_does_not_produce_consumer_group () =
   Alcotest.(check int) "Svc yields no consumer groups" 0 (List.length groups)
 
 let render_ok spec =
-  match Sun_cli_deployment_plan.render_spec
+  match Sun_cli_deployment_render.render_spec
           ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec with
   | Ok (ns_yaml, workload_yaml) -> (ns_yaml, workload_yaml)
   | Error e -> Alcotest.fail ("render_spec failed: " ^ e)

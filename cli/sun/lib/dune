@@ -14,6 +14,7 @@
   Sun_cli_workspace_scan
   Sun_cli_kubernetes_name
   Sun_cli_deployment_plan
+  Sun_cli_deployment_render
   Sun_cli_env_target
   Sun_cli_executor
   Sun_cli_release_inspection

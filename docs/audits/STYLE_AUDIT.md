@@ -28,7 +28,7 @@ typed `Error`, not an empty string or zero default.
 When `secret_backend = Kubernetes_live`, every user-declared secret key in
 `spec.secrets` must be present in the process environment.  A missing key
 returns `Error "Kubernetes_live render failed: required secret env var(s) not
-set: KEY_NAME"`.  This propagates through `Sun_cli_deployment_plan.render_spec`
+set: KEY_NAME"`.  This propagates through `Sun_cli_deployment_render.render_spec`
 (returns `(string * string, string) result`) and `Sun_cli_change_set.build`
 (returns `(change_set, string) result`), so callers must handle the error
 before any side effect occurs.
