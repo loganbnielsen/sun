@@ -28,8 +28,13 @@ jobs:
           opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#v0.1.0 -y
           opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#v0.1.0 -y
           opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#v0.1.0 -y
+          opam pin add https-eio https://github.com/loganbnielsen/https-eio.git#v0.1.0 -y
           opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#v0.1.0 -y
           opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#v0.1.0 -y
+          # s3-eio, dynamodb-eio, lambda-eio have no tagged release yet — pin to main.
+          opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y
+          opam pin add dynamodb-eio https://github.com/loganbnielsen/dynamodb-eio.git#main -y
+          opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
 
       - name: Install OCaml dependencies
         run: opam install . --deps-only -y
