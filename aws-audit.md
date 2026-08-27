@@ -142,6 +142,22 @@ extraction pattern already used for `kafka-eio`/`obs-eio`/`pg-eio`/`aws-eio`. Th
 as `lambda-eio` (the external package's public name) instead of the in-tree `lambda_eio`
 module name.
 
+**`lambda-eio` deployment proven 2026-08-27** (still short of a real AWS deployment):
+`examples/echo-lambda/` in the `lambda-eio` repo packages `test/rie_echo_handler.exe` as
+a container image and verifies it with AWS's own documented local-testing recipe for
+container-image Lambda functions (`aws-lambda-rie` mounted in as the entrypoint,
+wrapping our `bootstrap`) — two invocations against the same warm container, matching
+real Lambda's init/invoke/reuse lifecycle. Container images were chosen over zip-based
+custom runtimes specifically to avoid a real portability risk: a `bootstrap` binary
+built on a typical dev machine's glibc (2.39 here) fails to even start on Amazon Linux's
+older glibc, which is forward-compatible only; both Dockerfile stages share the same
+`ubuntu:24.04` tag, so the binary always runs against the glibc it was built against.
+Wired into CI as a new required check (`echo-lambda-container`), credential-free. The
+exact remaining real-AWS steps (ECR push, IAM trust/execution policy, `create-function`,
+`invoke`) are documented in `examples/echo-lambda/README.md` but not yet run for real —
+that's part of the same live-testing work still waiting on AWS credentials, alongside
+`s3-eio`/`dynamodb-eio`'s live tests.
+
 ## Short version
 
 Four packages, following the same layering `obs-eio`/`obs-loki-eio`/`obs-prometheus-eio`
