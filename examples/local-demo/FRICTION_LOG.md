@@ -53,14 +53,14 @@ Inconsistency creates confusion: is the pattern `Sun_svc.Route.get` or `Route.ge
 
 ---
 
-## 4. Logging requires `Obs.with_span` boilerplate  ★★ medium priority
+## 4. Logging requires `Obs_eio.with_span` boilerplate  ★★ medium priority
 
 **What happened:** To log a single message with context, the pattern is:
 
 ```ocaml
-let span_ot = Obs.with_context ot [("correlation_id", corr_id)] in
-Obs.with_span span_ot "receive_order" (fun span ->
-  Obs.log span Info ~fields:[("order_id", "x")] "order received"
+let span_ot = Obs_eio.with_context ot [("correlation_id", corr_id)] in
+Obs_eio.with_span span_ot "receive_order" (fun span ->
+  Obs_eio.log span Info ~fields:[("order_id", "x")] "order received"
 );
 ```
 
@@ -86,7 +86,7 @@ worker logs, the user must:
 1. Extract it from `Request.header` in the svc handler
 2. Embed it as a field in the Kafka message (`Events.OrderPlaced.correlation_id`)
 3. Re-extract it from `msg.correlation_id` in `W.handle`
-4. Create a new `Obs.with_context` span with it in both places
+4. Create a new `Obs_eio.with_context` span with it in both places
 
 **No framework help at any step.** This is three separate manual steps and one of the
 most important things Observability should handle automatically.
@@ -96,7 +96,7 @@ most important things Observability should handle automatically.
   message header (not payload — no schema change required)
 - `Kafka_service.consume`'s handler receives a `context : Obs_trace.t option` alongside
   the message, extracted from the header
-- `Worker.Make` automatically creates `Obs.with_context ot [("trace_id", ...)]` using it
+- `Worker.Make` automatically creates `Obs_eio.with_context ot [("trace_id", ...)]` using it
 
 This removes all three manual steps. The event contract is kept clean (no
 observability fields in the schema).
@@ -115,17 +115,17 @@ reducing config boilerplate from 6 lines to 1.
 
 ---
 
-## 7. `Obs.log` requires a span, not a handle  ★★ medium priority  
+## 7. `Obs_eio.log` requires a span, not a handle  ★★ medium priority  
 
-**What happened:** `Obs.log : span -> level -> ...` takes a `span` obtained from
-`Obs.with_span`. Users who just want to log without an explicit span have to wrap every
+**What happened:** `Obs_eio.log : span -> level -> ...` takes a `span` obtained from
+`Obs_eio.with_span`. Users who just want to log without an explicit span have to wrap every
 log call in `with_span`. This leaks distributed tracing concepts into code that doesn't
 need them.
 
 **Related to:** Friction item #4 (logging boilerplate).
 
-**Fix:** Add `Obs.log_t : t -> level -> ?fields:... -> string -> unit` that logs directly
-from an `Obs.t` handle without requiring an explicit span. Internally, it creates an
+**Fix:** Add `Obs_eio.log_t : t -> level -> ?fields:... -> string -> unit` that logs directly
+from an `Obs_eio.t` handle without requiring an explicit span. Internally, it creates an
 anonymous span that completes immediately.
 
 ---
@@ -140,4 +140,4 @@ anonymous span that completes immediately.
 | 4 | Logging boilerplate (3 lines per log) | Medium | Small |
 | 5 | Correlation ID propagation is manual | Medium | Medium |
 | 6 | Two Kafka credentials for local dev | Low | Small |
-| 7 | `Obs.log` requires a span, not a handle | Medium | Small |
+| 7 | `Obs_eio.log` requires a span, not a handle | Medium | Small |

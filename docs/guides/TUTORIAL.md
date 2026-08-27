@@ -223,26 +223,25 @@ Auth is always declared explicitly on each route. There is no implicit auth base
 ```ocaml
 module Make (Config : sig
   val pool : Db.pool option
-  val ot   : Obs.t
+  val ot   : Obs_eio.t
 end) = struct
   module Message = Charged
   let group_id = "pluto-comms-notify-worker"
 
-  let handle (msg : Message.t) ~ack ~trace_ctx:_ =
-    Obs.log_t Config.ot Obs.Info
+  let handle (msg : Message.t) ~trace_ctx:_ =
+    Obs_eio.log_t Config.ot Obs_eio.Info
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id)]
       "charge event received";
     (match Config.pool with
      | Some pool -> ignore (Notification.insert pool ...)
      | None -> ());
-    ack ();
     Ok ()
 end
 ```
 
-`module Message = Charged` tells Sun which Kafka topic and schema this worker consumes. `group_id` is the Kafka consumer group name. `handle` is called once per message with the decoded payload.
+`module Message = Charged` tells Sun which Kafka topic and schema this worker consumes. `group_id` is the Kafka consumer group name. `handle` is called once per message with the decoded payload — there's no `ack` to call; Sun commits the offset for you, only after `handle` returns `Ok ()`.
 
-The `Make(Config)` functor pattern lets you inject the database pool and observability handle without module-level mutable state. Sun's worker runtime (`Worker.Make(W).run`) manages the Kafka connection lifecycle, graceful shutdown, and per-message metrics.
+The `Make(Config)` functor pattern lets you inject the database pool and observability handle without module-level mutable state. Sun's worker runtime (`Worker.Make(W).run`) manages the Kafka connection lifecycle, acknowledgement, graceful shutdown, and per-message metrics.
 
 ### The shared storage module
 
@@ -443,18 +442,18 @@ Every service entrypoint follows the same pattern. Here is the charge-svc `bin/m
 let loki_url = Sys.getenv_opt "LOKI_URL" in
 Eio_main.run @@ fun env ->
 let log_backend = match loki_url with
-  | None     -> Obs.stdout
+  | None     -> Obs_eio.stdout
   | Some url -> Obs_loki.create ~net:env#net ~clock:env#clock ~url
                   ~label_names:[Obs_loki.stream_label "team"] ()
 in
 let prom, render = Obs_prometheus.create () in
-let ot = Obs.with_context
-  (Obs.create ~service:"pluto-charge-svc" ~mono_clock:env#mono_clock
-     ~backend:(Obs.compose log_backend prom))
+let ot = Obs_eio.with_context
+  (Obs_eio.create ~service:"pluto-charge-svc" ~mono_clock:env#mono_clock
+     ~backend:(Obs_eio.compose log_backend prom))
   [("team", "payments")] in
 ```
 
-`Obs.compose` fans out to both Loki and Prometheus from a single `Obs.t` handle. `Obs.with_context` binds ambient labels (`team = payments`) that appear on every log line and metric from this handle — without passing them explicitly to every call.
+`Obs_eio.compose` fans out to both Loki and Prometheus from a single `Obs_eio.t` handle. `Obs_eio.with_context` binds ambient labels (`team = payments`) that appear on every log line and metric from this handle — without passing them explicitly to every call.
 
 When `LOKI_URL` is absent (local `dune exec` dev), logs go to stdout in logfmt format. In the cluster, they go to Loki. The code is identical either way.
 

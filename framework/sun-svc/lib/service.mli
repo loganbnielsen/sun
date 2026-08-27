@@ -10,7 +10,7 @@ module Make (H : HANDLER) : sig
     (** Renderer for the built-in [/metrics] endpoint.
         Typically the second return value of [Obs_prometheus.create ()]. *)
     -> ?metrics_auth:Auth.level
-    -> ?ot:Obs.t
+    -> ?ot:Obs_eio.t
     (** Observability handle for per-request metrics and tracing.
         When provided, [sun_svc_requests_total] and
         [sun_svc_request_duration_seconds] are emitted automatically. *)
@@ -27,7 +27,7 @@ val run
   -> ?port:int
   -> ?metrics_renderer:(unit -> string)
   -> ?metrics_auth:Auth.level
-  -> ?ot:Obs.t
+  -> ?ot:Obs_eio.t
   -> ?max_body_bytes:int
   -> ?drain_timeout_s:float
   -> ?on_listen:(int -> unit)

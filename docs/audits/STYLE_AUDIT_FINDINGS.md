@@ -127,8 +127,6 @@ Cover the repository by ownership area:
 - `framework/` - public primitives and generated app lifecycle patterns.
 - `integrations/kafka/` - FFI boundaries, producer/consumer/service APIs,
   schema registry, retry and decode paths.
-- `integrations/observability/` - metric/log/trace APIs and exporter behavior.
-- `integrations/storage/` - DB abstractions, migrations, SQL identifier safety.
 - `cli/sun/lib/` - deployment planning, rendering, state, hosted model, secrets.
 - `cli/sun/bin/` - Cmdliner terms, command entrypoint shapes, string parsing.
 - `examples/` - user-facing patterns and generated-code quality.
@@ -150,12 +148,10 @@ Recommended partitions:
 
 1. `framework/` and generated lifecycle expectations.
 2. `integrations/kafka/`.
-3. `integrations/observability/`.
-4. `integrations/storage/`.
-5. `cli/sun/lib/`.
-6. `cli/sun/bin/`.
-7. `examples/` and scaffold templates.
-8. `tools/` and test helper patterns.
+3. `cli/sun/lib/`.
+4. `cli/sun/bin/`.
+5. `examples/` and scaffold templates.
+6. `tools/` and test helper patterns.
 
 Merge duplicate findings by refactor boundary, not by individual line. Prefer
 one ticket per coherent API refactor.

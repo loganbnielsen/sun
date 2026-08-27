@@ -178,7 +178,7 @@ module Make (H : HANDLER) = struct
       | None -> None
       | Some o ->
         let req_count, req_duration =
-          Obs.register_counter_and_histogram o
+          Obs_eio.register_counter_and_histogram o
             ~counter_name:"sun_svc_requests_total"
             ~counter_help:"Total HTTP requests by method, route, and HTTP status class"
             ~counter_labels:["method"; "route"; "status_class"]

@@ -16,7 +16,7 @@
       comms / notify-worker  (sun-worker)
           │  Loki span: "record_notification"  (linked to charge-svc span via trace)
           │  Prometheus: sun_worker_messages_total, sun_worker_message_duration_seconds
-          │  records notification in PostgreSQL  (sun-storage)
+          │  records notification in PostgreSQL  (pg-eio)
           ▼
       Loki · Prometheus · PostgreSQL
 
@@ -56,7 +56,7 @@ let new_charge_id () = Printf.sprintf "ch_%08x%08x" (Random.bits ()) (Random.bit
 let log_backend ~net ~clock = function
   | None ->
     Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!";
-    Obs.stdout
+    Obs_eio.stdout
   | Some url ->
     Printf.printf "\n  Logs -> Loki at %s\n%!" url;
     Obs_loki.create ~net ~clock ~url
@@ -136,14 +136,14 @@ let () =
   (* ── Observability ─────────────────────────────────────────────────────── *)
   let prom_backend, render = Obs_prometheus.create () in
   let log_backend = log_backend ~net:env#net ~clock:env#clock loki_url in
-  let backend   = Obs.compose log_backend prom_backend in
+  let backend   = Obs_eio.compose log_backend prom_backend in
   let svc_ot    =
-    let base = Obs.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend in
-    Obs.with_context base [("team", "payments")]
+    let base = Obs_eio.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend in
+    Obs_eio.with_context base [("team", "payments")]
   in
   let worker_ot =
-    let base = Obs.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend in
-    Obs.with_context base [("team", "comms")]
+    let base = Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend in
+    Obs_eio.with_context base [("team", "comms")]
   in
 
   Eio.Switch.run @@ fun sw ->
@@ -200,15 +200,15 @@ let () =
       currency       = (let c = s "currency" in if c = "" then "USD" else c);
       correlation_id = corr_id;
     } in
-    let span_ot = Obs.with_context svc_ot [("correlation_id", corr_id)] in
-    let trace_ctx = Obs.with_span span_ot "receive_charge" (fun span ->
-      Obs.log span Info
+    let span_ot = Obs_eio.with_context svc_ot [("correlation_id", corr_id)] in
+    let trace_ctx = Obs_eio.with_span span_ot "receive_charge" (fun span ->
+      Obs_eio.log span Info
         ~fields:[("charge_id",    msg.charge_id);
                  ("customer_id",  msg.customer_id);
                  ("amount_cents", string_of_int msg.amount_cents);
                  ("currency",     msg.currency)]
         "charge received";
-      Obs.current_trace_ctx span
+      Obs_eio.current_trace_ctx span
     ) in
     Printf.printf "[charge-svc]    received   charge=%-20s  customer=%-10s  %5d %s\n%!"
       msg.charge_id msg.customer_id msg.amount_cents msg.currency;

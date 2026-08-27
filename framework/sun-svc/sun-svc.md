@@ -327,7 +327,7 @@ end
 module Make (H : HANDLER) : sig
   val run
     :  env:_ Eio.Stdenv.t
-    -> obs:Obs.t
+    -> obs:Obs_eio.t
     -> ?port:int
        (** Default: 8080. Overridden by PORT env var if set. Pass 0 for
            OS-assigned port (use with [on_listen] in tests). *)
@@ -623,7 +623,7 @@ end
 let () =
   Eio_main.run (fun env ->
     let prom_backend, render = Obs_prometheus.create () in
-    let obs = Obs.create ~service:"charge-svc"
+    let obs = Obs_eio.create ~service:"charge-svc"
                 ~mono_clock:env#mono_clock ~backend:prom_backend in
     Service.Make(H).run ~env ~obs ~metrics_renderer:render ()
   )

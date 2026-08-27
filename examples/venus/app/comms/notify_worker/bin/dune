@@ -4,10 +4,10 @@
   venus_comms_notify
   kafka_eio_service
   sun_worker
-  sun_storage
-  obs_eio
-  obs_eio_loki
-  obs_eio_prometheus
+  pg-eio
+  obs-eio
+  obs-loki-eio
+  obs-prometheus-eio
   caqti-eio
   caqti-eio.unix
   caqti-driver-postgresql

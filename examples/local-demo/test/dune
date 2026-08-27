@@ -3,10 +3,10 @@
  (libraries
   demo_events
   eio eio_main eio.unix
-  obs_eio obs_eio_loki obs_eio_prometheus
+  obs-eio obs-loki-eio obs-prometheus-eio
   kafka_eio_service
   sun_svc sun_worker
-  sun_storage
+  pg-eio
   caqti caqti-eio caqti-eio.unix caqti-driver-postgresql
   unix
   yojson

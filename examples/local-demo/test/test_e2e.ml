@@ -103,14 +103,14 @@ let run_golden_path () =
   let prom_backend, render = Obs_prometheus.create () in
   let log_backend =
     match loki_url with
-    | None     -> Obs.stdout
+    | None     -> Obs_eio.stdout
     | Some url ->
       Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
-  let backend   = Obs.compose log_backend prom_backend in
-  let svc_ot    = Obs.create ~service:"order-svc"
+  let backend   = Obs_eio.compose log_backend prom_backend in
+  let svc_ot    = Obs_eio.create ~service:"order-svc"
                     ~mono_clock:env#mono_clock ~backend in
-  let worker_ot = Obs.create ~service:"fulfillment-worker"
+  let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
                     ~mono_clock:env#mono_clock ~backend in
 
   (* Storage *)
@@ -146,8 +146,7 @@ let run_golden_path () =
     module Message = Events.OrderPlaced
     let group_id = "sun-e2e-test-worker"
 
-    let handle msg ~ack ~trace_ctx:_ =
-      ack ();
+    let handle msg ~trace_ctx:_ =
       (match db_pool with
        | None -> ()
        | Some pool ->
@@ -186,9 +185,9 @@ let run_golden_path () =
       order_id = s "order_id"; item = s "item"; quantity = i "quantity";
       correlation_id = corr_id;
     } in
-    let trace_ctx = Obs.with_span svc_ot "receive_order" (fun span ->
-      Obs.log span Info ~fields:[("order_id", msg.order_id)] "order received";
-      Obs.current_trace_ctx span
+    let trace_ctx = Obs_eio.with_span svc_ot "receive_order" (fun span ->
+      Obs_eio.log span Info ~fields:[("order_id", msg.order_id)] "order received";
+      Obs_eio.current_trace_ctx span
     ) in
     (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
      | Ok () | Error _ -> ());

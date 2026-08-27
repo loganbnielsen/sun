@@ -8,9 +8,7 @@ RUN opam install -y eio eio_main caqti caqti-eio caqti-driver-postgresql cohttp-
 
 COPY dune-project dune-workspace ./
 COPY integrations/kafka/ ./kafka/
-COPY integrations/observability/ ./observability/
 COPY primitives/ ./primitives/
-COPY integrations/storage/ ./storage/
 COPY examples/demo/ ./examples/demo/
 
 # Build demo

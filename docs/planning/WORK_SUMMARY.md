@@ -1,6 +1,273 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
-## Latest: Managed-hosting layer removed; self-hosted identity confirmed
+## Latest: `aws-eio` extracted to a standalone opam package (2026-08-25)
+
+Unlike every other extraction this repo has done (`kafka-eio`, `obs-eio` family,
+`pg-eio`), this one happened with **zero in-tree consumers** — no `s3-eio`/`dynamo-eio`
+exist yet, and nothing in `sun` calls `aws-eio` today. Extracted anyway, on explicit
+request, to settle the package boundary before those backends start depending on it.
+That tradeoff is real and stated plainly in the new repo's own README: the API shape
+hasn't been proven by a real caller yet, the way `kafka-eio-core`/`obs-eio`'s shapes
+were before they were pulled out.
+
+`integrations/aws/` is gone from this repo (there was no Sun-specific policy layer to
+keep in-tree, same as the `obs-eio` family). `dune-project`/`sun.opam` now depend on
+`aws-eio`, pinned from `~/Code/aws-eio`, tagged `v0.1.0`, pushed to
+`github.com/loganbnielsen/aws-eio`. `opam lint` passes; `dune build @install` and
+`dune test` (47 cases) pass from a clean checkout in the new repo.
+
+To change the extracted layer: edit in `~/Code/aws-eio`, commit there, then
+`opam pin add aws-eio ~/Code/aws-eio -y` from this repo's switch to pick up changes.
+
+`.github/workflows/release.yml`'s pin step now also pins `aws-eio#v0.1.0`.
+
+**Still open, called out explicitly in the new repo's README:** no live AWS call has
+ever been made from this package — everything is validated against AWS's published
+SigV4 conformance suite and realistic sample payloads, not a real S3/DynamoDB/STS/IMDS
+endpoint. Treat 0.1.0 as unproven against the real API until someone with actual AWS
+access reports one working. `s3-eio`, `dynamo-eio`, and `lambda-eio` (see `aws-audit.md`,
+repo root, updated to reflect this extraction) have not been started.
+
+`dune build` and `dune test framework/ cli/` pass in `sun` after the cutover.
+
+## Latest: `aws-eio` — SigV4 signing + credential resolution (Layer 1 of AWS support) (2026-08-25)
+
+New in-tree package at `integrations/aws/aws-eio/` (not yet extracted — this is genuinely
+new protocol work, not a migration of existing code, so it stays in-tree until `s3-eio`/
+`dynamo-eio` exist alongside it, matching how `kafka-eio`/`obs-eio` were built out fully
+before extraction). See `aws-audit.md` (repo root) for the pre-build design audit this
+implements, and `integrations/aws/aws-eio/aws-eio.md` for the package spec.
+
+**`Aws_sigv4`** (pure, no I/O) implements AWS Signature Version 4 request signing —
+canonical request construction, string-to-sign, HMAC-SHA256 signing-key derivation, and
+the final signature/Authorization header. Validated against AWS's own published SigV4
+conformance suite (`awslabs/aws-c-auth`'s `tests/aws-signing-test-suite/v4`, mirrored
+into `test/vectors/`, Apache-2.0, see `test/NOTICE-aws-c-auth`) — all 37 cases pass,
+covering header duplication/ordering/trimming/obsolete-line-folding, path normalization
+in both modes, UTF-8 query encoding, unreserved-character handling, and session-token
+signing (both included in and excluded from the signature). Two corrections found
+during implementation, both verified against the real test data before being trusted:
+
+- The commonly-quoted "well-known" SigV4 tutorial secret key
+  (`wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`) is wrong — the actual value has a `+`
+  where memory suggested a `/` (`wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`, confirmed
+  against `smithy-lang/smithy-rs`'s own SigV4 test as a second independent source).
+  Caught by computing the reference `get-vanilla` signature independently in Python and
+  `openssl` before writing any OCaml, and finding it didn't match.
+- S3 is a documented exception to AWS's usual canonical-URI path normalization: object
+  keys may contain literal `//` or `..`, so S3 requests must NOT dot-segment-remove or
+  slash-collapse the path (still percent-encoded byte-for-byte). Modeled as a required
+  `normalize_path : bool` field on `Aws_sigv4.request` — no default, every caller states
+  which behavior their service needs. Verified against `aws-c-auth`'s paired
+  `*-normalized`/`*-unnormalized` fixtures (this repo's copy of the test suite includes
+  both; an earlier, since-replaced source for the vectors did not).
+
+**`Aws_credentials`** resolves `(access_key_id, secret_access_key, session_token,
+expiration)` from one of: static keys, EKS IRSA (`AssumeRoleWithWebIdentity` using a
+Kubernetes-projected service-account JWT — the credential source a Sun service actually
+uses in its real EKS deploy target, since `platform/infra/aws/main.tf` already
+provisions EKS with IRSA for cert-manager), ECS/Fargate container credentials, IMDSv2,
+or `Env_chain` (tries the above in that priority order). No implicit default source —
+every `Aws_credentials.t` states one explicitly, matching `Kafka_security.t`'s "Security
+on Day 1" posture. The credential-bootstrap HTTP calls (STS web-identity exchange, IMDS
+token/metadata) are unsigned by design (signing them would need the credentials they
+produce) and go through a separate `Aws_http.request` path, never `signed_request`.
+Response parsing (a minimal, deliberately non-general XML leaf-tag extractor for STS's
+XML response; JSON parsing for IMDS/ECS) is tested against realistic sample payloads —
+network-backed sources can't be exercised against real AWS/IMDS endpoints from a unit
+test in this environment.
+
+**`Aws_http`** provides the shared HTTP transport: TLS via a private `Aws_tls` (same CA
+-bundle-loading pattern as every other HTTPS caller in this repo — `kafka-eio-service`'s
+`Kafka_service_tls`, `obs-loki-eio`'s `Obs_loki_tls`), and exponential backoff with full
+jitter on 429/5xx (AWS's own documented retry strategy), on top of both an unsigned
+`request` and a SigV4-`signed_request`.
+
+Not built yet: `s3-eio`, `dynamo-eio` (including the `Table.Index`-per-GSI typed
+modeling layer that's the actual point of that package — see `aws-audit.md`), and
+`lambda-eio`. `digestif` added to `dune-project`'s depends (everything else `aws-eio`
+uses was already a dependency via other packages).
+
+`dune build` and `dune test integrations/aws/` (43 tests: 37 SigV4 + 6 credentials) pass.
+
+**Follow-up hardening** (independent review pass on Layer 1, same session): an
+independent reviewer caught a real signature-breaking bug in `signed_request` — it
+built the actual wire URI via `Uri.make`/`Uri.to_string`, a *different* encoder than
+`Aws_sigv4` signs with. RFC 3986 permits `! * ' ( ) : @ $ , +` unescaped in a query
+value; SigV4's `UriEncode()` requires all of them percent-encoded. A signed request
+containing any of those characters would be signed one way and sent another, and AWS
+would reject the signature — every test in the package passed throughout because
+nothing exercised those characters end-to-end, only internal consistency. Confirmed by
+hand (`Uri.of_string "...%21..." |> Uri.to_string` comes back with `%21` un-escaped to
+`!`) before fixing. `cohttp-eio`'s `Client` module turned out to have no way to
+override the request line (`resource`) independent of a `Uri.t` — its low-level `Io`
+module isn't part of that library's public interface — so `Aws_http` now builds and
+sends the HTTP/1.1 request itself, constructing `Http.Request.t` directly with
+`resource` set from `Aws_sigv4.canonical_uri`/`canonical_query_string` (the exact
+functions used for signing, exposed as `wire_resource` and tested against the tricky
+-character case that motivated this). Response parsing is hand-rolled too as a result:
+`Content-Length`-delimited only, chunked `Transfer-Encoding` not handled (documented
+gap, fine for v1's small-JSON/XML-response scope, not fine for streaming a large S3
+GetObject later).
+
+Also fixed, from the same review plus a second pass from another engineer looking at
+the same code: `Random.float` for jitter used the global, unseeded `Random` module
+(deterministic across fresh processes — same class of bug `Obs_trace`'s ID generator
+had before its own fix); DynamoDB signals throttling via HTTP 400 with an
+`x-amzn-errortype` header, not 429/5xx, and the retry classifier didn't check response
+headers at all (`ThrottlingException`/`ProvisionedThroughputExceededException`/etc. now
+recognized); IMDSv2 had no way to get the short, fail-fast timeout `aws-audit.md`
+explicitly called for (SSRF-adjacent — now 1s, not the default 10s); and
+`Aws_http.signed_request` computed the payload hash unconditionally, so
+`aws-eio.md`'s documented `"UNSIGNED-PAYLOAD"` S3 streaming mode was unreachable
+through the only I/O-capable entry point (`?payload_hash` override added). A retry
+-against-a-real-throttling-response test (`test_aws_http.ml`, a local `Cohttp_eio`
+mock server) was also added — `aws-audit.md`'s own checklist had called for this and
+it was missing.
+
+`dune test integrations/aws/` now runs 47 cases (37 SigV4 + 4 `aws_http` + 6
+credentials); full repo build and `dune test framework/ cli/` still pass.
+
+## Latest: sun-storage extracted to the standalone `pg-eio` opam package (2026-08-25)
+
+Unlike `kafka-eio`/`obs-eio`, this extraction had no prior planning doc and no
+`~/Code/pg-eio` repo already in progress — it started from a fresh audit
+(`storage-audit.md`, repo root) written the same session, because `sun-storage` wraps
+`caqti`/`caqti-eio`/`caqti-driver-postgresql` (already-published, independently
+maintained packages) rather than containing Sun-authored FFI/protocol code the way
+`kafka-eio-core` and `obs-eio` did. It turned out to have zero Sun framework coupling
+already (no reference to `Sun_svc`/`Obs_eio`/`Kafka` anywhere in
+`integrations/storage/sun-storage/lib/`), so extraction was straightforward once two
+real bugs found during the audit were fixed in place first:
+
+- `Migration`'s `?table` parameter built raw SQL via `Printf.sprintf` with no
+  identifier validation, unlike `Table.Make`'s `table`/`id_column`/`columns` which
+  already went through `Table.Identifier.of_string`. `Migration.apply`/`status`/
+  `rollback` now validate `~table` the same way (`migration.ml`'s `validate_table`,
+  reusing `Table.Identifier` rather than duplicating it) before it reaches any query.
+  Not exploitable through Sun's own `sun migrate` CLI today (it derives `~table` from
+  the workspace directory name), but the public `?table:string` parameter offered no
+  protection to the next caller. Covered by a new test,
+  `migration_pg.rejects_unsafe_table_name` — gated on `POSTGRES_URL` like every other
+  integration test in this suite, so it wasn't runnable in this session's sandbox (no
+  Docker/Postgres access) but will run in CI or any dev environment with Postgres up.
+- `Db.transaction` discarded a rollback failure on the error path (`ignore
+  (C.rollback ())`) — if rollback itself failed after the original error, the caller
+  only ever saw the original error with no signal the transaction might not have
+  actually rolled back. Now folds both into one `Storage_error.Query_error` when
+  rollback fails; returns the original error unchanged when rollback succeeds. No
+  dedicated test — forcing a genuine rollback failure needs fault injection (a killed
+  connection mid-transaction) this test suite doesn't have infrastructure for yet.
+
+`integrations/storage/` is gone from this repo. `dune-project`/`sun.opam` now depend
+on `pg-eio` (opam-pinned from `~/Code/pg-eio`, tagged `v0.1.0`, pushed to
+`github.com/loganbnielsen/pg-eio`). Every consumer (`examples/venus`, `examples/pluto`,
+`examples/local-demo`, `cli/sun/bin`, the CLI scaffold templates, and
+`sun_cli_workspace.ml`'s port-forward detection) was rewired from the `sun_storage`
+findlib name to `pg-eio`. Module names are unchanged (`Storage_error`, `Db`,
+`Migration`, `Table` — no `Obs`-style rename), though `README.md` in the new repo flags
+`Db`/`Table` as generic enough to watch for collisions later; not renamed now since
+nothing has actually collided. Verified by scaffolding a real workspace with `sun new
+workspace` and running `dune build` against it (not just the tautological golden
+tests) — compiles clean.
+
+`platform/local/scripts/run_tests.sh`'s `storage` suite was removed entirely (same
+treatment as the `observability` suite in the obs-eio cutover below) — there's no
+storage-specific test surface left in this repo; Postgres-touching example code is
+still covered by the `e2e` suite. `tools/perf/perf_baseline.json`'s `storage` entry
+was removed to match. `.github/workflows/release.yml`'s pin step now also pins
+`pg-eio#v0.1.0`.
+
+`dune build` and `dune test framework/ cli/` pass after the cutover.
+
+## Latest: obs-eio / obs-loki-eio / obs-prometheus-eio cut over to standalone opam packages (2026-08-25)
+
+`integrations/observability/` (obs-eio core, obs-eio-loki, obs-eio-prometheus) is gone
+from this repo. The three packages were already extracted to their own git repos —
+`~/Code/obs-eio`, `~/Code/obs-loki-eio`, `~/Code/obs-prometheus-eio` — and released as
+0.1.0 (tagged, opam-pinned), but this repo was still building the old in-tree copies
+instead of consuming them. This entry is that cutover, same pattern as the kafka-eio
+extraction below.
+
+Package/library naming differs slightly from the original `obs-audit.md` /
+`obs-extraction-plan.md` recommendation written before extraction: those docs said keep
+the core module named plain `Obs` and never rename to `Obs_eio`. The standalone repo's
+own post-extraction audit rounds (3–6) reversed that call — `Obs` was judged too generic
+a name for a library other projects will `open`, so the core module is `Obs_eio` in the
+released 0.1.0. `Obs_loki` / `Obs_prometheus` kept their original names (no rename risk
+for those). Findlib/opam package names are `obs-eio`, `obs-loki-eio`, `obs-prometheus-eio`
+— note `obs-loki-eio`/`obs-prometheus-eio`, not the in-tree `obs-eio-loki`/
+`obs-eio-prometheus` naming used before extraction.
+
+What changed in this repo:
+- Deleted `integrations/observability/` entirely (no Sun-specific service layer sat on
+  top of these three packages, unlike `kafka-eio-service`, so nothing stayed behind).
+- `dune-project` now depends on `obs-eio`, `obs-loki-eio`, `obs-prometheus-eio`; `sun.opam`
+  regenerated accordingly.
+- Every consumer (`sun-svc`, `sun-worker`, `sun-fn`, `kafka-eio-service`, the CLI scaffold
+  templates in `sun_cli_scaffold_templates.ml`, and the venus/pluto/local-demo examples)
+  now references the opam packages by their public (hyphenated) findlib names in
+  `(libraries ...)` stanzas, and all `Obs.` call sites became `Obs_eio.`.
+- `sun_cli_workspace.ml`'s port-forward detection (`sun dev up` deciding whether to wire
+  up Loki/Prometheus port-forwards for a scaffolded service) scans generated dune files
+  for the library name substring — updated from `obs_eio_loki`/`obs_eio_prometheus` to
+  `obs-loki-eio`/`obs-prometheus-eio` to match what scaffolded services actually emit now.
+  This one is easy to silently break on a future rename: nothing else in the build would
+  fail if it drifted, `sun dev up` would just quietly stop port-forwarding.
+- `.github/workflows/release.yml` pinned `kafka-eio`/`obs-eio`/`obs-loki-eio`/
+  `obs-prometheus-eio` via their GitHub remotes before `opam install . --deps-only` — this
+  step didn't exist before for `kafka-eio` either, so the release workflow's dependency
+  install was already broken pre-existing (a fresh CI runner has no local `~/Code` pins
+  and these packages aren't in the public opam-repository). Fixed as part of this pass
+  since it blocks verifying the cutover builds cleanly from scratch.
+- `obs-audit.md` and `obs-extraction-plan.md` (repo root) are left as historical planning
+  record, not rewritten — they documented the state and decisions accurately at the time.
+
+To change the extracted layer: edit in the relevant `~/Code/obs-*` repo, commit there,
+then `opam pin add <pkg> https://github.com/loganbnielsen/<pkg>.git -y` from this repo's
+switch to pick up changes.
+
+`dune build` and `dune test framework/ cli/` pass after the cutover.
+
+## Latest: kafka-eio extracted to a standalone opam package (2026-08-24)
+
+`kafka-eio-core`, `kafka-eio-producer`, `kafka-eio-consumer`, and the produce-then-consume
+`demo/` binary moved out of this repo to their own git repository at `~/Code/kafka-eio`,
+opam-pinned into this switch as package `kafka-eio` (findlib names `kafka-eio.core`,
+`kafka-eio.producer`, `kafka-eio.consumer`). Pilot for splitting Sun's generic
+Eio/librdkafka bindings from its opinionated application layer, so the binding can be
+maintained (and eventually released) independently of Sun's own roadmap.
+
+`kafka-eio-service` (typed message contracts, schema registry, Confluent wire framing,
+Redpanda admin, retry topics/DLQ, `config_of_env`) stays in this repo — it's Sun-specific
+policy, not generic Kafka bindings — and now depends on the external package instead of
+in-tree libraries. `sun-worker` was rewired the same way.
+
+To change the extracted layer: edit in `~/Code/kafka-eio`, commit there, then
+`opam pin add kafka-eio ~/Code/kafka-eio -y` from this repo's switch to pick up changes.
+
+`obs-eio` / `obs-loki-eio` / `obs-prometheus-eio` went through the same split — see the
+entry above, dated 2026-08-25.
+
+**Follow-up hardening in the extracted `kafka-eio-consumer`** (review pass on the
+extraction, applied in the same session): `handler_result` is now polymorphic in the
+application's own error type instead of forcing `Kafka_error.t`; `ack ()` returns
+`(unit, Kafka_error.t) result` instead of silently discarding the commit outcome;
+`consume`/`consume_partitioned` take an `?on_warning` callback instead of writing
+directly to stderr with a hardcoded `"sun-worker:"` prefix; `consume_partitioned`'s
+per-partition queues are bounded (`?queue_capacity`, default 16) with dispatch forked
+per-message so a full queue on one partition can't stall routing to the others. This
+rippled through every `ack` call site in this repo — `kafka-eio-service`, `sun-worker`
+(including its own internal `WORKER` signature, which duplicates `worker.mli`), all
+worker examples (`local-demo`, `pluto`, `venus`), and the `sun new worker` scaffold
+templates in `cli/sun/lib/sun_cli_scaffold_templates.ml` — all updated to
+`ignore (ack ())` (or, where warranted, to actually use the result) and to pin
+`'e = Kafka_error.t` at Sun's own public API boundary, so no behavior changed for
+Sun's existing users.
+
+---
+
+## Managed-hosting layer removed; self-hosted identity confirmed
 
 Sun's product direction is confirmed: a self-hosted OCaml production platform.
 Users always own their infrastructure. Sun never owns it on their behalf.
@@ -172,7 +439,7 @@ unverified items investigated and fixed. Pre-commit hooks, performance baseline
 tracking, and e2e assertions committed.
 
 ### AUDIT-010 — `sun_worker_decode_errors_total` Prometheus counter
-`consume` and `consume_partitioned` now accept `?ot : Obs.t option`. When provided,
+`consume` and `consume_partitioned` now accept `?ot : Obs_eio.t option`. When provided,
 a `sun_worker_decode_errors_total` counter is registered and incremented on every
 `on_decode_error` call (bad wire format, JSON parse error, schema decode). `sun-worker`
 forwards its `?ot` through to `consume_partitioned` automatically.
@@ -323,7 +590,7 @@ New workspace at `integrations/observability/` with package `obs-eio`.
 - `Obs_metrics` — type aliases for `counter_fn`, `gauge_fn`, `histogram_fn` emitter closures
 - `Obs` — main handle (`t`), `backend` record, `with_span`, `log`, `register_counter/gauge/histogram`, `with_context`, `noop`, `stdout`, `compose`
 
-**Key design:** `Obs.t` is immutable — `with_context` returns a new handle; safe to fork per-fiber. `span_event` carries `context : (string * string) list` so backends can use ambient fields as stream labels.
+**Key design:** `Obs_eio.t` is immutable — `with_context` returns a new handle; safe to fork per-fiber. `span_event` carries `context : (string * string) list` so backends can use ambient fields as stream labels.
 
 ### 2. `obs-eio-loki` backend (complete, 8/8 tests)
 
@@ -337,14 +604,14 @@ val create
   -> url:string
   -> ?label_names:string list
   -> unit
-  -> Obs.backend
+  -> Obs_eio.backend
 ```
 
 **What it does:**
-- One logfmt log line per `Obs.log` call: `level=info msg=... span=... key=val`
+- One logfmt log line per `Obs_eio.log` call: `level=info msg=... span=... key=val`
 - `trace_id` and `span_id` in Loki 3.x **structured metadata** (third element of the value tuple) — indexed as filterable fields in Grafana, not buried in the log line text
-- Stream labels: `service` always + whitelisted `label_names` from `Obs.t` context (low-cardinality only)
-- Spans with no `Obs.log` calls emit a single `level=info span=... status=ok` completion line
+- Stream labels: `service` always + whitelisted `label_names` from `Obs_eio.t` context (low-cardinality only)
+- Spans with no `Obs_eio.log` calls emit a single `level=info span=... status=ok` completion line
 - Unreachable Loki logs to stderr and returns normally — never raises
 
 **Tests:**
@@ -367,7 +634,7 @@ New package at `integrations/observability/obs-eio-prometheus/`.
 
 **API:**
 ```ocaml
-val create : unit -> Obs.backend * (unit -> string)
+val create : unit -> Obs_eio.backend * (unit -> string)
 (* backend accumulates counter/gauge/histogram deltas;
    renderer produces Prometheus /metrics text on demand *)
 ```
@@ -380,7 +647,7 @@ val create : unit -> Obs.backend * (unit -> string)
 - `emit_span` is a no-op — spans go to Loki
 - `Mutex` (not `Eio.Mutex`) protects the registry — safe across Eio domains, no switch needed
 - Renderer snapshots under the lock, then formats (does not hold lock while building the string)
-- `# HELP` lines rendered — required adding `help: string` to `Obs.metric_event` (additive, all existing tests still pass)
+- `# HELP` lines rendered — required adding `help: string` to `Obs_eio.metric_event` (additive, all existing tests still pass)
 
 **Tests:**
 - Counter accumulation across label sets, unlabeled counter
@@ -436,7 +703,7 @@ module Make (F : FN) : sig
              mono_clock : _ Eio.Time.Mono.t; .. >
     -> ?pushgateway_url:string
     -> ?job:string
-    -> ?backend:(Obs.backend * (unit -> string))
+    -> ?backend:(Obs_eio.backend * (unit -> string))
     -> unit -> unit
 end
 ```
@@ -447,9 +714,9 @@ end
 
 **Push safety:** `Obs_prometheus.push` has a 5s internal timeout; the outer `push_metrics` helper catches all exceptions and logs to stderr — push never blocks exit.
 
-**`?backend` parameter:** Optional override for the default `Obs_prometheus.create ()` pair. Enables metric inspection in tests (without a real pushgateway) and fan-out to additional backends via `Obs.compose`.
+**`?backend` parameter:** Optional override for the default `Obs_prometheus.create ()` pair. Enables metric inspection in tests (without a real pushgateway) and fan-out to additional backends via `Obs_eio.compose`.
 
-**Build structure change:** Removed `integrations/observability/dune-project` and `framework/dune-project`; created root `dune-project`. This merges both into the root project so cross-package library deps (`obs_eio`, `obs_eio_prometheus`) resolve correctly. `integrations/kafka/dune-project` is unchanged. All builds still work from subdirectories (dune finds workspace root via `dune-workspace`).
+**Build structure change:** Removed `integrations/observability/dune-project` and `framework/dune-project`; created root `dune-project`. This merges both into the root project so cross-package library deps (`obs_eio`, `obs_prometheus_eio`) resolve correctly. `integrations/kafka/dune-project` is unchanged. All builds still work from subdirectories (dune finds workspace root via `dune-workspace`).
 
 **Tests (7 total):**
 - `run_ok` — `Ok ()` → returns normally
@@ -464,7 +731,7 @@ end
 
 ### 7. Phase 3 — Observability auto-wiring in `sun-svc` (complete, 13/13 tests)
 
-Added `?ot:Obs.t` parameter to `Service.Make(H).run`. When provided:
+Added `?ot:Obs_eio.t` parameter to `Service.Make(H).run`. When provided:
 - Registers `sun_svc_requests_total{method, route, status_class}` counter and `sun_svc_request_duration_seconds{method, route}` histogram at startup (once, not per request)
 - Per request: captures matched route pattern via `?route_observer` hook into `dispatch` (zero extra route-lookup cost), then emits counter + histogram after response is built
 - Route label uses the declared pattern (`/users/:id`), not the actual path — no cardinality explosion
@@ -472,7 +739,7 @@ Added `?ot:Obs.t` parameter to `Service.Make(H).run`. When provided:
 **Usage:**
 ```ocaml
 let backend, render = Obs_prometheus.create () in
-let ot = Obs.create ~service:"payments-svc" ~mono_clock:env#mono_clock ~backend in
+let ot = Obs_eio.create ~service:"payments-svc" ~mono_clock:env#mono_clock ~backend in
 Service.Make(H).run ~env ~ot ~metrics_renderer:render ()
 ```
 
@@ -497,7 +764,7 @@ module Make (W : WORKER) : sig
     :  env:< net : _ Eio.Net.t; clock : _ Eio.Time.clock;
              mono_clock : _ Eio.Time.Mono.t; .. >
     -> config:Kafka_service.config
-    -> ?ot:Obs.t
+    -> ?ot:Obs_eio.t
     -> unit -> unit
 end
 ```
@@ -548,7 +815,7 @@ Three quick-win improvements from the demo friction log:
 - Added `?on_ready:(unit -> unit)` parameter; threads directly to `Kafka_service.consume`.
 - Demo updated to use real path — `~_consume_loop` friction hack removed.
 
-**`Obs.log_t`** (`integrations/observability/obs-eio/lib/obs.ml/.mli`)
+**`Obs_eio.log_t`** (`integrations/observability/obs-eio/lib/obs.ml/.mli`)
 - `val log_t : t -> level -> ?fields:(string * string) list -> string -> unit`
 - Addresses friction items #4 and #7. Logs without an explicit span; creates an anonymous `"log"` span internally.
 
@@ -595,9 +862,9 @@ W3C `traceparent` automatically propagated from HTTP span → Kafka message head
 - `kafka_service.ml/.mli` — `publish` gains `?trace_ctx:Obs_trace.t`; `consume`'s handler type gains `~trace_ctx:Obs_trace.t option`
 - `framework/sun-worker/lib/worker.ml/.mli` — `WORKER.handle` gains `~trace_ctx:Obs_trace.t option`
 - All tests updated for the new handler signatures
-- `examples/local-demo/bin/demo.ml` — extracts `trace_ctx` from HTTP span via `Obs.current_trace_ctx`, passes to `publish`; worker uses `?parent:trace_ctx` to link the fulfillment span
+- `examples/local-demo/bin/demo.ml` — extracts `trace_ctx` from HTTP span via `Obs_eio.current_trace_ctx`, passes to `publish`; worker uses `?parent:trace_ctx` to link the fulfillment span
 
-**Trace continuity:** HTTP span → `traceparent` header in Kafka message → extracted in `kafka_service.consume` → passed to `WORKER.handle` as `~trace_ctx` → `?parent:trace_ctx` in `Obs.with_span` → linked child span in Loki/Grafana.
+**Trace continuity:** HTTP span → `traceparent` header in Kafka message → extracted in `kafka_service.consume` → passed to `WORKER.handle` as `~trace_ctx` → `?parent:trace_ctx` in `Obs_eio.with_span` → linked child span in Loki/Grafana.
 
 ### 12. Demo friction log — all items closed (complete)
 
@@ -608,10 +875,10 @@ All 7 friction items from `examples/local-demo/FRICTION_LOG.md` are resolved:
 | 1 | `Worker.Make.run ~on_ready` | `?on_ready:(unit -> unit)` threaded to `Kafka_service.consume` |
 | 2 | Worker clean stop mechanism | `?stop:bool Atomic.t` + `?max_messages:int`; 2 dedicated test cases |
 | 3 | `(wrapped)` inconsistency | All three primitives now `(wrapped false)` |
-| 4 | Logging boilerplate | `Obs.log_t : t -> level -> ?fields -> string -> unit` |
+| 4 | Logging boilerplate | `Obs_eio.log_t : t -> level -> ?fields -> string -> unit` |
 | 5 | Correlation ID manual end-to-end | W3C `traceparent` over Kafka headers (Batch 3) |
 | 6 | Two Kafka credentials | `Kafka_service.config_of_env ()` |
-| 7 | `Obs.log` requires span | Same fix as #4 |
+| 7 | `Obs_eio.log` requires span | Same fix as #4 |
 
 ### 13. Error handling and test-speed hardening (complete)
 
@@ -678,7 +945,7 @@ examples/venus/
 - `Notify_worker.Make(Config)` functor: injects `pool` and `ot` without module-level mutable state
 - `~table:"venus_schema_migrations"` in `Migration.apply` — per-workspace migration table avoids cross-contamination when multiple workspaces share a dev database
 - `Notification.Schema.t` + `include Table.Make(Schema)` pattern for storage modules
-- `Obs.with_context` wires `team` label into Loki stream labels per service
+- `Obs_eio.with_context` wires `team` label into Loki stream labels per service
 
 **Bug fixed during implementation:**
 - `Migration.apply`/`status` now accept `?table:string` (default `"sun_schema_migrations"`)  
@@ -823,7 +1090,7 @@ Final state: `fulfillment-worker` and `notify-worker` both `1/1 Running`; consum
 Workspace scaffold was extended to include DB integration by default: `sun new workspace pluto` now generates 19 files including a shared `lib/notification.ml` storage module (used by both svc and worker), `lib/dune` (pluto_storage library), and `db/migrations/0001_notifications.sql`. The scaffold wires:
 - `app/payments/charge_svc`: `POST /charges` writes to DB; `GET /notifications` reads from DB
 - `app/comms/notify_worker`: consumes `Charged` Kafka events, writes to DB via `Notification.insert`
-- Both services wire Obs (Loki + Prometheus) with `~backend:(Obs.compose log_backend prom)` and `Obs.with_context`
+- Both services wire Obs (Loki + Prometheus) with `~backend:(Obs_eio.compose log_backend prom)` and `Obs_eio.with_context`
 - `MIGRATIONS_DIR` env var: workers skip migrations when absent (migrations are `sun migrate`'s job)
 
 Verified sequence:
@@ -998,11 +1265,11 @@ The production deployment pipeline is complete. All Phase 6 deliverables are don
 | `framework/sun-fn/test/test_fn.ml` | Complete — 7 tests |
 | `framework/sun-fn/sun-fn.md` | Complete — design spec |
 | `dune-project` | New root project (merged obs + http) |
-| `framework/sun-svc/lib/service.ml` | Updated — `?ot:Obs.t`, `?route_observer`, per-request metrics |
-| `framework/sun-svc/lib/service.mli` | Updated — `?ot:Obs.t` exposed |
+| `framework/sun-svc/lib/service.ml` | Updated — `?ot:Obs_eio.t`, `?route_observer`, per-request metrics |
+| `framework/sun-svc/lib/service.mli` | Updated — `?ot:Obs_eio.t` exposed |
 | `framework/sun-svc/lib/dune` | Updated — added `obs_eio` dep |
 | `framework/sun-svc/test/test_service.ml` | Updated — 2 new metrics tests (13 total) |
-| `framework/sun-svc/test/dune` | Updated — added `obs_eio obs_eio_prometheus` deps |
+| `framework/sun-svc/test/dune` | Updated — added `obs_eio obs_prometheus_eio` deps |
 | `framework/sun-worker/lib/worker.ml/.mli` | Complete |
 | `framework/sun-worker/lib/dune` | Complete |
 | `framework/sun-worker/test/test_worker.ml` | Complete — 7 tests |

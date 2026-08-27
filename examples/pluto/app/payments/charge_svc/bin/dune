@@ -2,6 +2,6 @@
  (name main)
  (libraries
   pluto_payments_charge_svc
-  sun_svc obs_eio obs_eio_loki obs_eio_prometheus
-  sun_storage caqti-eio caqti-eio.unix caqti-driver-postgresql
+  sun_svc obs-eio obs-loki-eio obs-prometheus-eio
+  pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))

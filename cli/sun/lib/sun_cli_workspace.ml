@@ -36,9 +36,9 @@ let scan ~dir =
             (try
               let content = read_file path in
               if Sun_cli_port_forward.string_contains ~needle:"kafka_eio_service"  content then kafka      := true;
-              if Sun_cli_port_forward.string_contains ~needle:"sun_storage"        content then postgres   := true;
-              if Sun_cli_port_forward.string_contains ~needle:"obs_eio_loki"       content then loki       := true;
-              if Sun_cli_port_forward.string_contains ~needle:"obs_eio_prometheus" content then prometheus := true;
+              if Sun_cli_port_forward.string_contains ~needle:"pg-eio"             content then postgres   := true;
+              if Sun_cli_port_forward.string_contains ~needle:"obs-loki-eio"       content then loki       := true;
+              if Sun_cli_port_forward.string_contains ~needle:"obs-prometheus-eio" content then prometheus := true;
             with _ -> ())
           end else if Sys.is_directory path then
             collect path

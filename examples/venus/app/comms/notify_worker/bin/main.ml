@@ -4,7 +4,7 @@ let env_nonempty name =
   | _ -> None
 
 let optional_log_backend ~net ~clock = function
-  | None     -> Obs.stdout
+  | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
@@ -40,10 +40,10 @@ let () =
 
   let prom_backend, _render = Obs_prometheus.create () in
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
-  let backend = Obs.compose log_backend prom_backend in
+  let backend = Obs_eio.compose log_backend prom_backend in
   let ot =
-    Obs.with_context
-      (Obs.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend)
+    Obs_eio.with_context
+      (Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend)
       [("team", "comms")]
   in
 

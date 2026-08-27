@@ -121,7 +121,7 @@ let () =
     module Message = Job
     let group_id = "sun-demo-retry-worker"
 
-    let handle msg ~ack ~trace_ctx:_ =
+    let handle msg ~trace_ctx:_ =
       let call_n = record_call msg.Message.id in
       let ts     = stamp () -. !t0 in
       if is_flakey msg.Message.id && call_n = 0 then begin
@@ -129,7 +129,6 @@ let () =
           ts msg.Message.id (call_n + 1);
         Error "transient failure"
       end else begin
-        ack ();
         Printf.printf "[worker] t=%.2fs  %-8s  attempt %d → ok\n%!"
           ts msg.Message.id (call_n + 1);
         let n = Atomic.fetch_and_add completed 1 + 1 in
