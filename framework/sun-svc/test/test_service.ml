@@ -62,7 +62,7 @@ let with_server env ~sw f =
 let with_server_obs env ~sw f =
   let port_p, port_r = Promise.create () in
   let backend, render = Obs_prometheus.create () in
-  let ot = Obs.create ~service:"test-svc" ~mono_clock:env#mono_clock ~backend in
+  let ot = Obs_eio.create ~service:"test-svc" ~mono_clock:env#mono_clock ~backend in
   Fiber.fork_daemon ~sw (fun () ->
     let module S = Service.Make(H) in
     S.run ~env ~port:0 ~ot ~metrics_renderer:render

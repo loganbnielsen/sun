@@ -4,14 +4,22 @@ module type WORKER = sig
   val group_id : string
   (** Consumer group ID. Use a stable, service-scoped name, e.g. ["payments-broadcast-worker"]. *)
 
-  val handle : Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> (unit, string) result
-  (** Called once per successfully decoded message. Call [ack ()] after processing
-      completes to commit the offset. [trace_ctx] carries the upstream [traceparent]
-      header — pass it as [?parent:trace_ctx] to [Obs.with_span] to link spans.
+  val handle : Message.t -> trace_ctx:Obs_trace.t option -> (unit, string) result
+  (** Called once per successfully decoded message. [trace_ctx] carries the upstream
+      [traceparent] header — pass it as [?parent:trace_ctx] to [Obs_eio.with_span] to
+      link spans.
 
-      Return [Error msg] to signal a retryable failure. The worker retries the same
-      message using the [retry] policy passed to [Make(W).run]. Once [max_attempts]
-      is exhausted (if non-negative), the worker stops and raises [Failure msg]. *)
+      The worker acknowledges (commits the offset) itself, only after [handle]
+      returns [Ok ()] — there is no [ack] to call or forget. A failed commit is
+      logged and counted as [sun_worker_messages_total{status="ack_failed"}]
+      rather than treated as a processing failure (see [run]'s note on ack
+      failure semantics), since the side effect already happened and retrying
+      it here could duplicate it.
+
+      Return [Error msg] to signal a retryable failure (nothing is acknowledged).
+      The worker retries the same message using the [retry] policy passed to
+      [Make(W).run]. Once [max_attempts] is exhausted (if non-negative), the
+      worker stops and raises [Failure msg]. *)
 end
 
 type retry_policy = Kafka_consumer.retry_policy = {
@@ -46,10 +54,18 @@ module Make (W : WORKER) : sig
            ; mono_clock: _ Eio.Time.Mono.t
            ; .. >
     -> config:Kafka_service.config
-    -> ?ot:Obs.t
+    -> ?ot:Obs_eio.t
     (** Observability handle. When provided, [sun_worker_messages_total{status}]
-        (labels: [ok], [retry], [error]) and
-        [sun_worker_message_duration_seconds] are emitted per message. *)
+        (labels: [ok], [retry], [error], [ack_failed]) and
+        [sun_worker_message_duration_seconds] are emitted per message.
+
+        [ack_failed] is distinct from [error]: it means [W.handle] returned
+        [Ok ()] but the subsequent offset commit failed, so the side effect
+        already happened — logged at [Warn], and the message is left
+        uncommitted for natural redelivery rather than retried immediately.
+        Escalates to [Error] (stopping the worker) only when the commit
+        failure is [Kafka_error.is_fatal] — a broken consumer, not a
+        transient hiccup — logged at [Error] in that case. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
     -> ?stop:bool Atomic.t
@@ -60,7 +76,7 @@ module Make (W : WORKER) : sig
     (** Failure strategy for [Error] results from [W.handle]. Defaults to
         [In_memory default_retry]. See [retry_strategy] for the two modes. *)
     -> ?_consume_loop:
-         (handler:(W.Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+         (handler:(W.Message.t -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
           -> unit -> unit)
     (** Test injection: replace the real per-partition consume loop with a stub.
         The stub receives the handler directly; retry logic is not applied. *)

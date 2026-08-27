@@ -30,21 +30,17 @@ header(){ echo -e "\n${BOLD}$*${NC}"; }
 declare -A TIMEOUTS=(
   [unit]=60
   [kafka]=120
-  [observability]=90
-  [storage]=90
   [e2e]=180
 )
 
 # ── Per-suite regression thresholds ──────────────────────────────────────────
 # unit/e2e: 1.5× — pure OCaml or sequential workflow; only GC/scheduler noise.
-# kafka/observability/storage: 1.4× — I/O-bound; more variance is expected.
+# kafka: 1.4× — I/O-bound; more variance is expected.
 # These replace the old single FAIL_RATIO=1.2 which produced false positives
 # when infra containers ran concurrently with the unit suite.
 declare -A FAIL_RATIOS=(
   [unit]=1.5
   [kafka]=1.4
-  [observability]=1.4
-  [storage]=1.4
   [e2e]=1.5
 )
 
@@ -57,12 +53,12 @@ for arg in "$@"; do
   case "$arg" in
     --update-baseline) UPDATE_BASELINE=1 ;;
     --no-infra)        SKIP_INFRA=1 ;;
-    unit|kafka|observability|storage|e2e) REQUESTED_SUITES+=("$arg") ;;
+    unit|kafka|e2e) REQUESTED_SUITES+=("$arg") ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
 
-ALL_SUITES=(unit kafka observability storage e2e)
+ALL_SUITES=(unit kafka e2e)
 SUITES=("${REQUESTED_SUITES[@]:-${ALL_SUITES[@]}}")
 
 # ── Timing ────────────────────────────────────────────────────────────────────
@@ -116,28 +112,15 @@ check_regression() {
 
 # ── Suite runners ─────────────────────────────────────────────────────────────
 run_unit() {
-  info "Primitives + observability unit tests (no infrastructure required)"
+  info "Primitives unit tests (no infrastructure required)"
   eval $(opam env)
-  dune test framework/ integrations/observability/obs-eio/test/ cli/sun/test/ --force 2>&1
+  dune test framework/ cli/sun/test/ --force 2>&1
 }
 
 run_kafka() {
   info "Kafka integration tests (requires broker at localhost:9092)"
   eval $(opam env)
   KAFKA_BROKERS=localhost:9092 dune test integrations/kafka/ --force 2>&1
-}
-
-run_observability() {
-  info "Observability integration tests (requires Loki at localhost:3100)"
-  eval $(opam env)
-  LOKI_URL=http://localhost:3100 dune test integrations/observability/ --force 2>&1
-}
-
-run_storage() {
-  info "Storage integration tests (requires Postgres at localhost:5432)"
-  eval $(opam env)
-  POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
-    dune test integrations/storage/ --force 2>&1
 }
 
 run_e2e() {
@@ -157,8 +140,6 @@ ensure_infra() {
   for suite in "${SUITES[@]}"; do
     case "$suite" in
       kafka|e2e) needs_kafka=1; needs_loki=1; needs_postgres=1 ;;
-      observability) needs_loki=1 ;;
-      storage) needs_postgres=1 ;;
     esac
   done
 

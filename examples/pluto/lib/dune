@@ -2,4 +2,4 @@
  (name pluto_storage)
  (wrapped false)
  (modules Notification)
- (libraries sun_storage caqti))
+ (libraries pg-eio caqti))

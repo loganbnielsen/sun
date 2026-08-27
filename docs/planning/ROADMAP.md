@@ -154,7 +154,7 @@ including two live round-trip tests against real Loki.
   parseable with `| logfmt` in LogQL
 - `trace_id` / `span_id` go in **Loki structured metadata** (third value-tuple element),
   not embedded in the line — keeps them indexed and clickable in Grafana Explore
-- Stream labels: `service` always + whitelisted `label_names` from `Obs.t` context
+- Stream labels: `service` always + whitelisted `label_names` from `Obs_eio.t` context
 - Unreachable Loki logs to stderr, never raises
 
 **Local infrastructure:** `platform/local/scripts/ensure-loki.sh` + `ensure-grafana.sh`
@@ -165,13 +165,14 @@ including two live round-trip tests against real Loki.
 Prometheus metrics exposed via in-process state, scrapeable at a configurable endpoint
 or pushable to Pushgateway.
 
-**Package:** `integrations/observability/obs-eio-prometheus/`
+**Package:** `obs-prometheus-eio` (extracted to `~/Code/obs-prometheus-eio`, 2026-08-25;
+lived at `integrations/observability/obs-eio-prometheus/` at the time this phase shipped)
 **Deliverables:**
-- `Obs_prometheus.create : unit -> Obs.backend * (unit -> string)` — backend + renderer ✓
+- `Obs_prometheus.create : unit -> Obs_eio.backend * (unit -> string)` — backend + renderer ✓
 - Counter/gauge/histogram families with correct Prometheus text exposition format ✓
 - 10/10 unit tests pass — counter accumulation, gauge last-write-wins, histogram bucket
   sorting, label escaping, concurrent emit safety ✓
-- `push` deferred to Phase 2 (`-fn`) — spec in obs-eio-prometheus.md ✓
+- `push` deferred to Phase 2 (`-fn`) — spec now in `~/Code/obs-prometheus-eio` ✓
 
 **Key design choices:**
 - `Mutex` (not `Eio.Mutex`) protects the registry — safe across Eio domains, no switch needed
@@ -276,8 +277,8 @@ end
 - k8s `CronJob` manifest generation from `schedule`
 - Wire `Obs_prometheus.push` here — `-fn` processes are ephemeral so Prometheus cannot
   scrape them; `Sun.Fn.Make` should call `push` at the end of `F.run ()` before exit.
-  The `push` implementation lives in `obs-eio-prometheus` and is already specced but
-  intentionally deferred to this phase. See `integrations/observability/obs-eio-prometheus/obs-eio-prometheus.md`.
+  The `push` implementation lives in `obs-prometheus-eio` (now `~/Code/obs-prometheus-eio`)
+  and is already specced but intentionally deferred to this phase.
 
 ---
 
@@ -295,10 +296,10 @@ Adds structured logging and metrics to all three primitives (`-svc`, `-worker`, 
 **Dashboards:** Grafana dashboard templates for each primitive, deployable as k8s `ConfigMap` resources via Helm or Argo CD.
 
 **Deliverables:**
-- ~~Auto-wiring in `Sun.Service.Make`~~ ✓ `sun_svc_requests_total{method,route,status_class}` + `sun_svc_request_duration_seconds{method,route}`; pass `?ot:Obs.t` to wire in
+- ~~Auto-wiring in `Sun.Service.Make`~~ ✓ `sun_svc_requests_total{method,route,status_class}` + `sun_svc_request_duration_seconds{method,route}`; pass `?ot:Obs_eio.t` to wire in
 - ~~Auto-wiring in `Sun.Fn.Make`~~ ✓ `sun_fn_invocations_total{status}` + `sun_fn_duration_seconds` (done in Phase 2)
-- ~~`Sun.Worker.Make`~~ ✓ `sun_worker_messages_total{status}` + `sun_worker_message_duration_seconds`; pass `?ot:Obs.t` to wire in
-- `Sun.Log` / `Sun.Metrics` — convenience wrappers; deferred to Phase 5 CLI (just use `Obs.register_counter/histogram` directly for now)
+- ~~`Sun.Worker.Make`~~ ✓ `sun_worker_messages_total{status}` + `sun_worker_message_duration_seconds`; pass `?ot:Obs_eio.t` to wire in
+- `Sun.Log` / `Sun.Metrics` — convenience wrappers; deferred to Phase 5 CLI (just use `Obs_eio.register_counter/histogram` directly for now)
 - Grafana dashboard templates — deferred to Phase 6 (k8s deploy layer)
 - Loki + Prometheus + Grafana k8s manifests — deferred to Phase 6
 

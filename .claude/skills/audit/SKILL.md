@@ -50,7 +50,7 @@ For each checklist item in `docs/audits/AUDIT.md`, read the relevant source file
 - Check `network_policy_doc` is included in `render`
 - Verify all `Sys.command` calls use `Filename.quote`
 
-**Section 3 — Core Runtime (`integrations/kafka/kafka-eio-core/lib/kafka_stubs.c`, `integrations/kafka/kafka-eio-consumer/lib/kafka_consumer.ml`, `framework/sun-worker/lib/worker.ml`, `cli/sun/bin/cmd_new.ml`):**
+**Section 3 — Core Runtime (`~/Code/kafka-eio/kafka-eio-core/lib/kafka_stubs.c`, `~/Code/kafka-eio/kafka-eio-consumer/lib/kafka_consumer.ml` — extracted to the standalone `kafka-eio` opam package, no longer in this repo; `framework/sun-worker/lib/worker.ml`, `cli/sun/bin/cmd_new.ml`):**
 - Read `kafka_stubs.c` — for every blocking librdkafka call, verify `caml_release_runtime_system()` before and `caml_acquire_runtime_system()` after
 - Check `pause_partition` and `resume_partition` for `CAMLparam`/`CAMLreturn`
 - Read `kafka_consumer.ml` — verify `acked` ref and warning in both `consume` and `consume_partitioned`

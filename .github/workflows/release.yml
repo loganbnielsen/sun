@@ -22,6 +22,15 @@ jobs:
         with:
           ocaml-compiler: 5.4.1
 
+      - name: Pin extracted opam packages
+        run: |
+          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#v0.1.0 -y
+          opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#v0.1.0 -y
+          opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#v0.1.0 -y
+          opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#v0.1.0 -y
+          opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#v0.1.0 -y
+          opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#v0.1.0 -y
+
       - name: Install OCaml dependencies
         run: opam install . --deps-only -y
 

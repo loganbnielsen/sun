@@ -53,18 +53,36 @@ Sun is an opinionated OCaml 5 production platform for startups. Kafka layer, obs
 
 ```
 sun/
-  integrations/kafka/                        ← Kafka packages (merged into root dune project)
-    kafka-eio-core/lib/         ← FFI + error types + C stubs (shared internal package)
-    kafka-eio-producer/lib/     ← public producer API
-    kafka-eio-consumer/lib/     ← public consumer API
-    kafka-eio-service/lib/      ← schema registry + service orchestration
-    kafka-eio-{core,producer,consumer,service}/test/
-    kafka-eio-*/kafka-eio-*.md  ← per-package spec docs
-  integrations/observability/                ← observability packages
-    obs-eio/lib/                ← core API: spans, metrics, trace context
-    obs-eio-loki/               ← Loki HTTP push backend
-    obs-eio-prometheus/         ← Prometheus exposition backend
-    obs-eio-*/obs-eio-*.md      ← per-package spec docs
+  integrations/kafka/                        ← Kafka service layer (merged into root dune project)
+    kafka-eio-service/lib/      ← schema registry + service orchestration, depends on `kafka-eio.*`
+    kafka-eio-service/test/
+    kafka-eio-service/kafka-eio-service.md    ← per-package spec doc
+  # kafka-eio-core/producer/consumer + the produce-then-consume demo moved out to the
+  # standalone `kafka-eio` opam package at ~/Code/kafka-eio (own git repo, opam-pinned
+  # into this switch). Edit there, then `opam pin add kafka-eio ~/Code/kafka-eio` to
+  # pick up changes. Findlib names: `kafka-eio.core`, `kafka-eio.producer`, `kafka-eio.consumer`.
+  # obs-eio (core: spans, metrics, trace context), obs-loki-eio (Loki HTTP push
+  # backend), and obs-prometheus-eio (Prometheus exposition backend) moved out to
+  # standalone opam packages at ~/Code/obs-eio, ~/Code/obs-loki-eio, and
+  # ~/Code/obs-prometheus-eio (own git repos, opam-pinned into this switch). Edit
+  # there, then `opam pin add <pkg> https://github.com/loganbnielsen/<pkg>.git` to
+  # pick up changes. Findlib/library names match the package names exactly:
+  # `obs-eio`, `obs-loki-eio`, `obs-prometheus-eio`. Public modules: `Obs_eio`
+  # (+ `Obs_trace`), `Obs_loki`, `Obs_prometheus`. No `integrations/observability/`
+  # directory remains in this repo.
+  # pg-eio (Postgres pool, migrations, Table.Make functor — formerly `sun-storage`)
+  # moved out to a standalone opam package at ~/Code/pg-eio, opam-pinned into this
+  # switch. Edit there, then `opam pin add pg-eio ~/Code/pg-eio` to pick up changes.
+  # Findlib name: `pg-eio`. Public modules unchanged: `Storage_error`, `Db`,
+  # `Migration`, `Table`. No `integrations/storage/` directory remains in this repo.
+  # aws-eio (SigV4 signing, credential resolution, HTTP transport — the foundation
+  # layer for planned AWS integrations) lives at a standalone opam package,
+  # ~/Code/aws-eio, opam-pinned into this switch. Extracted before any in-tree
+  # consumer existed (unlike kafka-eio/obs-eio/pg-eio, which were pulled out after
+  # real usage) — see aws-audit.md (repo root) for the layer plan. Edit there, then
+  # `opam pin add aws-eio ~/Code/aws-eio` to pick up changes. Findlib name:
+  # `aws-eio`. No `integrations/aws/` directory remains in this repo yet — nothing
+  # in Sun consumes this package today.
   framework/                   ← Sun service primitives
     sun-svc/lib/                ← REST API service (routes, auth, metrics)
     sun-worker/lib/             ← Kafka consumer (schema registration, per-message metrics)
@@ -73,7 +91,6 @@ sun/
   examples/local-demo/                         ← full-stack showcase demo (svc → Kafka → worker)
     lib/                        ← shared event contracts for demo
     bin/demo.ml                 ← orchestrated demo binary
-  integrations/kafka/demo/bin/demo.ml        ← Kafka-only produce-then-consume demo
   platform/local/
     scripts/                    ← ensure-broker.sh, ensure-loki.sh, etc.
     k8s/                        ← Kubernetes manifests
@@ -95,7 +112,7 @@ dune build
 
 ```bash
 # Unit tests (no broker needed)
-eval $(opam env) && dune test framework/ integrations/observability/obs-eio/test/
+eval $(opam env) && dune test framework/
 
 # Full integration tests (requires Redpanda + Loki running)
 bash platform/local/scripts/ensure-broker.sh
@@ -156,7 +173,7 @@ You must maintain and consult the project's source-of-truth markdown files:
 
 2. **When Writing Code**:
    - Refer to `README.md` for foundational architecture rules.
-   - Refer to the `*.md` spec file co-located with the package you are working in (e.g. `integrations/kafka/kafka-eio-producer/kafka-eio-producer.md`, `integrations/observability/obs-eio/obs-eio.md`) for feature implementation guidelines.
+   - Refer to the `*.md` spec file co-located with the package you are working in (e.g. `integrations/kafka/kafka-eio-service/kafka-eio-service.md`) for feature implementation guidelines. For `kafka-eio-core`/`producer`/`consumer`, the spec docs live in the external `~/Code/kafka-eio` repo. For `obs-eio`/`obs-loki-eio`/`obs-prometheus-eio`, the spec docs live in their respective external `~/Code/obs-*` repos. For `pg-eio`, the spec doc (`README.md`) lives in the external `~/Code/pg-eio` repo.
 
 3. **At Task Completion / Session End**:
    - Update `docs/planning/WORK_SUMMARY.md` to accurately reflect what was accomplished, what is currently "In Progress", and any new implementation hurdles or blockers discovered.

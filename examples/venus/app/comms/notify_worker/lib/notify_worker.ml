@@ -5,16 +5,15 @@
 
 module Make (Config : sig
   val pool : Db.pool option
-  val ot   : Obs.t
+  val ot   : Obs_eio.t
 end) = struct
   module Message = Charged
 
   let group_id = "comms-notify-worker"
 
-  let handle (msg : Message.t) ~ack ~trace_ctx =
-    ack ();
-    Obs.with_span Config.ot ?parent:trace_ctx "record_notification" (fun span ->
-      Obs.log span Info
+  let handle (msg : Message.t) ~trace_ctx =
+    Obs_eio.with_span Config.ot ?parent:trace_ctx "record_notification" (fun span ->
+      Obs_eio.log span Info
         ~fields:[("charge_id",    msg.Message.charge_id);
                  ("customer_id",  msg.Message.customer_id);
                  ("amount_cents", string_of_int msg.Message.amount_cents);

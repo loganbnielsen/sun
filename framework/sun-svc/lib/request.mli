@@ -10,7 +10,7 @@ type t =
   ; auth       : Auth.context
   ; trace_ctx  : Obs_trace.t option
     (** W3C [traceparent] extracted from the incoming request headers.
-        Pass as [?parent] to [Obs.with_span] to link child spans to the caller. *)
+        Pass as [?parent] to [Obs_eio.with_span] to link child spans to the caller. *)
   }
 
 (** [param req "id"] — look up an extracted path parameter. *)

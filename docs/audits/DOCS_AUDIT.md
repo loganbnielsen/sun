@@ -76,7 +76,7 @@ Generated docs are part of the product. They must teach the intended architectur
 
 Package-level specs should be useful implementation references, not stale design notes.
 
-**Source locations:** `integrations/kafka/*/*.md` · `integrations/observability/*/*.md` · `framework/*/*.md` · `integrations/storage/*/*.md`
+**Source locations:** `integrations/kafka/*/*.md` · `framework/*/*.md`
 
 ### Checklist
 

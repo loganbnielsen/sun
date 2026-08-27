@@ -382,40 +382,20 @@ let test_ancestor_walk_finds_bundle_root () =
       check_bool "find_ancestor: resolved path matches bundle root" true
         (result = Some tmpdir))
 
-(* Verify that the generic worker template calls ack() after side effects,
-   not before them.  The Printf.printf call is the stub side effect; ack ()
-   must appear later in the file. *)
-let test_worker_ack_after_side_effect () =
+(* Worker.WORKER.handle no longer takes ~ack — the framework acknowledges
+   automatically, only after handle returns Ok (), so a generated worker has
+   no ack to call, misorder relative to its side effects, or forget. Verify
+   the scaffold reflects that: no ~ack param anywhere in generated worker
+   code, and handle still ends by returning Ok () after its side effect. *)
+let test_worker_has_no_ack_param () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_worker "comms/notify";
   let lib = read_file "app/comms/notify_worker/lib/notify_worker.ml" in
-  assert_contains "worker lib" lib "ack ()";
+  check_bool "generated worker does not reference ~ack" false
+    (contains lib "~ack");
+  assert_contains "worker lib" lib "~trace_ctx";
   assert_contains "worker lib" lib "Printf.printf";
-  (* ack () must not precede the Printf.printf side effect *)
-  let ack_pos =
-    let i = ref (-1) in
-    (try
-      let needle = "ack ()" in
-      let hl = String.length lib and nl = String.length needle in
-      for j = 0 to hl - nl do
-        if !i = -1 && String.sub lib j nl = needle then i := j
-      done
-    with _ -> ());
-    !i
-  in
-  let printf_pos =
-    let i = ref (-1) in
-    (try
-      let needle = "Printf.printf" in
-      let hl = String.length lib and nl = String.length needle in
-      for j = 0 to hl - nl do
-        if !i = -1 && String.sub lib j nl = needle then i := j
-      done
-    with _ -> ());
-    !i
-  in
-  check_bool "Printf.printf appears before ack ()" true
-    (printf_pos >= 0 && ack_pos > printf_pos)
+  assert_contains "worker lib" lib "Ok ()"
 
 (* ── pending_migration_count tests ──────────────────────────────────────── *)
 
@@ -641,8 +621,8 @@ let () =
       ; Alcotest.test_case "JSON decoders are result based" `Quick test_workspace_generated_json_decoders_are_result_based
       ; Alcotest.test_case "startup helpers are flattened"  `Quick test_workspace_startup_helpers_are_flattened
       ]
-    ; "worker_ack_order", [
-        Alcotest.test_case "ack() comes after side effects" `Quick test_worker_ack_after_side_effect
+    ; "worker_ack", [
+        Alcotest.test_case "generated worker has no ack param" `Quick test_worker_has_no_ack_param
       ]
     ; "domain_name_parser", [
         Alcotest.test_case "normalizes valid domain/name" `Quick test_parse_domain_name_normalizes_valid_name

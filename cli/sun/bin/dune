@@ -3,7 +3,7 @@
  (libraries
   cmdliner
   sun_cli
-  sun_storage
+  pg-eio
   caqti-eio
   unix
   threads.posix

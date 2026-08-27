@@ -115,7 +115,7 @@ let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
   let decode_err_count = match ot with
     | None -> None
     | Some o ->
-      Some (Obs.register_counter o
+      Some (Obs_eio.register_counter o
         ~name:"sun_worker_decode_errors_total"
         ~help:"Total Kafka messages dropped due to decode errors"
         ~label_names:[])
@@ -125,7 +125,7 @@ let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
     (match ot with
      | None -> ()
      | Some o ->
-       Obs.log_t o Obs.Error
+       Obs_eio.log_t o Obs_eio.Error
          ~fields:[("error", e);
                   ("raw_bytes_len", string_of_int (Option.fold ~none:0 ~some:Bytes.length raw_bytes));
                   ("topic", topic_name)]

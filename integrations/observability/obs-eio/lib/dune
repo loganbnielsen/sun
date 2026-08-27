@@ -1,5 +1,0 @@
-(library
- (name obs_eio)
- (wrapped false)
- (modules obs_trace obs)
- (libraries eio mtime))

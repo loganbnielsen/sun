@@ -1,7 +1,7 @@
 module type WORKER = sig
   module Message : Kafka_service.MESSAGE
   val group_id : string
-  val handle : Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> (unit, string) result
+  val handle : Message.t -> trace_ctx:Obs_trace.t option -> (unit, string) result
 end
 
 type retry_policy = Kafka_consumer.retry_policy = {
@@ -52,7 +52,7 @@ module Make (W : WORKER) = struct
       | None -> (None, None)
       | Some o ->
         let c, h =
-          Obs.register_counter_and_histogram o
+          Obs_eio.register_counter_and_histogram o
             ~counter_name:"sun_worker_messages_total"
             ~counter_help:"Total messages processed by status"
             ~counter_labels:["status"]
@@ -81,18 +81,7 @@ module Make (W : WORKER) = struct
             Kafka_consumer.Stop
           else begin
             let t0 = Eio.Time.now env#clock in
-            match W.handle msg ~ack ~trace_ctx with
-            | Ok () ->
-              let dt = Eio.Time.now env#clock -. t0 in
-              (match msg_duration with Some h -> h dt | None -> ());
-              (match msg_count with
-               | Some c -> c ~labels:[("status","ok")] 1
-               | None   -> ());
-              (match remaining with
-               | None -> Kafka_consumer.Continue
-               | Some r ->
-                 decr r;
-                 if !r <= 0 then Kafka_consumer.Stop else Kafka_consumer.Continue)
+            match W.handle msg ~trace_ctx with
             | Error _ ->
               (match msg_count with
                | Some c -> c ~labels:[("status","error")] 1
@@ -100,6 +89,48 @@ module Make (W : WORKER) = struct
               (* Signal consume_partitioned to retry with backoff.
                  For the _consume_loop test path this propagates as a Failure. *)
               Kafka_consumer.Error Kafka_error.Application
+            | Ok () ->
+              let dt = Eio.Time.now env#clock -. t0 in
+              (match msg_duration with Some h -> h dt | None -> ());
+              let advance () =
+                match remaining with
+                | None -> Kafka_consumer.Continue
+                | Some r ->
+                  decr r;
+                  if !r <= 0 then Kafka_consumer.Stop else Kafka_consumer.Continue
+              in
+              (* The handler is called first, and only on its success do we
+                 acknowledge — so app code can never forget to ack, or ack
+                 before its side effects actually complete. A failed ack is a
+                 commit failure, not a processing failure: the side effect
+                 already happened, so treating it like a handler Error (and
+                 retrying) risks a duplicate. It's surfaced as its own metric
+                 status and log line, and only escalated to Kafka_consumer.Error
+                 (stopping the worker) when Kafka_error.is_fatal — a genuinely
+                 broken consumer, not a transient commit hiccup that will
+                 resolve itself via natural redelivery once Kafka fails over. *)
+              match ack () with
+              | Ok () ->
+                (match msg_count with
+                 | Some c -> c ~labels:[("status","ok")] 1
+                 | None   -> ());
+                advance ()
+              | Error e ->
+                (match msg_count with
+                 | Some c -> c ~labels:[("status","ack_failed")] 1
+                 | None   -> ());
+                (match ot with
+                 | None -> ()
+                 | Some o ->
+                   Obs_eio.log_t o (if Kafka_error.is_fatal e then Obs_eio.Error else Obs_eio.Warn)
+                     ~fields:[("error", Kafka_error.to_string e)]
+                     (if Kafka_error.is_fatal e
+                      then "sun-worker: fatal ack failure, stopping consumer"
+                      else "sun-worker: ack failed, offset not committed; \
+                            message eligible for redelivery"));
+                if Kafka_error.is_fatal e
+                then Kafka_consumer.Error e
+                else advance ()
           end
         in
         let ( let* ) = Result.bind in

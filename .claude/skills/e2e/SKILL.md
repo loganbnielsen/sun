@@ -48,7 +48,7 @@ Use these when you need to run a single suite directly without the full runner h
 
 ### Unit tests (no infrastructure)
 ```bash
-eval $(opam env) && dune test framework/ integrations/observability/obs-eio/test/ 2>&1
+eval $(opam env) && dune test framework/ 2>&1
 ```
 
 ### Kafka integration tests
@@ -57,17 +57,13 @@ bash platform/local/scripts/ensure-broker.sh
 eval $(opam env) && KAFKA_BROKERS=localhost:9092 dune test integrations/kafka/ --force 2>&1
 ```
 
-### Observability integration tests
-```bash
-bash platform/local/scripts/ensure-loki.sh && bash platform/local/scripts/ensure-grafana.sh
-eval $(opam env) && LOKI_URL=http://localhost:3100 dune test integrations/observability/ --force 2>&1
-```
+`obs-eio`/`obs-loki-eio`/`obs-prometheus-eio` no longer have a test suite in this repo —
+they moved to standalone packages (`~/Code/obs-eio`, `~/Code/obs-loki-eio`,
+`~/Code/obs-prometheus-eio`); run their tests there.
 
-### Storage integration tests
-```bash
-bash platform/local/scripts/ensure-postgres.sh
-eval $(opam env) && POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev dune test integrations/storage/ --force 2>&1
-```
+`pg-eio` (formerly `sun-storage`) likewise no longer has a test suite in this repo —
+it moved to `~/Code/pg-eio`; run its tests there. Storage-touching code that stays in
+Sun (the example apps) is covered by the e2e suite below instead.
 
 ### Venus reference workspace (primary demo)
 Two-team showcase: payments/charge-svc → Kafka → comms/notify-worker → PostgreSQL, with Loki + Prometheus:

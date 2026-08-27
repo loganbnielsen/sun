@@ -1,3 +1,0 @@
-(test
- (name test_obs)
- (libraries obs_eio alcotest eio_main))

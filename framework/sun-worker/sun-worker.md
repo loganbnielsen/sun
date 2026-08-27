@@ -4,7 +4,7 @@
 
 `sun-worker` is the Kafka consumer primitive. A `-worker` is a long-running process that subscribes to a topic, processes each message, and emits per-message metrics automatically.
 
-The abstraction is the handler — `handle : Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> (unit, string) result`. Sun handles the consumer lifecycle, schema registration, graceful shutdown, and observability wiring.
+The abstraction is the handler — `handle : Message.t -> trace_ctx:Obs_trace.t option -> (unit, string) result`. Sun handles the consumer lifecycle, schema registration, acknowledgement, graceful shutdown, and observability wiring.
 
 ## Module type
 
@@ -12,13 +12,13 @@ The abstraction is the handler — `handle : Message.t -> ack:(unit -> unit) -> 
 module type WORKER = sig
   module Message : Kafka_service.MESSAGE
   val group_id : string
-  val handle : Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> (unit, string) result
+  val handle : Message.t -> trace_ctx:Obs_trace.t option -> (unit, string) result
 end
 ```
 
 - `Message` — the event contract. Defines topic name, JSON schema, encode/decode.
 - `group_id` — Kafka consumer group ID. Must be stable across restarts.
-- `handle` — called once per decoded message. `trace_ctx` carries the upstream W3C `traceparent` header from the Kafka message — pass it as `?parent:trace_ctx` to `Obs.with_span` to link spans. Return `Ok ()` to continue, `Error msg` to retry (see retry strategy).
+- `handle` — called once per decoded message. `trace_ctx` carries the upstream W3C `traceparent` header from the Kafka message — pass it as `?parent:trace_ctx` to `Obs_eio.with_span` to link spans. Return `Ok ()` to continue, `Error msg` to retry (see retry strategy). There is no `ack` to call — see [ack semantics](#ack-semantics).
 
 ## Entrypoint
 
@@ -30,7 +30,7 @@ module Make (W : WORKER) : sig
            ; mono_clock: _ Eio.Time.Mono.t
            ; .. >
     -> config:Kafka_service.config
-    -> ?ot:Obs.t
+    -> ?ot:Obs_eio.t
     (** When provided, emits sun_worker_messages_total{status} and
         sun_worker_message_duration_seconds per message. *)
     -> ?on_ready:(unit -> unit)
@@ -43,7 +43,7 @@ module Make (W : WORKER) : sig
     -> ?retry_strategy:retry_strategy
     (** How to handle Error results from W.handle. Defaults to In_memory default_retry. *)
     -> ?_consume_loop:
-         (handler:(W.Message.t -> ack:(unit -> unit) -> trace_ctx:Obs_trace.t option -> Kafka_consumer.handler_result)
+         (handler:(W.Message.t -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
           -> unit -> unit)
     (** Test injection: replace the real per-partition consume loop with a stub. *)
     -> unit
@@ -97,9 +97,12 @@ Make(W).run ~env ~config ?ot ?retry_strategy ()
        └─ Kafka_service.create → register → consume_partitioned
             per-partition fiber per message:
               if stop_flag → Stop         (graceful drain)
-              else W.handle msg ~ack ~trace_ctx
-                Ok ()   → metrics ok, Continue
-                Error e → retry per strategy; after budget exhausted → Stop + raise
+              else W.handle msg ~trace_ctx
+                Error _ → metrics error, retry per strategy; after budget exhausted → Stop + raise
+                Ok ()   → ack () (the framework's, not W.handle's)
+                            Ok ()                    → metrics ok, Continue
+                            Error e, is_fatal e       → metrics ack_failed, Error e (Stop + raise)
+                            Error e, not is_fatal e   → metrics ack_failed, Continue
 ```
 
 After `run` returns:
@@ -123,8 +126,10 @@ When `?ot` is provided:
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `sun_worker_messages_total` | counter | `status` | Messages processed (`ok`, `retry`, or `error`) |
+| `sun_worker_messages_total` | counter | `status` | Messages processed (`ok`, `retry`, `error`, or `ack_failed`) |
 | `sun_worker_message_duration_seconds` | histogram | — | Per-message processing latency |
+
+`ack_failed` is distinct from `error`: `W.handle` returned `Ok ()` (the side effect happened) but the offset commit itself failed. See [ack semantics](#ack-semantics).
 
 Metrics are registered once at startup. Emitter functions are called in the handler closure on each message.
 
@@ -136,16 +141,16 @@ module BroadcastWorker = struct
 
   let group_id = "comms-broadcast-worker"
 
-  let handle msg ~ack ~trace_ctx:_ =
+  let handle msg ~trace_ctx:_ =
     match Comms.send_push_notification msg with
-    | Ok ()   -> ack (); Ok ()
+    | Ok ()   -> Ok ()
     | Error e -> Error e
 end
 
 let () =
   Eio_main.run @@ fun env ->
     let backend, _render = Obs_prometheus.create () in
-    let ot = Obs.create ~service:BroadcastWorker.group_id
+    let ot = Obs_eio.create ~service:BroadcastWorker.group_id
                ~mono_clock:env#mono_clock ~backend in
     let config = Kafka_service.config_of_env () in
     Worker.Make(BroadcastWorker).run ~env ~config ~ot ()
@@ -153,13 +158,18 @@ let () =
 
 ## ack semantics
 
-`ack ()` commits the Kafka offset for the current message. Call it after processing is complete — not before. If `W.handle` raises before calling `ack`, the message will be redelivered on restart.
+`W.handle` does not receive (or call) an `ack`. `Make(W).run` commits the Kafka offset itself, and only after `W.handle` returns `Ok ()` — never before, and never on `Error`. This removes an entire class of app-level bugs: forgetting to ack, acking in the wrong branch, or acking before a side effect that can still fail. For at-least-once semantics this is the correct default; at-exactly-once is not supported in v1.
 
-The convention: call `ack` just before returning `Ok ()`. For at-least-once semantics this is correct. At-exactly-once is not supported in v1.
+A failed commit is **not** treated like a handler failure. The side effect in `W.handle` already succeeded, so retrying it (as an `Error` from `W.handle` would) risks duplicating it. Instead:
+
+- The commit failure is logged (`Warn`, or `Error` if fatal) and counted as `sun_worker_messages_total{status="ack_failed"}`.
+- If `Kafka_error.is_fatal e` — a broken consumer, not a transient hiccup — it escalates to `Kafka_consumer.Error e`, stopping the worker the same way an exhausted retry budget would.
+- Otherwise, the worker continues. The offset was never committed, so the message remains eligible for natural redelivery — no immediate duplicate side effect, no lost message.
 
 ## Error handling
 
 - `W.handle` returning `Error msg` triggers the retry strategy. After the retry budget is exhausted, the error is raised as `Failure` from `run`.
+- `W.handle` returning `Ok ()` but the subsequent ack failing: see [ack semantics](#ack-semantics) above — handled separately from retry, via `ack_failed`.
 - Decode errors: default behavior from `Kafka_service.consume_partitioned` — logs to stderr, acks the message, continues. Override via `on_decode_error` by calling `Kafka_service.consume_partitioned` directly.
 - All lifecycle errors (`create`, `register`, Kafka error) are raised as `Failure`.
 
@@ -169,7 +179,7 @@ The convention: call `ack` just before returning `Ok ()`. For at-least-once sema
 
 ```ocaml
 let fake_loop ~handler () =
-  let _ = handler { id = "test-msg" } ~ack:(fun () -> ()) ~trace_ctx:None in
+  let _ = handler { id = "test-msg" } ~ack:(fun () -> Ok ()) ~trace_ctx:None in
   ()
 
 Worker.Make(W).run ~env ~config ~_consume_loop:fake_loop ()

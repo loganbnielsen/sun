@@ -1,9 +1,0 @@
-(test
- (name test_storage)
- (modules test_storage)
- (libraries
-   alcotest
-   eio_main
-   eio.unix
-   sun_storage
-   caqti))

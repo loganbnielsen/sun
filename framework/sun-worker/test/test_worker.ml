@@ -37,8 +37,7 @@ let fake_config : Kafka_service.config = {
 module OkWorker = struct
   module Message = TestMsg
   let group_id = "test-ok"
-  let handle msg ~ack ~trace_ctx:_ =
-    ack ();
+  let handle msg ~trace_ctx:_ =
     ignore msg;
     Ok ()
 end
@@ -47,13 +46,13 @@ end
 module ErrWorker = struct
   module Message = TestMsg
   let group_id = "test-err"
-  let handle _msg ~ack:_ ~trace_ctx:_ = Error "something went wrong"
+  let handle _msg ~trace_ctx:_ = Error "something went wrong"
 end
 
 (* ── Single-message consume loop ─────────────────────────────────────── *)
 
 let one_message msg ~handler () =
-  let result = handler msg ~ack:(fun () -> ()) ~trace_ctx:None in
+  let result = handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None in
   match result with
   | Kafka_consumer.Continue | Kafka_consumer.Stop -> ()
   | Kafka_consumer.Error _ ->
@@ -63,11 +62,17 @@ let one_message msg ~handler () =
 
 let two_messages msgs ~handler () =
   List.iter (fun msg ->
-    match handler msg ~ack:(fun () -> ()) ~trace_ctx:None with
+    match handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None with
     | Kafka_consumer.Continue | Kafka_consumer.Stop -> ()
     | Kafka_consumer.Error _ ->
       failwith "sun-worker: handler returned error"
   ) msgs
+
+(* Drives the handler with a caller-supplied ack and captures its result, to
+   simulate a commit failure — as opposed to one_message/two_messages, which
+   hardcode a succeeding ack and treat any Error as a test failure. *)
+let one_message_with_ack msg ~ack ~result_r ~handler () =
+  result_r := Some (handler msg ~ack ~trace_ctx:None)
 
 (* ── Tests ───────────────────────────────────────────────────────────── *)
 
@@ -98,7 +103,7 @@ let test_handle_error_raises () =
 let test_metrics_ok_counter () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
-    let ot = Obs.create ~service:"test-worker"
+    let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend in
     let msg = TestMsg.{ id = "msg-metrics" } in
     let module W = Worker.Make(OkWorker) in
@@ -123,7 +128,7 @@ let test_metrics_ok_counter () =
 let test_metrics_error_counter () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
-    let ot = Obs.create ~service:"test-worker"
+    let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend in
     let msg = TestMsg.{ id = "msg-err-metrics" } in
     let module W = Worker.Make(ErrWorker) in
@@ -143,7 +148,7 @@ let test_metrics_error_counter () =
 let test_metrics_duration () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
-    let ot = Obs.create ~service:"test-worker"
+    let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend in
     let msg = TestMsg.{ id = "msg-dur" } in
     let module W = Worker.Make(OkWorker) in
@@ -166,8 +171,7 @@ let test_stop_flag_stops_after_current_message () =
     let module StopWorker = struct
       module Message = TestMsg
       let group_id = "test-stop"
-      let handle _msg ~ack ~trace_ctx:_ =
-        ack ();
+      let handle _msg ~trace_ctx:_ =
         incr processed;
         Ok ()
     end in
@@ -194,17 +198,58 @@ let test_max_messages_stops_cleanly () =
     let module CountWorker = struct
       module Message = TestMsg
       let group_id = "test-max"
-      let handle _msg ~ack ~trace_ctx:_ = ack (); incr processed; Ok ()
+      let handle _msg ~trace_ctx:_ = incr processed; Ok ()
     end in
     let msgs = List.init 5 (fun i -> TestMsg.{ id = Printf.sprintf "m%d" i }) in
     let module W = Worker.Make(CountWorker) in
     W.run ~env ~config:fake_config ~max_messages:3
       ~_consume_loop:(fun ~handler () ->
         List.iter (fun msg ->
-          ignore (handler msg ~ack:(fun () -> ()) ~trace_ctx:None)
+          ignore (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None)
         ) msgs)
       ();
     Alcotest.(check int) "stops after max_messages successful messages" 3 !processed)
+
+let test_ack_failure_non_fatal_continues_and_is_metered () =
+  Eio_main.run (fun env ->
+    let backend, render = Obs_prometheus.create () in
+    let ot = Obs_eio.create ~service:"test-worker"
+               ~mono_clock:env#mono_clock ~backend in
+    let msg = TestMsg.{ id = "msg-ack-fail" } in
+    let module W = Worker.Make(OkWorker) in
+    let result_r = ref None in
+    W.run ~env ~config:fake_config ~ot
+      ~_consume_loop:(one_message_with_ack msg
+        ~ack:(fun () -> Error Kafka_error.Application) ~result_r) ();
+    (match !result_r with
+     | Some Kafka_consumer.Continue -> ()
+     | _ -> Alcotest.fail "expected Continue after a non-fatal ack failure");
+    let output = render () in
+    Alcotest.(check bool) "status=ack_failed label present"
+      true (let needle = {|status="ack_failed"|} in
+            let n = String.length needle and s = String.length output in
+            let found = ref false in
+            for i = 0 to s - n do
+              if String.sub output i n = needle then found := true
+            done; !found))
+
+(* Fatal ack failures escalate to Kafka_consumer.Error, mirroring a handler
+   Error — but note the real (non-test-injection) consume_partitioned path is
+   what turns that Error into a process-ending Failure via run's own match on
+   `Consume ke; here we only verify the handler closure computes the right
+   handler_result, since that's the piece this test exercises. *)
+let test_ack_failure_fatal_escalates () =
+  Eio_main.run (fun env ->
+    let msg = TestMsg.{ id = "msg-ack-fatal" } in
+    let module W = Worker.Make(OkWorker) in
+    let result_r = ref None in
+    W.run ~env ~config:fake_config
+      ~_consume_loop:(one_message_with_ack msg
+        ~ack:(fun () -> Error Kafka_error.Fatal) ~result_r) ();
+    match !result_r with
+    | Some (Kafka_consumer.Error e) ->
+      Alcotest.(check bool) "escalated error is fatal" true (Kafka_error.is_fatal e)
+    | _ -> Alcotest.fail "expected the handler to return Error for a fatal ack failure")
 
 let test_external_stop_flag_skips_messages () =
   Eio_main.run (fun env ->
@@ -213,7 +258,7 @@ let test_external_stop_flag_skips_messages () =
     let module StopWorker = struct
       module Message = TestMsg
       let group_id = "test-ext-stop"
-      let handle _msg ~ack ~trace_ctx:_ = ack (); incr processed; Ok ()
+      let handle _msg ~trace_ctx:_ = incr processed; Ok ()
     end in
     let msgs = [TestMsg.{ id = "m1" }; TestMsg.{ id = "m2" }] in
     let module W = Worker.Make(StopWorker) in
@@ -233,6 +278,10 @@ let () =
         test_max_messages_stops_cleanly;
       Alcotest.test_case "external stop flag skips messages" `Quick
         test_external_stop_flag_skips_messages;
+      Alcotest.test_case "non-fatal ack failure continues" `Quick
+        test_ack_failure_non_fatal_continues_and_is_metered;
+      Alcotest.test_case "fatal ack failure escalates to Error" `Quick
+        test_ack_failure_fatal_escalates;
     ];
     "metrics", [
       Alcotest.test_case "ok counter emitted"          `Quick test_metrics_ok_counter;

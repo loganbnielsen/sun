@@ -14,7 +14,7 @@
           ▼
       fulfillment-worker  (sun-worker)
           │  Loki span: "fulfill_order"  ·  Prometheus: worker message metrics
-          │  records fulfilled order in PostgreSQL  (sun-storage)
+          │  records fulfilled order in PostgreSQL  (pg-eio)
           ▼
       Loki (logs) · Prometheus (metrics) · PostgreSQL (storage)
       Grafana  http://localhost:3000
@@ -112,7 +112,7 @@ let http_post env ~sw ~port ~path ?(headers=[]) ~body () =
   | _ :: code :: _ -> (try int_of_string (String.trim code) with _ -> 0)
   | _              -> 0
 
-(* ── Fulfilled order schema (sun-storage Table.Make) ────────────────────── *)
+(* ── Fulfilled order schema (pg-eio Table.Make) ────────────────────── *)
 
 module FulfilledOrderSchema = struct
   let table     = "fulfilled_orders"
@@ -156,15 +156,15 @@ let () =
     match loki_url with
     | None ->
       Printf.printf "\n  Note: LOKI_URL not set — logs to stdout.\n%!";
-      Obs.stdout
+      Obs_eio.stdout
     | Some url ->
       Printf.printf "\n  Logs -> Loki at %s\n%!" url;
       Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
-  let backend   = Obs.compose log_backend prom_backend in
-  let svc_ot    = Obs.create ~service:"order-svc"
+  let backend   = Obs_eio.compose log_backend prom_backend in
+  let svc_ot    = Obs_eio.create ~service:"order-svc"
                     ~mono_clock:env#mono_clock ~backend in
-  let worker_ot = Obs.create ~service:"fulfillment-worker"
+  let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
                     ~mono_clock:env#mono_clock ~backend in
 
   Eio.Switch.run @@ fun sw ->
@@ -209,10 +209,9 @@ let () =
     module Message = Events.OrderPlaced
     let group_id = "sun-demo-fulfillment-worker"
 
-    let handle msg ~ack ~trace_ctx =
-      ack ();
-      Obs.with_span worker_ot ?parent:trace_ctx "fulfill_order" (fun span ->
-        Obs.log span Info
+    let handle msg ~trace_ctx =
+      Obs_eio.with_span worker_ot ?parent:trace_ctx "fulfill_order" (fun span ->
+        Obs_eio.log span Info
           ~fields:[("order_id", msg.Message.order_id);
                    ("item",     msg.Message.item);
                    ("quantity", string_of_int msg.Message.quantity)]
@@ -266,12 +265,12 @@ let () =
       order_id = s "order_id"; item = s "item"; quantity = i "quantity";
       correlation_id = corr_id;
     } in
-    let span_ot = Obs.with_context svc_ot [("correlation_id", corr_id)] in
-    let trace_ctx = Obs.with_span span_ot "receive_order" (fun span ->
-      Obs.log span Info
+    let span_ot = Obs_eio.with_context svc_ot [("correlation_id", corr_id)] in
+    let trace_ctx = Obs_eio.with_span span_ot "receive_order" (fun span ->
+      Obs_eio.log span Info
         ~fields:[("order_id", msg.order_id); ("item", msg.item)]
         "order received";
-      Obs.current_trace_ctx span
+      Obs_eio.current_trace_ctx span
     ) in
     Printf.printf "[svc]    received    order=%-12s item=%-22s corr=%s\n%!"
       msg.order_id msg.item corr_id;

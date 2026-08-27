@@ -140,7 +140,7 @@ val publish
     can itself fail, distinct from handler failure (see kafka-eio-consumer's
     handler_result/ack docs). trace_ctx in the handler carries the upstream
     traceparent header from the Kafka message — pass it as ?parent:trace_ctx
-    to Obs.with_span to link spans. on_ready is called once when the broker
+    to Obs_eio.with_span to link spans. on_ready is called once when the broker
     assigns partitions to this consumer. on_decode_error overrides the default
     decode-error behavior (log + ack + continue). Returns when handler returns
     Error. *)
@@ -151,7 +151,7 @@ val consume
   -> sw:Eio.Switch.t
   -> ?on_ready:(unit -> unit)
   -> ?on_decode_error:(string -> raw_bytes:bytes -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
-  -> ?ot:Obs.t
+  -> ?ot:Obs_eio.t
   -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
   -> unit
   -> (unit, Kafka_error.t) result
@@ -174,7 +174,7 @@ val consume_partitioned
   -> ?on_decode_error:(string -> raw_bytes:bytes -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
   -> ?retry_strategy:retry_strategy
   -> ?on_retry:(partition:int32 -> attempt:int -> delay_s:float -> unit)
-  -> ?ot:Obs.t
+  -> ?ot:Obs_eio.t
   -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
   -> unit
   -> (unit, Kafka_error.t) result
