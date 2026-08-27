@@ -8,8 +8,11 @@ type t = {
 }
 
 val generate   : unit -> t
-(** Create a new root context with a fresh random trace_id and span_id.
-    Call [Random.self_init ()] at program startup for non-deterministic IDs. *)
+(** Create a new root context with a fresh random trace_id and span_id, from
+    a self-seeded PRNG state private to this module — no caller-side
+    [Random.self_init ()] needed. Not cryptographically strong; sufficient
+    for correlation and collision-avoidance, not for anything security-
+    sensitive. *)
 
 val child_span : t -> t
 (** Derive a child span: inherits trace_id, generates a new span_id. *)

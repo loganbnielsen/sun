@@ -1,5 +1,5 @@
 (library
  (name obs_eio_prometheus)
  (wrapped false)
- (modules Obs_prometheus)
- (libraries obs_eio eio unix cohttp-eio http uri))
+ (modules Obs_prometheus Obs_prometheus_tls)
+ (libraries obs_eio eio eio.unix unix cohttp-eio http uri tls-eio x509 domain-name ptime))

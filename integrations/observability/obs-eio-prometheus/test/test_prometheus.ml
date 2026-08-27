@@ -181,6 +181,28 @@ let test_label_value_escaping () =
   Alcotest.(check bool) "backslash-escaped label value"
     true (has_line out {|g{msg="hello \"world\"\nnewline"} 1|})
 
+let test_help_text_escaping () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.emit_metric
+    (make_event ~name:"g" ~help:"line one\\nliteral, then a real\nnewline" (`Gauge 1.0));
+  let out = render () in
+  Alcotest.(check bool) "backslash and newline escaped in HELP text"
+    true (has_line out {|# HELP g line one\\nliteral, then a real\nnewline|})
+
+let test_help_mismatch_is_logged () =
+  let (out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs.emit_metric (make_event ~name:"m" ~help:"first help" (`Counter 1));
+      backend.Obs.emit_metric (make_event ~name:"m" ~help:"second help" (`Counter 1));
+      render ())
+  in
+  Alcotest.(check bool) "first HELP text wins in rendered output"
+    true (has_line out "# HELP m first help");
+  Alcotest.(check bool) "mismatch logged to stderr"
+    true (contains err
+      "metric m registered with conflicting help text (keeping \"first help\", ignoring \"second help\")")
+
 let test_kind_conflicts_are_logged () =
   let (out, err) =
     capture_stderr (fun () ->
@@ -450,6 +472,8 @@ let () =
     "renderer", [
       test_case "empty string when no events"           `Quick test_renderer_empty_when_no_events;
       test_case "# HELP and # TYPE lines present"       `Quick test_renderer_includes_help_and_type;
+      test_case "HELP text escapes backslash and newline" `Quick test_help_text_escaping;
+      test_case "conflicting HELP text is logged"          `Quick test_help_mismatch_is_logged;
       test_case "label values are escaped"              `Quick test_label_value_escaping;
       test_case "conflicting metric kinds are logged"   `Quick test_kind_conflicts_are_logged;
       test_case "each family kind rejects conflicts"    `Quick test_kind_conflicts_for_each_registered_kind;

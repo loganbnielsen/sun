@@ -1,3 +1,0 @@
-(executable
- (name demo)
- (libraries kafka_eio_producer kafka_eio_consumer kafka_eio_core eio_main unix))

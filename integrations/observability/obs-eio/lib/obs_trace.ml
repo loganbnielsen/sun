@@ -5,7 +5,11 @@ type t = {
   baggage     : (string * string) list;
 }
 
-let random_int64 () = Random.int64 Int64.max_int
+(* Self-seeded so trace/span IDs don't collide across process restarts —
+   unlike the global Random module, this needs no Random.self_init () call
+   from the caller (easy to forget, and silently falls back to a fixed seed). *)
+let rng_state = Random.State.make_self_init ()
+let random_int64 () = Random.State.int64 rng_state Int64.max_int
 
 let generate () = {
   trace_id    = (random_int64 (), random_int64 ());

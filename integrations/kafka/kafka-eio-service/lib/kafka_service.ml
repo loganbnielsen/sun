@@ -42,6 +42,7 @@ let create (cfg : config) ~sw =
     delivery_mode = Kafka_producer.At_least_once;
     linger_ms     = Some cfg.linger_ms;
     security      = cfg.security;
+    properties    = [];
   } in
   match Kafka_producer.create producer_cfg ~sw with
   | Error e -> Error ("producer: " ^ Kafka_error.to_string e)
@@ -58,7 +59,6 @@ let create (cfg : config) ~sw =
 let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module MESSAGE with type t = a) -> (a topic, string) result =
   fun svc ~net ~clock (module M) ->
   let ( let* ) = Result.bind in
-  let rk = Kafka_producer.raw_handle svc.producer in
   let raw_topic_name = M.topic_name in
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
@@ -77,7 +77,7 @@ let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module
         raw_topic_name current svc.partitions)
   in
   let* () = partition_guard () in
-  let* () = Kafka_service_intf.ensure_topic rk ~topic_name:M.topic_name ~partitions:svc.partitions in
+  let* () = Kafka_service_intf.ensure_topic svc.producer ~topic_name:M.topic_name ~partitions:svc.partitions in
   let* schema_id =
     Kafka_service_schema.register_schema net ~clock
       ~registry_url:svc.schema_registry_url
@@ -96,9 +96,10 @@ let publish svc topic ?trace_ctx msg =
     | None     -> []
     | Some ctx -> Obs_trace.inject_to_headers ctx []
   in
+  let headers = List.map (fun (k, v) -> (k, Some v)) headers in
   let payload = encode_wire ~schema_id:topic.schema_id (topic.encode msg) in
   Kafka_producer.produce_await svc.producer
-    ~topic:topic.name ~value:payload ~headers ()
+    ~topic:topic.name ~value:(Some payload) ~headers ()
 
 type retry_strategy =
   | In_memory    of Kafka_consumer.retry_policy
@@ -108,7 +109,7 @@ let default_retry_strategy = In_memory Kafka_consumer.default_retry
 
 let default_on_decode_error e ~raw_bytes:_ ~ack =
   Printf.eprintf "sun-worker: DECODE_ERROR skip=true error=%S\n%!" e;
-  ack ();
+  ignore (ack ());
   Kafka_consumer.Continue
 
 let consume svc topic ~group_id ~sw
@@ -126,6 +127,7 @@ let consume svc topic ~group_id ~sw
     offset_reset = Kafka_consumer.Latest;
     auto_commit  = false;
     security     = svc.security;
+    properties   = [];
   } in
   match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
@@ -135,7 +137,7 @@ let consume svc topic ~group_id ~sw
       | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
       | Ok (msg, trace_ctx)  -> handler msg ~ack ~trace_ctx
     in
-    let result = Kafka_consumer.consume consumer ~handler:decode_and_handle in
+    let result = Kafka_consumer.consume consumer ~handler:decode_and_handle () in
     Kafka_consumer.close consumer;
     result
 
@@ -158,6 +160,7 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
       offset_reset = Kafka_consumer.Latest;
       auto_commit  = false;
       security     = svc.security;
+      properties   = [];
     } in
     (match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
      | Error e -> Error e

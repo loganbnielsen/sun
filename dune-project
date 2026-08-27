@@ -16,12 +16,19 @@
   base64
   uri
   cstruct
-  tls-eio
-  x509
-  domain-name
-  ptime
+  kafka-eio
+  obs-eio
+  obs-loki-eio
+  obs-prometheus-eio
+  https-eio
   mtime
   caqti-eio
   caqti-driver-postgresql
+  pg-eio
+  digestif
+  aws-eio
+  s3-eio
+  dynamodb-eio
+  lambda-eio
   otoml
   (alcotest :with-test)))

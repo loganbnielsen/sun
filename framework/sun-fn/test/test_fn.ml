@@ -1,18 +1,23 @@
 (* ── Fixtures ───────────────────────────────────────────────────────────── *)
 
 module Ok_fn = struct
-  let schedule = "0 * * * *"
+  let trigger = Fn.Cron "0 * * * *"
   let run () = Ok ()
 end
 
 module Err_fn = struct
-  let schedule = "0 * * * *"
+  let trigger = Fn.Cron "0 * * * *"
   let run () = Error "something went wrong"
 end
 
 module Exn_fn = struct
-  let schedule = "0 * * * *"
+  let trigger = Fn.Cron "0 * * * *"
   let run () = raise (Failure "boom")
+end
+
+module Lambda_fn = struct
+  let trigger = Fn.Lambda
+  let run () = Ok ()
 end
 
 let contains needle haystack =
@@ -108,6 +113,37 @@ let test_push_error_no_raise () =
   let module M = Fn.Make(Ok_fn) in
   M.run ~env ~pushgateway_url:"http://127.0.0.1:1" ()
 
+(* ── Test: lambda_trigger_requires_runtime_api ──────────────────────────── *)
+
+(* Fn.Lambda's actual loop (Lambda_runtime.run_loop) is thoroughly tested in
+   lambda-eio's own test suite, and the metrics-recording logic it calls
+   into (record_and_push) is the exact same code path already exercised by
+   every Cron test above — Fn.Lambda's marginal, sun-fn-specific surface is
+   just "read AWS_LAMBDA_RUNTIME_API and fail fast if it's not set,
+   otherwise hand off to the loop." That's what's tested here; a full
+   run_loop iteration isn't separately re-tested at this layer, since doing
+   so would mean either sending real OS signals to the test process (racy,
+   and this module installs a single global Sys.set_signal handler that
+   different tests would fight over) or re-deriving lambda-eio's own
+   already-passing mock-server tests here for no new coverage. *)
+(* Relies on AWS_LAMBDA_RUNTIME_API being unset in this test environment —
+   true for any normal dev machine or CI runner, since it's an AWS-Lambda-
+   execution-environment-specific variable nothing else would set. Not
+   forced to be unset here: OCaml's Unix module in this version has no
+   unsetenv (confirmed while writing https-eio's own tests earlier), so
+   there's no clean way to force-clear it mid-test-suite if it somehow were
+   set; skip rather than fake it if that assumption ever turns out false. *)
+let test_lambda_trigger_requires_runtime_api () =
+  if Sys.getenv_opt "AWS_LAMBDA_RUNTIME_API" <> None then
+    Printf.printf "[skip] AWS_LAMBDA_RUNTIME_API is set in this environment — skipping\n%!"
+  else
+    Eio_main.run @@ fun env ->
+    let module M = Fn.Make (Lambda_fn) in
+    Alcotest.check_raises "Lambda trigger without AWS_LAMBDA_RUNTIME_API set raises Failure"
+      (Failure "sun-fn: AWS_LAMBDA_RUNTIME_API is not set — not running in a Lambda execution environment (or a \
+                local Runtime Interface Emulator)")
+      (fun () -> M.run ~env ())
+
 (* ── Runner ─────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -124,5 +160,8 @@ let () =
     ];
     "push", [
       Alcotest.test_case "push_error_no_raise" `Quick test_push_error_no_raise;
+    ];
+    "lambda", [
+      Alcotest.test_case "requires AWS_LAMBDA_RUNTIME_API" `Quick test_lambda_trigger_requires_runtime_api;
     ];
   ]

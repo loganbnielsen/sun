@@ -67,13 +67,11 @@ type t = {
   security            : Kafka_security.t;
 }
 
-let ensure_topic rk ~topic_name ~partitions =
-
-  let err = Kafka_raw.create_topic rk ~topic_name ~partitions ~replication_factor:1 in
-  if err <> 0 then
-    Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_raw.err2str err))
-  else
-    Ok ()
+let ensure_topic producer ~topic_name ~partitions =
+  match Kafka_producer.create_topic producer ~topic_name ~partitions ~replication_factor:1 with
+  | Ok ()   -> Ok ()
+  | Error e ->
+    Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_error.to_string e))
 
 type topic_partition_metadata =
   | Topic_not_found
@@ -129,7 +127,7 @@ let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
      | Some o ->
        Obs.log_t o Obs.Error
          ~fields:[("error", e);
-                  ("raw_bytes_len", string_of_int (Bytes.length raw_bytes));
+                  ("raw_bytes_len", string_of_int (Option.fold ~none:0 ~some:Bytes.length raw_bytes));
                   ("topic", topic_name)]
          "sun-worker: decode error, skipping message");
     user_on_decode_error e ~raw_bytes ~ack

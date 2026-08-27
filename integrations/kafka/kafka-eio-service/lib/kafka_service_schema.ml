@@ -140,8 +140,16 @@ let decode_wire bytes = Confluent_wire.decode bytes
 let decode_message topic raw_msg =
   let ( let* ) = Result.bind in
   let raw_bytes = raw_msg.Kafka_consumer.value in
-  let trace_ctx = Obs_trace.extract_from_headers raw_msg.Kafka_consumer.headers in
+  let string_headers =
+    List.filter_map
+      (fun (k, v) -> Option.map (fun v -> (k, v)) v)
+      raw_msg.Kafka_consumer.headers
+  in
+  let trace_ctx = Obs_trace.extract_from_headers string_headers in
   let result =
+    let* raw_bytes =
+      Option.to_result raw_bytes ~none:"wire format: tombstone (message has no value)"
+    in
     let* (_schema_id, json_str) = decode_wire raw_bytes in
     let* json =
       (try Ok (Yojson.Safe.from_string json_str)

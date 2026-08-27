@@ -1,3 +1,0 @@
-(test
- (name test_consumer_integration)
- (libraries kafka_eio_consumer kafka_eio_producer kafka_eio_core kafka_test_helpers alcotest eio_main unix))
