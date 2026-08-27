@@ -138,23 +138,3 @@ val of_services_result :
 (** Build a deployment plan from a discovered service list and an environment
     config. Returns a typed error when a Kubernetes artifact name is invalid or
     a service [sun.toml] cannot be parsed or validated. *)
-
-val render_spec :
-  ?image:string ->
-  ?secret_backend:Sun_cli_manifest.secret_backend ->
-  service_spec ->
-  (string * string, string) result
-(** Render a [(namespace_yaml, workload_yaml)] pair from a resolved [service_spec].
-    Returns [Ok (ns_yaml, workload_yaml)] on success.
-    Returns [Error msg] when [secret_backend = Kubernetes_live] and one or more
-    user-declared secret env vars (from [spec.secrets]) are absent from the
-    process environment.
-    All deployment identity fields (namespace, k8s name, image, primitive,
-    config, secrets, schedule, replicas, cpu, memory) come from the spec.
-    Pass [~image] to override [spec.image] — used by [sun up] where the
-    dry-run display image ([localhost:5000]) differs from the cluster image.
-    Pass [~secret_backend] to control how secret manifests are emitted:
-    - [Kubernetes_live] (default): emit a Secret with values read from the environment
-      (sun up / direct deploy); fails if any user-declared secret key is unset;
-    - [Kubernetes_placeholder]: emit a redacted Secret with empty stringData (GitOps);
-    - [External_secrets _]: emit an ExternalSecret CRD for the External Secrets Operator. *)

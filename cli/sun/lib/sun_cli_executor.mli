@@ -1,7 +1,7 @@
 (** Deployment executors — plan-in, side-effect-out.
 
     Each executor renders a [service_spec] to YAML via
-    [Sun_cli_deployment_plan.render_spec] and then dispatches to the
+    [Sun_cli_deployment_render.render_spec] and then dispatches to the
     appropriate apply or emit primitive.  Command logic selects the
     executor; the executor owns the dispatch. *)
 

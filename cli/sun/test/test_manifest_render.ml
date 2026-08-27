@@ -1,4 +1,4 @@
-(* Regression tests for Sun_cli_deployment_plan.render_spec.
+(* Regression tests for Sun_cli_deployment_render.render_spec.
    Constructs service_spec values directly (no filesystem required) and checks
    that the rendered YAML contains the expected resource names, image
    references, namespaces, and primitive-specific resources. *)
@@ -8,7 +8,7 @@ let check_bool   = Alcotest.(check bool)
 
 (** Unwrap a [render_spec] result, failing the test on [Error]. *)
 let render_spec_ok ?image ?secret_backend spec =
-  match Sun_cli_deployment_plan.render_spec ?image ?secret_backend spec with
+  match Sun_cli_deployment_render.render_spec ?image ?secret_backend spec with
   | Ok v    -> v
   | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
 
@@ -971,7 +971,7 @@ let test_live_backend_missing_user_secret_returns_error () =
   Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "__marker__";
   (* First ensure that setting the env var does succeed *)
   let spec_with_secret = { svc_spec with secrets = [ "MISSING_SECRET_KEY_FOR_TEST", "" ] } in
-  (match Sun_cli_deployment_plan.render_spec
+  (match Sun_cli_deployment_render.render_spec
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_with_secret with
   | Ok _ -> ()
   | Error e -> Alcotest.fail ("Expected Ok when env var set, got Error: " ^ e));
@@ -980,7 +980,7 @@ let test_live_backend_missing_user_secret_returns_error () =
   (* putenv cannot unset; use a key that is genuinely never set *)
   let absent_key = "__SUN_TEST_ABSENT_KEY_XQ9Z2__" in
   let spec_missing = { svc_spec with secrets = [ absent_key, "" ] } in
-  (match Sun_cli_deployment_plan.render_spec
+  (match Sun_cli_deployment_render.render_spec
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_missing with
   | Error msg ->
     check_bool "error mentions the missing key"
@@ -993,7 +993,7 @@ let test_live_backend_multiple_missing_secrets_all_reported () =
   let absent1 = "__SUN_TEST_ABSENT_A_XQ9Z2__" in
   let absent2 = "__SUN_TEST_ABSENT_B_XQ9Z2__" in
   let spec = { svc_spec with secrets = [ absent1, ""; absent2, "" ] } in
-  (match Sun_cli_deployment_plan.render_spec
+  (match Sun_cli_deployment_render.render_spec
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
   | Error msg ->
     check_bool "error mentions first absent key"  true (contains msg absent1);
@@ -1005,7 +1005,7 @@ let test_live_backend_multiple_missing_secrets_all_reported () =
    the platform-default env vars (e.g. POSTGRES_URL) are absent. *)
 let test_live_backend_no_user_secrets_always_succeeds () =
   let spec = { svc_spec with secrets = [] } in
-  (match Sun_cli_deployment_plan.render_spec
+  (match Sun_cli_deployment_render.render_spec
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
   | Ok (_ns, workload) ->
     assert_contains "kind Secret present" workload "kind: Secret"
