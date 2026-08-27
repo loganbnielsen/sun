@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: sudo apt-get install -y librdkafka-dev libpq-dev libpq5
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.4.1
+
+      - name: Pin extracted opam packages
+        run: |
+          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#v0.1.1 -y
+          opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#v0.1.0 -y
+          opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#v0.1.0 -y
+          opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#v0.1.0 -y
+          opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#v0.1.0 -y
+          opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#v0.1.0 -y
+          # s3-eio, dynamodb-eio, lambda-eio have no tagged release yet — pin to main.
+          opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y
+          opam pin add dynamodb-eio https://github.com/loganbnielsen/dynamodb-eio.git#main -y
+          opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
+
+      - name: Install OCaml dependencies
+        run: opam install . --deps-only --with-test -y
+
+      - name: Build
+        run: opam exec -- dune build
+
+      - name: Unit tests (no broker/Postgres/Loki required)
+        run: opam exec -- dune test framework/ cli/sun/test/
