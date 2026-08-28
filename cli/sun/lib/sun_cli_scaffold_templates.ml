@@ -89,8 +89,7 @@ let tpl_sun_toml = {tpl|# Sun service configuration — all fields are optional.
 # steps    = [10, 40, 100]  # canary only
 |tpl}
 
-(* sun.toml for a scheduled function (-fn) service.
-   The [service] section carries the cron schedule so sun deploy can read it
+(* -fn sun.toml: [service] carries the cron schedule so sun deploy reads it
    without scanning OCaml source for "schedule = ..." string literals. *)
 let tpl_fn_sun_toml = {tpl|# Sun service configuration — all fields are optional.
 
@@ -106,24 +105,16 @@ schedule = "0 * * * *"   # cron schedule (default: every hour)
 # config  = {}
 |tpl}
 
-(* sun.toml for an event directory (events/<team>/<name>/).
-   The [service] section carries the topic name so sun deploy can discover
-   topics without scanning OCaml source for topic_name string literals. *)
+(* Event-directory sun.toml: [service] carries the topic name so sun deploy
+   discovers topics without scanning OCaml source. *)
 let tpl_event_sun_toml = {tpl|# Sun event metadata.
 
 [service]
 topics = ["{{team}}-{{name}}s"]
 |tpl}
 
-(* Three-job pipeline:
-     1. build-and-test  - dune build + dune runtest.  No cluster credentials.
-     2. build-images    - dune build + docker build/push per service.
-                          Registry creds only; skipped for pull requests.
-     3. deploy          - sun deploy --emit-plan-to (plan export) + --emit-to
-                          (GitOps manifest emit).  No KUBECONFIG needed.
-   The GitOps job commits manifests/ back to the repo; an Argo CD Application
-   watching that path reconciles the change automatically.
-*)
+(* Three-job pipeline: build-and-test, build-images, deploy — see the
+   generated workflow's own header comment for the full contract. *)
 let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to main.
 #
 # Required GitHub secrets (Settings -> Secrets and variables -> Actions):
@@ -851,8 +842,8 @@ let svc_bin_dune = {tpl|(executable
  (libraries {{lib}} sun_svc eio_main))
 |tpl}
 
-(* Generic worker: lib/<name>_worker.ml — satisfies Worker.WORKER.
-   Replace the stub Message with your actual event module. *)
+(* Generic worker: lib/<name>_worker.ml — satisfies Worker.WORKER; replace the
+   stub Message with your event module. *)
 let worker_lib_ml = {tpl|(* Replace Message with your event module, e.g.:
      module Message = My_team_events.My_event *)
 module Message = struct
