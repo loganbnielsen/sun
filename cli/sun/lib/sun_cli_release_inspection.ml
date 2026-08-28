@@ -98,7 +98,7 @@ let release_state_to_string = function
   | Mock_submitted -> "mock_submitted"
 
 let mode_to_string = Sun_cli_deployment_plan.mode_to_string
-let primitive_to_string = Sun_cli_deployment_plan.prim_to_string
+let primitive_to_string = Sun_cli_deployment_plan.primitive_to_string
 
 let deployment_plan_summary (plan : Sun_cli_deployment_plan.t) =
   { workspace = plan.workspace;

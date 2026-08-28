@@ -125,7 +125,7 @@ let run (req : Sun_cli_command_request.deploy_request) =
   in
 
   List.iter (fun (spec : Sun_cli_deployment_plan.service_spec) ->
-    Printf.printf "[%s] %s/%s\n%!" (prim_label
+    Printf.printf "[%s] %s/%s\n%!" (primitive_label
       (match spec.primitive with
        | Sun_cli_deployment_plan.Svc    -> Svc
        | Sun_cli_deployment_plan.Worker -> Worker

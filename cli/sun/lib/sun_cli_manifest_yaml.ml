@@ -7,11 +7,11 @@ type primitive = Svc | Worker | Fn
 type service = {
   domain : string;
   name   : string;
-  prim   : primitive;
+  primitive : primitive;
   dir    : string;
 }
 
-let prim_label = function Svc -> "svc" | Worker -> "worker" | Fn -> "fn"
+let primitive_label = function Svc -> "svc" | Worker -> "worker" | Fn -> "fn"
 
 type workload_shape = Http_service | Background_worker
 
@@ -519,9 +519,9 @@ let render ?(toml = Sun_cli_toml.empty) svc ~ns ~name ~image =
       secret_doc ~extra_secrets ~ns ~name ();
       network_policy_doc ~ns ~name;
     ] in
-    let resources = match svc.prim, progressive_delivery with
+    let resources = match svc.primitive, progressive_delivery with
       | (Svc | Worker), Some pd ->
-        let shape = if svc.prim = Svc then Http_service else Background_worker in
+        let shape = if svc.primitive = Svc then Http_service else Background_worker in
         let rollout = rollout_doc ~extra_labels ~secret_keys:toml.Sun_cli_toml.secret_keys ~config_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd () in
         (match pd with
          | Sun_cli_toml.Blue_green ->

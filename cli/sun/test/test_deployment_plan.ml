@@ -753,7 +753,7 @@ let test_of_services_result_surfaces_toml_parse_error () =
     let service : Sun_cli_manifest.service = {
       domain = "payments";
       name = "charge_svc";
-      prim = Sun_cli_manifest.Svc;
+      primitive = Sun_cli_manifest.Svc;
       dir = "app/payments/charge_svc";
     } in
     match Sun_cli_deployment_plan.of_services_result

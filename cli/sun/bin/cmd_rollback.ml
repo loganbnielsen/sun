@@ -19,7 +19,7 @@ let run filter_path =
   let errors = ref 0 in
 
   List.iter (fun svc ->
-    Printf.printf "[%s] %s/%s\n%!" (prim_label svc.prim) svc.domain svc.name;
+    Printf.printf "[%s] %s/%s\n%!" (primitive_label svc.primitive) svc.domain svc.name;
 
     let k8s_name_val = match Sun_cli_deployment_plan.k8s_name_result svc.name with
       | Ok v -> v
@@ -36,7 +36,7 @@ let run filter_path =
 
     let toml = Sun_cli_toml.load (Filename.concat svc.dir "sun.toml") in
 
-    let primitive = match svc.prim with
+    let primitive = match svc.primitive with
       | Svc    -> Sun_cli_deployment_plan.Svc
       | Worker -> Sun_cli_deployment_plan.Worker
       | Fn     -> Sun_cli_deployment_plan.Fn
