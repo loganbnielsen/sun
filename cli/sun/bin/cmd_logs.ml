@@ -41,7 +41,6 @@ let resolve_service arg =
       Printf.eprintf "error: service path must be in 'domain/name' form, got '%s'.\n" arg;
       exit 1
   end else begin
-    (* bare name — scan app/ *)
     match find_service_by_name arg with
     | [] ->
       Printf.eprintf "error: service '%s' not found in app/.\n" arg;

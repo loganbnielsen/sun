@@ -18,11 +18,8 @@ type workload_shape = Http_service | Background_worker
 (* ── Schedule extraction for -fn ─────────────────────────────────────────── *)
 
 let extract_schedule ~dir ~name:_ =
-  (* Read schedule from the service's sun.toml [service] section.
-     This replaces ad hoc substring scanning of OCaml source files,
-     which produced false positives when "schedule = " appeared in
-     comments or unrelated string literals.
-     Default: "0 * * * *" (hourly) when sun.toml has no schedule. *)
+  (* Read from sun.toml's [service] section, not by scanning OCaml source
+     (which false-positived on stray "schedule = " literals). Defaults hourly. *)
   let toml_path = Filename.concat dir "sun.toml" in
   match Sun_cli_toml.load_result toml_path with
   | Ok { Sun_cli_toml.schedule = Some s; _ } -> s
@@ -39,9 +36,8 @@ let default_cluster_env = [
   "PUSHGATEWAY_URL",     "http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091";
 ]
 
-(* Credentials that must never appear in ConfigMap — emitted as a Secret.
-   Values are intentionally empty; operators must supply real values via the
-   environment (POSTGRES_URL) or a secrets manager before applying. *)
+(* Credentials that must never appear in ConfigMap; emitted empty into a
+   Secret for operators to fill in via env or a secrets manager. *)
 let default_secrets = [
   "POSTGRES_URL", "";
 ]
@@ -86,11 +82,9 @@ metadata:
 data:
 %s|} name ns (render_env_block env)
 
-(* Credentials are emitted as a Secret with stringData so operators can fill
-   in real values without base64 encoding. Kubernetes converts to base64 on apply.
-   The Secret is named "<name>-secrets" (per-service) so each service owns its secret.
-   In GitOps mode (~redact:true) all values are stripped to "" so nothing sensitive
-   appears in committed manifests; operators must populate values before applying. *)
+(* stringData lets operators fill in real values without base64-encoding them.
+   With ~redact:true (GitOps mode) all values are stripped to "" so nothing
+   sensitive lands in committed manifests. *)
 let secret_doc ?(base_secrets = default_secrets) ?(extra_secrets = []) ?(redact = false) ~ns ~name () =
   let secrets = base_secrets @ extra_secrets in
   let secrets = if redact then List.map (fun (k, _) -> (k, "")) secrets else secrets in
@@ -108,10 +102,8 @@ type: Opaque
 %sstringData:
 %s|} name ns comment (render_env_block secrets)
 
-(* Emits an ExternalSecret resource (External Secrets Operator v1beta1).
-   The ESO controller will materialise a Kubernetes Secret named "<name>-secrets"
-   in the same namespace, which workload pods reference via envFrom secretRef.
-   secret_keys must be the full list of all keys (default_secrets keys + spec.secrets keys). *)
+(* ExternalSecret (ESO v1beta1); the controller materialises it into a
+   "<name>-secrets" Secret. secret_keys must be the full key list. *)
 let external_secret_doc ~store_ref ~store_kind ~key_prefix ~refresh_interval ~secret_keys ~ns ~name =
   let remote_refs =
     String.concat "\n" (List.map (fun key ->

@@ -7,11 +7,8 @@ end
 
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
-(* Self-pipe trick: POSIX signal handler writes one byte to a non-blocking
-   pipe; an Eio fiber awaits the read end and resolves the stop promise.
-   The OCaml runtime dispatches Sys.Signal_handle callbacks at GC-safe
-   checkpoints, so allocation inside the handler is safe — but we avoid it
-   anyway to stay close to the OS boundary. *)
+(* Self-pipe trick: signal handler writes one byte to a non-blocking pipe;
+   an Eio fiber awaits the read end and resolves the stop promise. *)
 let install_signal_handler ~sw resolver =
   let r, w = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock w;
@@ -20,9 +17,7 @@ let install_signal_handler ~sw resolver =
   in
   Sys.set_signal Sys.sigterm (Sys.Signal_handle handle);
   Sys.set_signal Sys.sigint  (Sys.Signal_handle handle);
-  (* Daemon: switch cancels this fiber when the body returns normally (no signal
-     received). If a signal fires first, the fiber completes before the switch
-     exits, so the daemon distinction doesn't matter in that case. *)
+  (* Daemon fiber: the switch cancels it once the body returns normally. *)
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Fun.protect
       ~finally:(fun () -> Unix.close r; (try Unix.close w with _ -> ()))
@@ -120,12 +115,8 @@ module Make (F : FN) = struct
                   | Ok ()     -> Ok {|{"status":"ok"}|}
                   | Error msg -> Error msg))
             (fun () -> Eio.Promise.await stop))
-        (* Fiber.first's normal cleanup contract cancels and discards the
-           losing fiber's Cancelled internally — when stop resolves first,
-           run_loop's Cancelled (correctly re-raised by Lambda_runtime's own
-           exception handlers, not swallowed there) never escapes this
-           Switch.run; it completes normally, which is exactly "stop the
-           loop, don't exit the process" — the execution environment, not
-           this function, decides when the process itself ends. *))
+        (* Fiber.first discards the losing fiber's Cancelled internally, so when
+           stop resolves first this Switch.run completes normally — it ends the
+           loop, not the process. *))
 
 end

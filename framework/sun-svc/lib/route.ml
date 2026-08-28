@@ -24,9 +24,8 @@ let split_path path =
 
 let trailing_slash s = s <> "" && s.[String.length s - 1] = '/'
 
-(* Validate and parse a request path.
-   Returns None if the path is malformed (consecutive slashes).
-   Returns Some (segments, has_trailing_slash) for valid paths. *)
+(* Parses a request path; None if malformed (consecutive slashes), else
+   Some (segments, has_trailing_slash). *)
 let parse_request_path path =
   let len = String.length path in
   let rec has_double_slash i =
@@ -91,11 +90,8 @@ let put    p ~auth h = make `PUT    p ~auth h
 let patch  p ~auth h = make `PATCH  p ~auth h
 let delete p ~auth h = make `DELETE p ~auth h
 
-(* Match a URL pattern against a request path.
-   Pattern segments starting with ':' are named parameters.
-   Returns None for path format errors (double slashes), trailing-slash
-   mismatches, segment count mismatches, or literal segment mismatches.
-   Returns Some params on a full match; params are percent-decoded. *)
+(* Matches a URL pattern (":"-prefixed segments are named params) against a
+   request path; Some percent-decoded params on a full match, else None. *)
 let match_path pattern request_path =
   match parse_request_path request_path with
   | None -> None

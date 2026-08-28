@@ -102,7 +102,6 @@ let run (req : Sun_cli_command_request.deploy_request) =
     end
   end;
 
-  (* Emit plan JSON if requested *)
   (match req.emit_plan_to with
    | None -> ()
    | Some path ->

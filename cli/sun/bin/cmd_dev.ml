@@ -32,9 +32,8 @@ let helm_install release chart ~namespace ?(values = []) () =
 let dev_up () =
   require_tools ();
   Sun_cli_state.ensure ();
-  (* Kill any stale port-forwards from previous sessions before starting fresh
-     ones.  Without this, re-running dev up after a crash or cross-directory
-     down would silently fail to bind ports while reporting success. *)
+  (* Kill stale port-forwards from previous sessions, else re-running after a
+     crash silently fails to bind ports while reporting success. *)
   Sun_cli_port_forward.stop_all ();
 
   (* 1. Cluster *)
@@ -84,11 +83,8 @@ let dev_up () =
         ("resources.cpu.cores",           Str "1.5");  (* chart rejects int64 *)
         ("storage.persistentVolume.size", Str "1Gi");
         ("tls.enabled",                   Bool false);
-        (* Configure an external Kafka listener that advertises localhost:9092.
-           librdkafka bootstraps via the port-forward (localhost:9092→9094), gets
-           metadata back saying "reach me at localhost:9092", and reconnects
-           successfully — avoiding the internal cluster DNS that is unresolvable
-           from outside k3d. *)
+        (* Advertise localhost:9092 so librdkafka reconnects to the port-forward
+           after bootstrap instead of the unresolvable internal cluster DNS. *)
         ("external.enabled",                                    Bool true);
         ("external.service.enabled",                            Bool false);
         ("external.addresses[0]",                               Str "localhost");
@@ -143,9 +139,8 @@ let dev_up () =
     Sun_cli_port_forward.start pf_spec
   in
   if req.kafka then begin
-    (* Port-forward to the pod (not svc) so we reach the external listener on
-       9094.  The Redpanda headless service only exposes the internal port 9093;
-       9094 is only reachable via the pod directly. *)
+    (* Target the pod, not svc: the headless service only exposes the internal
+       port 9093, and the external listener on 9094 is pod-only. *)
     pf { name = "kafka"; namespace = "redpanda";
          target = "pod/redpanda-0"; local_port = 9092; remote_port = 9094 };
     pf { name = "schema-registry"; namespace = "redpanda";
@@ -233,10 +228,8 @@ let dev_status () =
 
 (* ── dev run ─────────────────────────────────────────────────────────────── *)
 
-(** Dev-local environment variables matching the port-forwards started by
-    [sun dev up].  These mirror the cluster-internal addresses that [sun up]
-    injects, but rewritten to localhost so [dune exec] processes on the host
-    can reach the forwarded ports. *)
+(** Dev-local addresses matching the port-forwards from [sun dev up], mirroring
+    the cluster-internal addresses [sun up] injects but rewritten to localhost. *)
 let dev_env_vars = [
   "KAFKA_BROKERS",       "localhost:9092";
   "SCHEMA_REGISTRY_URL", "http://localhost:8081";
@@ -247,16 +240,11 @@ let dev_env_vars = [
   "KAFKA_SECURITY_PROTOCOL", "Plaintext";
 ]
 
-(** Build the env array for [Unix.create_process_env] by merging [dev_env_vars]
-    on top of the current process environment.  Variables already set in the
-    environment are overridden by the dev defaults so that every service always
-    reaches the local broker/database regardless of whatever the shell has. *)
+(** [dev_env_vars] merged on top of the current environment, overriding any
+    matching keys so every service reaches the local broker/database. *)
 let build_env () =
-  (* Start with current environment *)
   let current = Unix.environment () in
-  (* Build a table of dev keys for quick membership test *)
   let dev_keys = List.map fst dev_env_vars in
-  (* Filter out current env entries that we will override *)
   let filtered = Array.to_list current
     |> List.filter (fun entry ->
       let key = match String.index_opt entry '=' with
@@ -265,7 +253,6 @@ let build_env () =
       in
       not (List.mem key dev_keys))
   in
-  (* Append dev vars *)
   let extras = List.map (fun (k, v) -> k ^ "=" ^ v) dev_env_vars in
   Array.of_list (filtered @ extras)
 
@@ -326,13 +313,11 @@ let dev_run workspace_dir filter_path =
 
   let env = build_env () in
 
-  (* Spawn each service by running the pre-built executable from _build/default/.
-     This avoids concurrent dune exec calls fighting over the build lock. *)
+  (* Run the pre-built executable directly, avoiding dune exec lock contention. *)
   let children = List.filter_map (fun (svc : Sun_cli_manifest.service) ->
     let label = svc.domain ^ "/" ^ svc.name in
     let exe_path = "_build/default/" ^ svc.dir ^ "/bin/main.exe" in
     let cmd_str = Filename.quote exe_path in
-    (* Create a pipe: child writes to pipe_write, we read from pipe_read *)
     let (pipe_read, pipe_write) = Unix.pipe () in
     (try
       let pid = Unix.create_process_env
@@ -340,7 +325,6 @@ let dev_run workspace_dir filter_path =
         Unix.stdin pipe_write pipe_write
       in
       Unix.close pipe_write;
-      (* Spawn a thread to forward prefixed output *)
       let _t = Thread.create (fun () -> prefix_lines_thread pipe_read label) () in
       Some { pid; label }
     with Unix.Unix_error (e, fn, _) ->

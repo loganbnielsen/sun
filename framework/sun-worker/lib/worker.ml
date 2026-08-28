@@ -17,8 +17,8 @@ type retry_strategy = Kafka_service.retry_strategy =
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
 (* Self-pipe: signal handler writes one byte; an Eio fiber reads it and sets
-   the atomic stop flag. The consumer checks the flag on each message boundary
-   and returns Stop, allowing the current message to finish before shutting down. *)
+   the stop flag, which the consumer checks at each message boundary so the
+   in-flight message finishes before shutdown. *)
 let install_signal_handler ~sw stop_flag =
   let r, w = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock w;
@@ -99,16 +99,10 @@ module Make (W : WORKER) = struct
                   decr r;
                   if !r <= 0 then Kafka_consumer.Stop else Kafka_consumer.Continue
               in
-              (* The handler is called first, and only on its success do we
-                 acknowledge — so app code can never forget to ack, or ack
-                 before its side effects actually complete. A failed ack is a
-                 commit failure, not a processing failure: the side effect
-                 already happened, so treating it like a handler Error (and
-                 retrying) risks a duplicate. It's surfaced as its own metric
-                 status and log line, and only escalated to Kafka_consumer.Error
-                 (stopping the worker) when Kafka_error.is_fatal — a genuinely
-                 broken consumer, not a transient commit hiccup that will
-                 resolve itself via natural redelivery once Kafka fails over. *)
+              (* Ack only after the handler succeeds, so a side effect is never
+                 acked before it happens. An ack failure is a commit failure,
+                 not a processing failure — retrying would risk a duplicate —
+                 so it's only escalated to Kafka_consumer.Error when fatal. *)
               match ack () with
               | Ok () ->
                 (match msg_count with

@@ -53,9 +53,8 @@ let test_wire_schema_id_big_endian () =
 (* URL construction via Uri (replaces hand-written parse_base_url)    *)
 (* ------------------------------------------------------------------ *)
 
-(* Verify that Uri.of_string correctly parses the URLs we pass to the
-   HTTP client.  This exercises the same parsing path used in production
-   since http_do_once calls Uri.of_string (base_url ^ path). *)
+(* Exercises the same Uri.of_string (base_url ^ path) parsing http_do_once
+   uses in production. *)
 
 let check_uri msg ~expected_host ~expected_port ~expected_scheme url =
   let u = Uri.of_string url in

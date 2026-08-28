@@ -233,11 +233,9 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
               if String.sub output i n = needle then found := true
             done; !found))
 
-(* Fatal ack failures escalate to Kafka_consumer.Error, mirroring a handler
-   Error — but note the real (non-test-injection) consume_partitioned path is
-   what turns that Error into a process-ending Failure via run's own match on
-   `Consume ke; here we only verify the handler closure computes the right
-   handler_result, since that's the piece this test exercises. *)
+(* Verifies only that the handler closure computes Kafka_consumer.Error for a
+   fatal ack failure — the real consume_partitioned path turning that into a
+   process-ending Failure is not exercised here. *)
 let test_ack_failure_fatal_escalates () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-ack-fatal" } in

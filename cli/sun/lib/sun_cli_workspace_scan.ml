@@ -62,18 +62,11 @@ let topics_of_toml path =
   | Ok t -> t.Sun_cli_toml.topics
   | Error _ -> []
 
-(** Discover topics from structured [sun.toml] metadata.
-    Scans [events/] subdirectories for [sun.toml] files with a
-    [[service] topics = [...]] array.  Also checks [events/sun.toml] for
-    top-level topics.  Returns a sorted, deduplicated list.
-
-    Only reads [sun.toml] files — never scans [*.ml] source for string
-    patterns, which would cause false positives from comments or
-    unrelated string literals. *)
+(** Discover topics from [sun.toml]'s [[service] topics = [...]] array in
+    [events/] subdirectories and [events/sun.toml]; sorted, deduplicated.
+    Never scans [*.ml] source, to avoid false positives from string literals. *)
 let discover_topics () =
-  (* Top-level events/sun.toml *)
   let top_level = topics_of_toml "events/sun.toml" in
-  (* Subdirectory events/<domain>/sun.toml *)
   let sub_topics = fold_dir "events" ~init:[] ~f:(fun acc entry path ->
     if entry.[0] = '.' then acc
     else if Sys.is_directory path then

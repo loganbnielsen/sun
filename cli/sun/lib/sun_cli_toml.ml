@@ -1,14 +1,5 @@
-(* Parser for sun.toml — backed by otoml (TOML 1.0.0 compliant).
-   Reads the infra block:
-     [infra.scale]    replicas, cpu, memory
-     [infra.env]      config = { KEY = "val", ... }   (inline table)
-                      secrets = ["KEY", ...]
-     [infra.deploy]   rollout_strategy, ingress_host, ingress_path
-     [infra.labels]   extra_labels = { key = "val", ... }  (inline table)
-     [infra.rollout]  strategy, steps (progressive delivery via Argo Rollouts)
-   Unknown keys and sections are silently forwarded-compatible.
-   Malformed TOML now raises a clear Parse_error rather than silently returning
-   partial data. *)
+(* Parser for sun.toml (otoml-backed, TOML 1.0.0). Unknown keys/sections are
+   forward-compatible; malformed TOML raises Parse_error. *)
 
 type rollout_strategy = Recreate | RollingUpdate
 
@@ -259,7 +250,6 @@ let validate_canary_step = function
    Accepts: {weight = 10}, {pause = {}}, {pause = {duration = 60}}.
    The weight-only shorthand [10, 40, 100] is handled at the array level below. *)
 let parse_canary_step_value path v =
-  (* An inline table with either a "weight" or "pause" key *)
   let* pairs =
     try Otoml.get_table v
         |> Result.ok
