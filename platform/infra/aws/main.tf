@@ -93,6 +93,12 @@ module "eks" {
   # EKS Managed Node Group — general purpose, autoscaling
   eks_managed_node_groups = {
     general = {
+      # Without an explicit name, the module derives the IAM role name from
+      # the node-group map key ("general-eks-node-group-*") instead of
+      # cluster_name — every cluster's node-group role collides on the same
+      # name prefix, which also breaks cluster_name-scoped IAM policies.
+      iam_role_name = "${var.cluster_name}-node-group"
+
       instance_types = var.node_instance_types
       min_size       = var.node_min_size
       max_size       = var.node_max_size
