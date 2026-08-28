@@ -302,7 +302,7 @@ let dev_run workspace_dir filter_path =
   Printf.printf "\n  Starting %d service(s) from %s\n" (List.length services) dir;
   List.iter (fun svc ->
     Printf.printf "    [%s] %s/%s → %s/bin/main.exe\n"
-      (prim_label svc.prim) svc.domain svc.name svc.dir
+      (primitive_label svc.primitive) svc.domain svc.name svc.dir
   ) services;
   Printf.printf "\n%!";
 

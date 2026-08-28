@@ -409,7 +409,7 @@ let test_svc_render_spec_matches_render () =
   let svc : Sun_cli_manifest.service = {
     domain = "payments";
     name   = "charge_svc";
-    prim   = Sun_cli_manifest.Svc;
+    primitive = Sun_cli_manifest.Svc;
     dir    = "app/payments/charge_svc";
   } in
   let (ns1, w1) = render_spec_ok plain_spec in

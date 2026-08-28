@@ -150,7 +150,7 @@ let run (req : Sun_cli_command_request.up_request) =
       let build_ctx  = if req.dry_run then repo_root else ctx_dir in
       let dockerfile = Printf.sprintf "%s/%s/Dockerfile" build_ctx repo_dir in
 
-      Printf.printf "[%s] %s/%s\n%!" (prim_label
+      Printf.printf "[%s] %s/%s\n%!" (primitive_label
         (match spec.primitive with
          | Sun_cli_deployment_plan.Svc    -> Svc
          | Sun_cli_deployment_plan.Worker -> Worker

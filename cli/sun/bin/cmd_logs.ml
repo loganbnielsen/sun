@@ -149,6 +149,6 @@ let cmd =
        ~doc:"Stream logs from a deployed service. \
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
-    Term.(const (fun svc flw tl gbu ->
-        run ~service_arg:svc ~follow:flw ~tail:tl ~grafana_base_url:gbu)
+    Term.(const (fun service_arg follow tail grafana_base_url ->
+        run ~service_arg ~follow ~tail ~grafana_base_url)
       $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg)

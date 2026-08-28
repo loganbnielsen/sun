@@ -15,12 +15,12 @@ type primitive = Svc | Worker | Fn
 type service = {
   domain : string;
   name   : string;
-  prim   : primitive;
+  primitive : primitive;
   dir    : string;
 }
 
-val prim_of_suffix  : string -> primitive option
-val prim_label      : primitive -> string
+val primitive_of_suffix : string -> primitive option
+val primitive_label : primitive -> string
 val discover_services : filter_path:string option -> service list
 val extract_schedule  : dir:string -> name:string -> string
 

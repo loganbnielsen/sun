@@ -63,7 +63,7 @@ let mode_to_string = function
   | Customer_cloud -> "customer_cloud"
   | Sun_hosted     -> "sun_hosted"
 
-let prim_to_string = function
+let primitive_to_string = function
   | Svc    -> "svc"
   | Worker -> "worker"
   | Fn     -> "fn"
@@ -149,7 +149,7 @@ let to_json t =
       "domain",      `String s.domain;
       "source_name", `String s.source_name;
       "namespace",   `String (namespace_to_string s.namespace);
-      "primitive",   `String (prim_to_string s.primitive);
+      "primitive",   `String (primitive_to_string s.primitive);
       "image",       `String s.image;
       "config",      `Assoc (List.map (fun (k, v) -> (k, `String v)) s.config);
       "secret_keys", `List  (List.map (fun (k, _) -> `String k) s.secrets);
@@ -198,7 +198,7 @@ let pp_summary fmt t =
       |> effective_rollout_strategy_to_string
     in
     Format.fprintf fmt "  [%s] %s/%s    rollout=%s -> %s@\n"
-      (prim_to_string s.primitive) s.domain s.source_name rollout_strategy s.image
+      (primitive_to_string s.primitive) s.domain s.source_name rollout_strategy s.image
   ) t.services;
   (match t.topics with
    | []     -> ()
@@ -269,7 +269,7 @@ let plan_error_to_string = function
   | Invalid_kubernetes_name { field; value; message } ->
     Printf.sprintf "invalid Kubernetes %s %S: %s" field value message
 
-let prim_of_manifest = function
+let primitive_of_manifest = function
   | Sun_cli_manifest.Svc    -> Svc
   | Sun_cli_manifest.Worker -> Worker
   | Sun_cli_manifest.Fn     -> Fn
@@ -279,7 +279,7 @@ let of_services_result ~workspace ~env services =
     let* k8s_name  = k8s_name_result svc.Sun_cli_manifest.name in
     let* namespace = namespace_result ~workspace ~domain:svc.Sun_cli_manifest.domain in
     let image     = image_ref ~registry:env.registry ~workspace ~k8s_name ~tag:env.image_tag in
-    let primitive = prim_of_manifest svc.Sun_cli_manifest.prim in
+    let primitive = primitive_of_manifest svc.Sun_cli_manifest.primitive in
     let* toml     =
       Sun_cli_toml.load_result (Filename.concat svc.Sun_cli_manifest.dir "sun.toml")
       |> Result.map_error (fun err -> Toml_error err)

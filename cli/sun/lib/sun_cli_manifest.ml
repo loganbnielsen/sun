@@ -22,7 +22,7 @@ let secret_backend_to_string = function
 
 (* ── Service discovery ───────────────────────────────────────────────────── *)
 
-let prim_of_suffix name =
+let primitive_of_suffix name =
   if   String.ends_with ~suffix:"_svc"    name then Some Svc
   else if String.ends_with ~suffix:"_worker" name then Some Worker
   else if String.ends_with ~suffix:"_fn"     name then Some Fn
@@ -43,11 +43,11 @@ let discover_services ~filter_path =
           Array.iter (fun svc_dir ->
             let sp = Filename.concat dp svc_dir in
             if svc_dir.[0] <> '.' && Sys.is_directory sp then
-              match prim_of_suffix svc_dir with
+              match primitive_of_suffix svc_dir with
               | None -> ()
-              | Some prim ->
+              | Some primitive ->
                 if Sys.file_exists (Filename.concat sp "Dockerfile") then begin
-                  let svc = { domain; name = svc_dir; prim; dir = sp } in
+                  let svc = { domain; name = svc_dir; primitive; dir = sp } in
                   let included = match filter_path with
                     | None   -> true
                     | Some p -> sp = p || Filename.basename sp = p
