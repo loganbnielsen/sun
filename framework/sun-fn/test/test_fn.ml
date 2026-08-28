@@ -115,24 +115,11 @@ let test_push_error_no_raise () =
 
 (* ── Test: lambda_trigger_requires_runtime_api ──────────────────────────── *)
 
-(* Fn.Lambda's actual loop (Lambda_runtime.run_loop) is thoroughly tested in
-   lambda-eio's own test suite, and the metrics-recording logic it calls
-   into (record_and_push) is the exact same code path already exercised by
-   every Cron test above — Fn.Lambda's marginal, sun-fn-specific surface is
-   just "read AWS_LAMBDA_RUNTIME_API and fail fast if it's not set,
-   otherwise hand off to the loop." That's what's tested here; a full
-   run_loop iteration isn't separately re-tested at this layer, since doing
-   so would mean either sending real OS signals to the test process (racy,
-   and this module installs a single global Sys.set_signal handler that
-   different tests would fight over) or re-deriving lambda-eio's own
-   already-passing mock-server tests here for no new coverage. *)
-(* Relies on AWS_LAMBDA_RUNTIME_API being unset in this test environment —
-   true for any normal dev machine or CI runner, since it's an AWS-Lambda-
-   execution-environment-specific variable nothing else would set. Not
-   forced to be unset here: OCaml's Unix module in this version has no
-   unsetenv (confirmed while writing https-eio's own tests earlier), so
-   there's no clean way to force-clear it mid-test-suite if it somehow were
-   set; skip rather than fake it if that assumption ever turns out false. *)
+(* Lambda_runtime.run_loop itself is tested in lambda-eio; here we only verify
+   sun-fn's marginal surface — read AWS_LAMBDA_RUNTIME_API and fail fast when
+   unset — since re-testing the loop would mean racy real OS signals. *)
+(* Assumes AWS_LAMBDA_RUNTIME_API is unset, as on any normal dev/CI machine.
+   OCaml's Unix has no unsetenv to force-clear it, so skip if it's somehow set. *)
 let test_lambda_trigger_requires_runtime_api () =
   if Sys.getenv_opt "AWS_LAMBDA_RUNTIME_API" <> None then
     Printf.printf "[skip] AWS_LAMBDA_RUNTIME_API is set in this environment — skipping\n%!"

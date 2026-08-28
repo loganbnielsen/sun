@@ -60,8 +60,7 @@ let test_url_contains_k8s_name () =
 
 let test_url_no_raw_braces () =
   let url = make_url () in
-  (* After the base_url path portion the only { } must be percent-encoded *)
-  (* Strip the base URL prefix so we only inspect the query parameters *)
+  (* Strip the base_url prefix so only the query parameters are inspected. *)
   let query_start =
     try Str.search_forward (Str.regexp "?") url 0
     with Not_found -> 0
@@ -76,9 +75,6 @@ let test_url_no_raw_equals_in_logql () =
   (* The LogQL expr is embedded in the query value — its = signs must be
      percent-encoded so they don't break URL parsing. *)
   let url = make_url () in
-  (* Find the value of the 'left' parameter (everything after 'left=') and
-     check the encoded LogQL portion for %3D instead of bare =.
-     We do a simple substring check: the encoded block must contain %3D. *)
   check_bool "%3D present (= encoded in logql)" true
     (let re = Str.regexp "%3D" in
      try ignore (Str.search_forward re url 0); true with Not_found -> false)
