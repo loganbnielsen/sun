@@ -689,7 +689,7 @@ end) = struct
   let group_id = "{{name}}-comms-notify-worker"
 
   let handle (msg : Message.t) ~trace_ctx:_ =
-    Obs_eio.log_t Config.ot Obs_eio.Info
+    Obs_eio.log_standalone Config.ot Obs_eio.Info
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
                ("amount_cents", string_of_int msg.amount_cents)]
       "charge event received";
@@ -701,7 +701,7 @@ end) = struct
               ~amount_cents:msg.amount_cents ~currency:msg.currency with
        | Ok ()   -> Ok ()
        | Error e ->
-         Obs_eio.log_t Config.ot Obs_eio.Error
+         Obs_eio.log_standalone Config.ot Obs_eio.Error
            ~fields:[("error", Storage_error.to_string e)]
            "db insert failed";
          Error (Storage_error.to_string e))

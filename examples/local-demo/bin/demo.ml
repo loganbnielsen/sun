@@ -270,7 +270,7 @@ let () =
       Obs_eio.log span Info
         ~fields:[("order_id", msg.order_id); ("item", msg.item)]
         "order received";
-      Obs_eio.current_trace_ctx span
+      Obs_eio.current_trace_context span
     ) in
     Printf.printf "[svc]    received    order=%-12s item=%-22s corr=%s\n%!"
       msg.order_id msg.item corr_id;

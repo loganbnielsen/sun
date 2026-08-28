@@ -208,7 +208,7 @@ let () =
                  ("amount_cents", string_of_int msg.amount_cents);
                  ("currency",     msg.currency)]
         "charge received";
-      Obs_eio.current_trace_ctx span
+      Obs_eio.current_trace_context span
     ) in
     Printf.printf "[charge-svc]    received   charge=%-20s  customer=%-10s  %5d %s\n%!"
       msg.charge_id msg.customer_id msg.amount_cents msg.currency;

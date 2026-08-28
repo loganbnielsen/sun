@@ -8,7 +8,7 @@ let k8s_name value =
   | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
 
 let namespace ~workspace ~domain =
-  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+  Sun_cli_deployment_plan.namespace_of_exn ~workspace ~domain
 
 let namespace_string ~workspace ~domain =
   namespace ~workspace ~domain
@@ -64,15 +64,15 @@ let ingress_path s =
 
 let test_k8s_name_underscores () =
   check_string "underscore to hyphen" "charge-svc"
-    (Sun_cli_deployment_plan.k8s_name_of "charge_svc")
+    (Sun_cli_kubernetes_name.normalize "charge_svc")
 
 let test_k8s_name_worker () =
   check_string "worker suffix" "notify-worker"
-    (Sun_cli_deployment_plan.k8s_name_of "notify_worker")
+    (Sun_cli_kubernetes_name.normalize "notify_worker")
 
 let test_k8s_name_no_underscores () =
   check_string "no underscores unchanged" "ordersvc"
-    (Sun_cli_deployment_plan.k8s_name_of "ordersvc")
+    (Sun_cli_kubernetes_name.normalize "ordersvc")
 
 let test_namespace () =
   check_string "namespace format" "myapp-payments"
