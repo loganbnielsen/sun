@@ -2,7 +2,7 @@
 
 Owner: Codex
 Status: active
-Last updated: 2026-08-26
+Last updated: 2026-08-27
 
 ## Goal
 
@@ -22,6 +22,25 @@ This tracker is not a replacement for package READMEs. Each package README remai
 | `kafka-eio` | `~/Code/kafka-eio` | Eio Kafka producer/consumer/core over librdkafka | Local lint/build pass; OPAM PR open with metadata fixes | Track opam-repository PR #30557 |
 | `aws-eio` | `~/Code/aws-eio` | SigV4, credentials, minimal AWS HTTP transport | `awskit` comparison done (keep as-is, see below); CI added; README fix merged (PR #1, `ada1811`) | Clean-switch check, then submit to opam-repository |
 | `kafka-eio-service` | `sun/integrations/kafka/kafka-eio-service` | Sun-level typed message/schema service layer | In Sun; uses `https-eio` | Decide whether it remains Sun-specific after foundation packages settle |
+
+## Submission Cadence
+
+Do not submit all foundation packages to opam-repository at once. Keep reviewer
+load small, wait for feedback between batches, and apply any maintainer feedback
+to later packages before multiplying the same pattern.
+
+| Order | Packages | Rationale | Gate |
+|---|---|---|---|
+| 1 | `kafka-eio` | Current active PR; establishes the `conf-librdkafka` shape and OCaml 5.4 availability guard. | Merge PR #30557 before opening more foundation PRs. |
+| 2 | `obs-eio`, `obs-prometheus-eio` | Small related observability core/backend pair; Prometheus has no heavyweight external service requirement for basic validation. | Submit next week after Kafka lands. |
+| 3 | `obs-loki-eio`, `https-eio` | Rounds out observability and the shared HTTPS transport. | Submit after batch 2 review/CI feedback is incorporated. |
+| 4 | `aws-eio`, `s3-eio` | AWS base plus the simplest concrete AWS client; useful live-smoke pairing. | Submit after `aws-eio` live STS/S3 smoke evidence exists. |
+| 5 | `dynamodb-eio`, `lambda-eio` | Heavier AWS clients; keep separate from the base AWS review. | Submit after AWS base package is accepted. |
+| 6 | `sun` | The framework should enter opam only after its extracted dependency stack is accepted. | Submit after all required foundation packages are published. |
+
+Default batch size: two packages. Break that rule only for a dependency that
+must land alone, like `kafka-eio`, or for a trivial metadata follow-up requested
+by maintainers.
 
 ## Current Evidence
 
@@ -280,7 +299,8 @@ Tracking tickets:
 - 2026-08-26: Fixed `aws-eio/README.md`'s stale `Aws_tls` references (same class of doc-drift already fixed in `obs-loki-eio`/`obs-prometheus-eio`); merged as `aws-eio` PR #1 (`ada1811`).
 - 2026-08-26: Added the STS `GetCallerIdentity` live smoke test from `AWS-001` (gated by `AWS_EIO_LIVE=1`, skipped by default and in CI), merged as `aws-eio` PR #2 (`855dd51`). Ran it live against real AWS using a short-lived STS session token (`sts:GetSessionToken`-minted, ~15 min TTL, from an IAM user with no other permissions) — passed: real AWS accepted a request signed by `aws-eio`'s own SigV4 implementation. This is the strongest evidence yet that `aws-eio` is correct against the real service, not just internally consistent against its own conformance-suite vectors and mocks. `AWS-001`'s S3 tiny-object smoke (steps 3-4) remains undone.
 - 2026-08-26: Phase 3 cross-package pin test passed. Fresh switch `sun-foundation-all`, all seven packages installed together with `--with-test` (each package's own tests ran and passed), `sun` builds and its full test suite passes against the pinned foundation, including the real-broker Kafka integration test. No link-name clashes, no hidden cross-repo assumptions.
+- 2026-08-27: Ran `s3-eio`'s `scripts/test-e2e.sh` live against real AWS (account `876701109436`), completing `AWS-001`'s remaining S3 tiny-object smoke (steps 3-4). Provisioned bucket `sun-live-test-876701109436` + scoped inline policy via `sts-smoke-test-provisioner`, minted a 900s session token for `sts-smoke-test-user`, ran the put/head/get/delete round trip and the missing-key `Not_found` error-path test through `s3-eio`'s client (built on `aws-eio`'s SigV4) — both passed. Teardown (`scripts/teardown.sh`) ran automatically on exit; independently re-verified afterward with `aws s3api head-bucket` → 404 Not Found, confirming the bucket is actually gone rather than trusting the script's own exit code. Could not independently re-verify the inline IAM policy's removal — neither `sts-smoke-test-user` nor `sts-smoke-test-provisioner` has IAM read permissions on themselves (least-privilege by design); `delete-user-policy` in the teardown log completed without error, and even if it somehow lingered it is scoped to `arn:aws:s3:::sun-live-test-876701109436/sun-live-test/*`, inert against a bucket that no longer exists. `AWS-001` is now fully proven end to end.
 
 ## Next Action
 
-Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). `aws-eio` has now cleared local lint/build, the cross-package clean-switch test (Phase 3), and a real live-AWS STS smoke test — it is ready to submit to opam-repository whenever that's wanted. Remaining before calling the foundation fully proven: `AWS-001`'s S3 tiny-object smoke (steps 3-4, needs a caller-provided bucket), and Phase 4 (Sun end-to-end via `sun new workspace` / `sun dev up` / `sun deploy --dry-run` against the pinned foundation, not just `dune build`/`dune test`).
+Track `https-eio` PR #30570 and `kafka-eio` PR #30557 through opam-repository CI/review (both green on linter/Windows; `opam-ci` distro matrix pending on both as of 2026-08-26, ~2h elapsed with no change — shared community CI, not a sign of a new problem). `aws-eio` has now cleared local lint/build, the cross-package clean-switch test (Phase 3), and real live-AWS STS + S3 smoke tests (`AWS-001` fully proven as of 2026-08-27) — it is ready to submit to opam-repository whenever that's wanted. Remaining before calling the foundation fully proven: Phase 4 (Sun end-to-end via `sun new workspace` / `sun dev up` / `sun deploy --dry-run` against the pinned foundation, not just `dune build`/`dune test`), and the `sun cloud init --aws` path against a real account.
