@@ -27,7 +27,11 @@ depends: [
   "dynamodb-eio"
   "lambda-eio"
   "otoml"
+  "jose"
+  "ptime"
   "alcotest" {with-test}
+  "mirage-crypto-pk" {with-test}
+  "mirage-crypto-rng" {with-test}
   "odoc" {with-doc}
 ]
 build: [
