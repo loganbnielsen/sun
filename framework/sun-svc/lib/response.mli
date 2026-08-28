@@ -15,6 +15,5 @@ val not_found        : t
 val unprocessable    : string -> t
 val payload_too_large : t
 val internal_error   : string -> t
-val not_implemented  : t
 
 val json : ?status:int -> ?headers:(string * string) list -> string -> t

@@ -31,4 +31,8 @@
   dynamodb-eio
   lambda-eio
   otoml
-  (alcotest :with-test)))
+  jose
+  ptime
+  (alcotest :with-test)
+  (mirage-crypto-pk :with-test)
+  (mirage-crypto-rng :with-test)))

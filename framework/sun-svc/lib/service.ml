@@ -62,12 +62,11 @@ let read_body_limited headers (body : Cohttp_eio.Body.t) max_bytes =
 
 let ( let* ) = Result.bind
 
-let auth_result auth_cfg headers =
-  match Auth.validate auth_cfg headers with
+let auth_result ?fetch_jwks auth_cfg headers =
+  match Auth.validate ?fetch_jwks auth_cfg headers with
   | Error (`Unauthorized _)    -> Error Response.unauthorized
   | Error (`Forbidden _)       -> Error Response.forbidden
   | Error (`Server_error msg)  -> Error (Response.internal_error msg)
-  | Error (`Not_implemented _) -> Error Response.not_implemented
   | Ok ctx -> Ok ctx
 
 let body_result headers body max_bytes =
@@ -75,7 +74,7 @@ let body_result headers body max_bytes =
   | None   -> Error Response.payload_too_large
   | Some s -> Ok s
 
-let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
+let dispatch ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
   let meth_opt = Route.method_of_http (Http.Request.meth req) in
   match meth_opt with
   | None -> { Response.status = 405; headers = []; body = "" }
@@ -99,7 +98,7 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
          | None -> Some Response.not_found
          | Some render ->
            let result =
-             let* _ = auth_result metrics_auth headers in
+             let* _ = auth_result ?fetch_jwks metrics_auth headers in
              Ok (Response.ok
                ~headers:["content-type","text/plain; version=0.0.4; charset=utf-8"]
                (render ()))
@@ -116,7 +115,7 @@ let dispatch ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_obse
        | Found (route, params) ->
          observe (Route.pattern_to_string route.Route.pattern);
          let result =
-           let* auth_ctx = auth_result route.Route.auth headers in
+           let* auth_ctx = auth_result ?fetch_jwks route.Route.auth headers in
            let* body_str = body_result headers body max_body_bytes in
            let trace_ctx =
              Http.Header.to_list headers
@@ -188,6 +187,7 @@ module Make (H : HANDLER) = struct
         in
         Some (req_count, req_duration)
     in
+    let fetch_jwks = Auth.fetch_jwks_over_https ~env in
     let stop, stop_r = Eio.Promise.create () in
     (try Eio.Switch.run (fun sw ->
       install_signal_handler ~sw stop_r;
@@ -210,7 +210,7 @@ module Make (H : HANDLER) = struct
           | Some _ -> Some (fun lbl -> route_ref := lbl)
         in
         let sun_resp =
-          dispatch ~routes:H.routes ~metrics_renderer ~metrics_auth
+          dispatch ~fetch_jwks ~routes:H.routes ~metrics_renderer ~metrics_auth
             ~max_body_bytes ?route_observer req body
         in
         (match metrics_fns, t0 with

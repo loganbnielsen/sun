@@ -1,5 +1,19 @@
+type jwt_algorithm = [ `HS256 | `RS256 | `ES256 | `ES384 | `ES512 ]
+
+type jwt_key_source =
+  | Hs256_secret of string
+  | Jwks_static  of string
+  | Jwks_url     of string
+
+type jwt_verified_config =
+  { issuer     : string
+  ; audience   : string
+  ; algorithms : jwt_algorithm list
+  ; key_source : jwt_key_source
+  }
+
 type jwt_verification =
-  | Verified_signature_required
+  | Verified_signature_required of jwt_verified_config
   | Unverified_dev_only
 
 type jwt_config =
@@ -30,7 +44,6 @@ type error =
   [ `Unauthorized    of string
   | `Forbidden       of string
   | `Server_error    of string
-  | `Not_implemented of string
   ]
 
 let key_cache : (float * string) option Atomic.t = Atomic.make None
@@ -170,17 +183,146 @@ let validate_unverified_jwt config headers =
   let* ()          = validate_required_scopes ~required:config.scopes ~actual:scopes in
   Ok { principal = User { sub = token_sub json; scopes; claims = json } }
 
-let validate_jwt config headers =
+(* ── Verified JWT (JOSE/JWKS) ──────────────────────────────────────────── *)
+
+type jwks_cache_entry = { url : string; fetched_at : float; jwks : Jose.Jwks.t }
+
+let jwks_cache : jwks_cache_entry option Atomic.t = Atomic.make None
+let jwks_cache_mutex = Mutex.create ()
+let jwks_ttl_s = 300.0 (* ponytail: fixed rotation window; make configurable if a real IdP needs faster/slower *)
+
+(* Real transport for [Jwks_url]. [Service.Make.run] builds this once, closing
+   over [env], and passes it into [validate] as the injected [fetch_jwks]
+   capability — [validate] itself stays Eio-free. *)
+let fetch_jwks_over_https ~env url =
+  try
+    Eio.Time.with_timeout_exn env#clock 10.0 (fun () ->
+      Eio.Switch.run (fun sw ->
+        let uri = Uri.of_string url in
+        match Https_eio.https_for_uri uri with
+        | Error e -> Error (Https_eio.error_to_string e)
+        | Ok https ->
+          let client = Cohttp_eio.Client.make ~https env#net in
+          let headers = Http.Header.of_list
+            [("Accept", "application/json"); ("Connection", "close")] in
+          let resp, body = Cohttp_eio.Client.call client ~sw ~headers `GET uri in
+          let status = Http.Status.to_int (Http.Response.status resp) in
+          if status <> 200 then
+            Error (Printf.sprintf "JWKS fetch failed: HTTP %d" status)
+          else
+            let body_str =
+              Eio.Buf_read.(parse_exn take_all) body ~max_size:(1 * 1024 * 1024)
+            in
+            (try Ok (Jose.Jwks.of_string body_str)
+             with exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))))
+  with
+  | Eio.Time.Timeout -> Error "JWKS fetch timed out after 10s"
+  | exn -> Error (Printexc.to_string exn)
+
+let get_jwks ~fetch_jwks url =
+  let fresh entry = entry.url = url && Unix.gettimeofday () -. entry.fetched_at < jwks_ttl_s in
+  match Atomic.get jwks_cache with
+  | Some entry when fresh entry -> Ok entry.jwks
+  | _ ->
+    Mutex.protect jwks_cache_mutex (fun () ->
+      match Atomic.get jwks_cache with
+      | Some entry when fresh entry -> Ok entry.jwks
+      | _ ->
+        match fetch_jwks url with
+        | Ok jwks ->
+          Atomic.set jwks_cache (Some { url; fetched_at = Unix.gettimeofday (); jwks });
+          Ok jwks
+        | Error _ as e -> e)
+
+let now_ptime () =
+  match Ptime.of_float_s (Unix.gettimeofday ()) with
+  | Some t -> t
+  | None -> Ptime.epoch
+
+(* [Jose.Jwk.t] is a GADT, so a function can't return "the jwk" across
+   branches at one monomorphic type — verify inline in each branch instead. *)
+let verify_with_key_source ?fetch_jwks ~kid parsed key_source =
+  let with_jwk jwk =
+    match Jose.Jwt.validate ~jwk ~now:(now_ptime ()) parsed with
+    | Ok t                     -> Ok t
+    | Error `Expired           -> Error (`Unauthorized "JWT expired")
+    | Error `Invalid_signature -> Error (`Unauthorized "JWT signature invalid")
+    | Error (`Msg m)           -> Error (`Unauthorized ("JWT invalid: " ^ m))
+  in
+  let jwks_lookup jwks =
+    match kid with
+    | None -> Error (`Unauthorized "JWT missing kid")
+    | Some kid ->
+      match Jose.Jwks.find_key jwks kid with
+      | Some jwk -> with_jwk jwk
+      | None -> Error (`Unauthorized "JWT key id not found in JWKS")
+  in
+  match key_source with
+  | Hs256_secret secret -> with_jwk (Jose.Jwk.make_oct secret)
+  | Jwks_static doc -> jwks_lookup (Jose.Jwks.of_string doc)
+  | Jwks_url url ->
+    match fetch_jwks with
+    | None -> Error (`Server_error "Jwks_url configured but no JWKS fetcher was provided")
+    | Some fetch_jwks ->
+      match get_jwks ~fetch_jwks url with
+      | Error msg -> Error (`Server_error ("JWKS fetch failed: " ^ msg))
+      | Ok jwks -> jwks_lookup jwks
+
+let jwt_alg_allowed algorithms (alg : Jose.Jwa.alg) =
+  List.exists (fun a -> match (a : jwt_algorithm), alg with
+    | `HS256, `HS256 -> true
+    | `RS256, `RS256 -> true
+    | `ES256, `ES256 -> true
+    | `ES384, `ES384 -> true
+    | `ES512, `ES512 -> true
+    | _ -> false)
+    algorithms
+
+let claim_strings json name =
+  match Yojson.Safe.Util.member name json with
+  | `String s -> [s]
+  | `List lst -> List.filter_map (function `String s -> Some s | _ -> None) lst
+  | _ -> []
+
+let check_issuer ~issuer json =
+  match claim_strings json "iss" with
+  | [iss] when iss = issuer -> Ok ()
+  | _ -> Error (`Unauthorized "JWT issuer mismatch")
+
+let check_audience ~audience json =
+  if List.mem audience (claim_strings json "aud") then Ok ()
+  else Error (`Unauthorized "JWT audience mismatch")
+
+let validate_verified_jwt ?fetch_jwks vconfig ~scopes headers =
+  let* token  = bearer_token headers in
+  let* parsed =
+    match Jose.Jwt.unsafe_of_string token with
+    | Ok t    -> Ok t
+    | Error _ -> Error (`Unauthorized "Malformed JWT")
+  in
+  let alg = parsed.Jose.Jwt.header.Jose.Header.alg in
+  let* () =
+    if jwt_alg_allowed vconfig.algorithms alg then Ok ()
+    else Error (`Unauthorized "JWT alg not permitted")
+  in
+  let kid = parsed.Jose.Jwt.header.Jose.Header.kid in
+  let* verified = verify_with_key_source ?fetch_jwks ~kid parsed vconfig.key_source in
+  let json = verified.Jose.Jwt.payload in
+  let* () = check_issuer ~issuer:vconfig.issuer json in
+  let* () = check_audience ~audience:vconfig.audience json in
+  let token_scopes = token_scopes json in
+  let* () = validate_required_scopes ~required:scopes ~actual:token_scopes in
+  Ok { principal = User { sub = token_sub json; scopes = token_scopes; claims = json } }
+
+let validate_jwt ?fetch_jwks config headers =
   match config.verification with
-  | Verified_signature_required ->
-    Error (`Not_implemented
-      "JWT signature verification not implemented; \
-       use Unverified_dev_only only for local development")
+  | Verified_signature_required vconfig ->
+    validate_verified_jwt ?fetch_jwks vconfig ~scopes:config.scopes headers
   | Unverified_dev_only ->
     validate_unverified_jwt config headers
 
-let validate level headers =
+let validate ?fetch_jwks level headers =
   match level with
   | `Public    -> Ok { principal = Public }
   | `Api_key   -> validate_api_key headers
-  | `Jwt cfg   -> validate_jwt cfg headers
+  | `Jwt cfg   -> validate_jwt ?fetch_jwks cfg headers
