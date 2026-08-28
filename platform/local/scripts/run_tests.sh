@@ -17,6 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+export REPO_ROOT
 BASELINE="$REPO_ROOT/tools/perf/perf_baseline.json"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
@@ -114,13 +115,13 @@ check_regression() {
 run_unit() {
   info "Primitives unit tests (no infrastructure required)"
   eval $(opam env)
-  dune test framework/ cli/sun/test/ --force 2>&1
+  dune test --root "$REPO_ROOT" framework/ cli/sun/test/ --force 2>&1
 }
 
 run_kafka() {
   info "Kafka integration tests (requires broker at localhost:9092)"
   eval $(opam env)
-  KAFKA_BROKERS=localhost:9092 dune test integrations/kafka/ --force 2>&1
+  KAFKA_BROKERS=localhost:9092 dune test --root "$REPO_ROOT" integrations/kafka/ --force 2>&1
 }
 
 run_e2e() {
@@ -129,7 +130,7 @@ run_e2e() {
   KAFKA_BROKERS=localhost:9092 \
   LOKI_URL=http://localhost:3100 \
   POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
-    dune test examples/local-demo/test/ --force 2>&1
+    dune test --root "$REPO_ROOT" examples/local-demo/test/ --force 2>&1
 }
 
 # ── Infrastructure setup ──────────────────────────────────────────────────────

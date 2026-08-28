@@ -66,7 +66,7 @@ POSTGRES_UP=0; bash -c 'echo > /dev/tcp/localhost/5432' &>/dev/null && POSTGRES_
 # ── Build ──────────────────────────────────────────────────────────────────────
 echo ""
 echo "▶ pre-commit: build"
-if ! dune build 2>&1; then
+if ! dune build --root "$REPO_ROOT" 2>&1; then
   echo "✗ Build failed — commit blocked."
   exit 1
 fi
