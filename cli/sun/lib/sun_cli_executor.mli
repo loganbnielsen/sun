@@ -36,9 +36,9 @@ val gitops :
 val run_plan :
   mode:mode ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
-  Sun_cli_deployment_plan.t ->
+  Sun_cli_deployment_plan.service_spec list ->
   (result list, string) Stdlib.result
-(** [run_plan ~mode ?secret_backend plan] renders all service specs upfront
+(** [run_plan ~mode ?secret_backend services] renders all service specs upfront
     (returning [Error msg] on the first render failure before any side effect),
     then executes according to [mode]:
     - [Dry_run]    — prints rendered YAML to stdout; no kubectl called.

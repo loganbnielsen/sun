@@ -43,7 +43,7 @@ let gitops ~dir ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) spec
 
 (* ── plan-level executor ─────────────────────────────────────────────────── *)
 
-let run_plan ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) plan =
+let run_plan ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) services =
   let backend = match mode with
     | Emit_to _ -> Sun_cli_manifest.Kubernetes_placeholder
     | Dry_run | Apply -> secret_backend
@@ -53,7 +53,7 @@ let run_plan ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) p
     (fun spec -> match Sun_cli_deployment_render.render_spec ~secret_backend:backend spec with
       | Error msg -> Error (spec, msg)
       | Ok yaml   -> Ok (spec, yaml))
-    plan.Sun_cli_deployment_plan.services
+    services
   in
   match List.find_opt (function Error _ -> true | Ok _ -> false) rendered with
   | Some (Error (_, msg)) -> Error msg

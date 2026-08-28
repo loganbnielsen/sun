@@ -272,7 +272,8 @@ let render_ok spec =
   | Error e -> Alcotest.fail ("render_spec failed: " ^ e)
 
 let run_plan_ok ~mode ?secret_backend plan =
-  match Sun_cli_executor.run_plan ~mode ?secret_backend plan with
+  match Sun_cli_executor.run_plan ~mode ?secret_backend
+          plan.Sun_cli_deployment_plan.services with
   | Ok rs  -> rs
   | Error e -> Alcotest.fail ("run_plan failed: " ^ e)
 

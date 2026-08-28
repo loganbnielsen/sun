@@ -136,7 +136,8 @@ let run (req : Sun_cli_command_request.deploy_request) =
 
   (try
     let results =
-      match Sun_cli_executor.run_plan ~mode ~secret_backend:req.secret_backend plan with
+      match Sun_cli_executor.run_plan ~mode ~secret_backend:req.secret_backend
+              plan.Sun_cli_deployment_plan.services with
       | Ok rs -> rs
       | Error msg ->
         Printf.eprintf "\nerror: %s\n" msg;
