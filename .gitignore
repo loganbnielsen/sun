@@ -10,3 +10,11 @@
 *.csexp.old
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
