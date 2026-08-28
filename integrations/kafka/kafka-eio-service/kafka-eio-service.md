@@ -135,8 +135,9 @@ val publish
   -> 'a
   -> (unit, Kafka_error.t) result Eio.Promise.t
 
-(** Subscribe and process messages. ack () commits the offset after processing
-    and returns the commit's own result — a synchronous librdkafka call that
+(** Subscribe and process messages. New consumer groups start from the earliest
+    retained offset. ack () commits the offset after processing and returns
+    the commit's own result — a synchronous librdkafka call that
     can itself fail, distinct from handler failure (see kafka-eio-consumer's
     handler_result/ack docs). trace_ctx in the handler carries the upstream
     traceparent header from the Kafka message — pass it as ?parent:trace_ctx

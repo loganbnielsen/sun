@@ -242,7 +242,7 @@ let test_publish_consume_roundtrip () =
 (* on_decode_error callback                                            *)
 (* ------------------------------------------------------------------ *)
 
-(* Fork consumer first (subscribed with Latest), then publish a raw
+(* Fork consumer first, then publish a raw
    (non-wire-format) message. decode_wire will fail on the missing magic byte
    and on_decode_error should be called. *)
 let test_decode_error_callback () =

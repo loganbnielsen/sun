@@ -9,9 +9,8 @@ improvements before the platform is developer-ready.
 ## 1. `Worker.Make.run` has no `~on_ready` callback  ★★★ high priority
 
 **What happened:** The demo needs to wait for the Kafka consumer to be assigned a
-partition before sending orders — otherwise messages arrive before the consumer is
-subscribed and are missed (at `Latest` offset). `Kafka_service.consume` exposes
-`?on_ready` for this. `Worker.Make.run` does not.
+partition before sending orders. `Kafka_service.consume` exposes `?on_ready` for
+this. `Worker.Make.run` does not.
 
 **Workaround:** Used `~_consume_loop` (the test injection seam) to bypass the worker's
 internal `Kafka_service.consume` call and inject `on_ready` manually.
