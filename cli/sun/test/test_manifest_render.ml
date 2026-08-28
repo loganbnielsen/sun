@@ -60,7 +60,7 @@ let k8s_name value =
   | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
 
 let namespace ~workspace ~domain =
-  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+  Sun_cli_deployment_plan.namespace_of_exn ~workspace ~domain
 
 (* Extract the YAML document block that contains [kind_marker] (e.g. "kind: ConfigMap").
    Splits the full YAML on "---" separators and returns the first block that

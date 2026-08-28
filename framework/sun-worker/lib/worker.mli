@@ -75,7 +75,7 @@ module Make (W : WORKER) : sig
     -> ?retry_strategy:retry_strategy
     (** Failure strategy for [Error] results from [W.handle]. Defaults to
         [In_memory default_retry]. See [retry_strategy] for the two modes. *)
-    -> ?_consume_loop:
+    -> ?test_consume_loop:
          (handler:(W.Message.t -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
           -> unit -> unit)
     (** Test injection: replace the real per-partition consume loop with a stub.

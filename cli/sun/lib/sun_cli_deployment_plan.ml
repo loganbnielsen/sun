@@ -237,9 +237,6 @@ let derive_consumer_groups workspace services =
   ) services
   |> Sun_cli_workspace_scan.derive_consumer_groups workspace
 
-let k8s_name_of name =
-  Sun_cli_kubernetes_name.normalize name
-
 let invalid_kubernetes_name ~field ~value message =
   Invalid_kubernetes_name { field; value; message }
 
@@ -248,11 +245,14 @@ let k8s_name_result name =
   |> Result.map_error (invalid_kubernetes_name ~field:"k8s_name" ~value:name)
 
 let namespace_result ~workspace ~domain =
-  let value = Printf.sprintf "%s-%s" (k8s_name_of workspace) (k8s_name_of domain) in
+  let value =
+    Printf.sprintf "%s-%s" (Sun_cli_kubernetes_name.normalize workspace)
+      (Sun_cli_kubernetes_name.normalize domain)
+  in
   Sun_cli_kubernetes_name.make_namespace value
   |> Result.map_error (invalid_kubernetes_name ~field:"namespace" ~value)
 
-let namespace_of ~workspace ~domain =
+let namespace_of_exn ~workspace ~domain =
   match namespace_result ~workspace ~domain with
   | Ok namespace -> namespace
   | Error err ->

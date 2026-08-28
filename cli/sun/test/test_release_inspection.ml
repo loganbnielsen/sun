@@ -35,7 +35,7 @@ let service ?(name = "charge-svc") ?(primitive = Sun_cli_deployment_plan.Svc)
   { Sun_cli_deployment_plan.domain = "payments";
     source_name = name;
     k8s_name = k8s_name name;
-    namespace = Sun_cli_deployment_plan.namespace_of ~workspace:"pluto" ~domain:"payments";
+    namespace = Sun_cli_deployment_plan.namespace_of_exn ~workspace:"pluto" ~domain:"payments";
     primitive;
     source_dir = "payments/" ^ name;
     image = "registry.sun.dev/acct_123/pluto/" ^ name ^ ":abc123";

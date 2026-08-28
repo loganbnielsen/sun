@@ -125,7 +125,7 @@ let wrap_on_decode_error ~ot ~topic_name user_on_decode_error =
     (match ot with
      | None -> ()
      | Some o ->
-       Obs_eio.log_t o Obs_eio.Error
+       Obs_eio.log_standalone o Obs_eio.Error
          ~fields:[("error", e);
                   ("raw_bytes_len", string_of_int (Option.fold ~none:0 ~some:Bytes.length raw_bytes));
                   ("topic", topic_name)]

@@ -20,7 +20,7 @@ module TestMsg = struct
     | _ -> Error "expected object"
 end
 
-(* ── Fake config (unreachable endpoints — never used with _consume_loop) *)
+(* ── Fake config (unreachable endpoints — never used with test_consume_loop) *)
 
 let fake_config : Kafka_service.config = {
   brokers             = ["localhost:9092"];
@@ -81,7 +81,7 @@ let test_handle_ok () =
     let msg = TestMsg.{ id = "msg-1" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config
-      ~_consume_loop:(one_message msg) ())
+      ~test_consume_loop:(one_message msg) ())
 
 let test_handle_error_raises () =
   Eio_main.run (fun env ->
@@ -90,7 +90,7 @@ let test_handle_error_raises () =
     match
       (try
          W.run ~env ~config:fake_config
-           ~_consume_loop:(one_message msg) ();
+           ~test_consume_loop:(one_message msg) ();
          Ok ()
        with Failure e -> Error e)
     with
@@ -108,7 +108,7 @@ let test_metrics_ok_counter () =
     let msg = TestMsg.{ id = "msg-metrics" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
-      ~_consume_loop:(one_message msg) ();
+      ~test_consume_loop:(one_message msg) ();
     let output = render () in
     Alcotest.(check bool) "messages_total counter present"
       true (let needle = "sun_worker_messages_total" in
@@ -134,7 +134,7 @@ let test_metrics_error_counter () =
     let module W = Worker.Make(ErrWorker) in
     (try
        W.run ~env ~config:fake_config ~ot
-         ~_consume_loop:(one_message msg) ()
+         ~test_consume_loop:(one_message msg) ()
      with Failure _ -> ());
     let output = render () in
     Alcotest.(check bool) "status=error label present"
@@ -153,7 +153,7 @@ let test_metrics_duration () =
     let msg = TestMsg.{ id = "msg-dur" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
-      ~_consume_loop:(one_message msg) ();
+      ~test_consume_loop:(one_message msg) ();
     let output = render () in
     Alcotest.(check bool) "duration histogram present"
       true (let needle = "sun_worker_message_duration_seconds" in
@@ -182,7 +182,7 @@ let test_stop_flag_stops_after_current_message () =
     let module W = Worker.Make(StopWorker) in
     (* Both messages processed because stop_flag is never set externally *)
     W.run ~env ~config:fake_config
-      ~_consume_loop:(two_messages msgs) ();
+      ~test_consume_loop:(two_messages msgs) ();
     Alcotest.(check int) "both messages processed" 2 !processed)
 
 let test_no_metrics_without_ot () =
@@ -190,7 +190,7 @@ let test_no_metrics_without_ot () =
     let msg = TestMsg.{ id = "msg-no-ot" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config
-      ~_consume_loop:(one_message msg) ())
+      ~test_consume_loop:(one_message msg) ())
 
 let test_max_messages_stops_cleanly () =
   Eio_main.run (fun env ->
@@ -203,7 +203,7 @@ let test_max_messages_stops_cleanly () =
     let msgs = List.init 5 (fun i -> TestMsg.{ id = Printf.sprintf "m%d" i }) in
     let module W = Worker.Make(CountWorker) in
     W.run ~env ~config:fake_config ~max_messages:3
-      ~_consume_loop:(fun ~handler () ->
+      ~test_consume_loop:(fun ~handler () ->
         List.iter (fun msg ->
           ignore (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None)
         ) msgs)
@@ -219,7 +219,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
     let module W = Worker.Make(OkWorker) in
     let result_r = ref None in
     W.run ~env ~config:fake_config ~ot
-      ~_consume_loop:(one_message_with_ack msg
+      ~test_consume_loop:(one_message_with_ack msg
         ~ack:(fun () -> Error Kafka_error.Application) ~result_r) ();
     (match !result_r with
      | Some Kafka_consumer.Continue -> ()
@@ -242,7 +242,7 @@ let test_ack_failure_fatal_escalates () =
     let module W = Worker.Make(OkWorker) in
     let result_r = ref None in
     W.run ~env ~config:fake_config
-      ~_consume_loop:(one_message_with_ack msg
+      ~test_consume_loop:(one_message_with_ack msg
         ~ack:(fun () -> Error Kafka_error.Fatal) ~result_r) ();
     match !result_r with
     | Some (Kafka_consumer.Error e) ->
@@ -261,7 +261,7 @@ let test_external_stop_flag_skips_messages () =
     let msgs = [TestMsg.{ id = "m1" }; TestMsg.{ id = "m2" }] in
     let module W = Worker.Make(StopWorker) in
     W.run ~env ~config:fake_config ~stop
-      ~_consume_loop:(two_messages msgs) ();
+      ~test_consume_loop:(two_messages msgs) ();
     Alcotest.(check int) "W.handle never called when stop pre-set" 0 !processed)
 
 let () =

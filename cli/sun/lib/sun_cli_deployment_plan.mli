@@ -100,17 +100,13 @@ val pp_summary : Format.formatter -> t -> unit
 val plan_error_to_string : plan_error -> string
 (** Render a deployment-plan construction error for CLI output. *)
 
-val k8s_name_of : string -> string
-(** Legacy normalization helper: lowercase ASCII and convert underscores to hyphens.
-    Use [k8s_name_result] when constructing deployment artifacts. *)
-
 val k8s_name_result : string -> (k8s_name, plan_error) result
 (** Normalize and validate a service source name as a Kubernetes DNS label. *)
 
 val k8s_name_to_string : k8s_name -> string
 
-val namespace_of : workspace:string -> domain:string -> namespace
-(** [namespace_of ~workspace ~domain] returns a validated namespace for
+val namespace_of_exn : workspace:string -> domain:string -> namespace
+(** [namespace_of_exn ~workspace ~domain] returns a validated namespace for
     ["<workspace>-<domain>"]. Raises [Failure] if validation fails. *)
 
 val namespace_result : workspace:string -> domain:string -> (namespace, plan_error) result

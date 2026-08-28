@@ -46,7 +46,7 @@ module Make (W : WORKER) = struct
                   ; mono_clock: _ Eio.Time.Mono.t
                   ; .. >)
       ~config ?ot ?on_ready ?stop ?max_messages
-      ?(retry_strategy = Kafka_service.default_retry_strategy) ?_consume_loop () =
+      ?(retry_strategy = Kafka_service.default_retry_strategy) ?test_consume_loop () =
     let msg_count, msg_duration =
       match ot with
       | None -> (None, None)
@@ -87,7 +87,7 @@ module Make (W : WORKER) = struct
                | Some c -> c ~labels:[("status","error")] 1
                | None   -> ());
               (* Signal consume_partitioned to retry with backoff.
-                 For the _consume_loop test path this propagates as a Failure. *)
+                 For the test_consume_loop test path this propagates as a Failure. *)
               Kafka_consumer.Error Kafka_error.Application
             | Ok () ->
               let dt = Eio.Time.now env#clock -. t0 in
@@ -116,7 +116,7 @@ module Make (W : WORKER) = struct
                 (match ot with
                  | None -> ()
                  | Some o ->
-                   Obs_eio.log_t o (if Kafka_error.is_fatal e then Obs_eio.Error else Obs_eio.Warn)
+                   Obs_eio.log_standalone o (if Kafka_error.is_fatal e then Obs_eio.Error else Obs_eio.Warn)
                      ~fields:[("error", Kafka_error.to_string e)]
                      (if Kafka_error.is_fatal e
                       then "sun-worker: fatal ack failure, stopping consumer"
@@ -128,9 +128,9 @@ module Make (W : WORKER) = struct
           end
         in
         let ( let* ) = Result.bind in
-        (match _consume_loop with
+        (match test_consume_loop with
          | Some f ->
-           (* test injection: _consume_loop drives handler directly, no retry *)
+           (* test injection: test_consume_loop drives handler directly, no retry *)
            f ~handler (); Ok ()
          | None ->
            let* svc = Kafka_service.create config ~sw

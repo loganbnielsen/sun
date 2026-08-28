@@ -187,7 +187,7 @@ let run_golden_path () =
     } in
     let trace_ctx = Obs_eio.with_span svc_ot "receive_order" (fun span ->
       Obs_eio.log span Info ~fields:[("order_id", msg.order_id)] "order received";
-      Obs_eio.current_trace_ctx span
+      Obs_eio.current_trace_context span
     ) in
     (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
      | Ok () | Error _ -> ());

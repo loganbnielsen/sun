@@ -9,7 +9,7 @@ let k8s_name value =
   | Error err -> Alcotest.fail (Sun_cli_deployment_plan.plan_error_to_string err)
 
 let namespace ~workspace ~domain =
-  Sun_cli_deployment_plan.namespace_of ~workspace ~domain
+  Sun_cli_deployment_plan.namespace_of_exn ~workspace ~domain
 
 let cpu s =
   match Sun_cli_toml.cpu_quantity_of_string s with
