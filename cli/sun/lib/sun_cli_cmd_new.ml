@@ -307,11 +307,8 @@ let new_event arg =
  (libraries kafka_eio_service yojson))
 |tpl});
   end;
-  (* Emit or update sun.toml with topic metadata.
-     If sun.toml already exists we leave it intact — the operator may have
-     already added more topics manually.  A new sun.toml lists just this
-     event's default topic name so discover_topics() can read it without
-     scanning .ml source files. *)
+  (* Leave an existing sun.toml intact (operator may have added more topics);
+     a new one lists just this event's default topic. *)
   if not (Sys.file_exists toml_f) then
     write ~path:toml_f ~content:(subst v tpl_event_sun_toml);
   Printf.printf "\nDone.  Consumers add (libraries %s) to their dune files.\n" lib

@@ -278,12 +278,8 @@ let test_parse_domain_name_rejects_malformed_names () =
 
 (* ── bundle source resolution tests ──────────────────────────────────────── *)
 
-(* Verify that infer_sun_home resolves correctly when SUN_HOME points to a
-   directory with the self-contained release bundle layout:
-     <bundle>/bin/sun       ← binary lives here (represented by SUN_HOME itself)
-     <bundle>/framework/sun-svc/lib/dune
-     <bundle>/integrations/kafka/kafka-eio-service/lib/dune
-   is_sun_home checks for both sentinel files, so both must be present. *)
+(* infer_sun_home must resolve a release-bundle SUN_HOME: both the framework
+   and integrations sentinel dune files present, per is_sun_home. *)
 let test_bundle_layout_resolves_sun_home () =
   let tmpdir = Filename.temp_file "sun-bundle-test-" "" in
   Sys.remove tmpdir;
@@ -382,11 +378,8 @@ let test_ancestor_walk_finds_bundle_root () =
       check_bool "find_ancestor: resolved path matches bundle root" true
         (result = Some tmpdir))
 
-(* Worker.WORKER.handle no longer takes ~ack — the framework acknowledges
-   automatically, only after handle returns Ok (), so a generated worker has
-   no ack to call, misorder relative to its side effects, or forget. Verify
-   the scaffold reflects that: no ~ack param anywhere in generated worker
-   code, and handle still ends by returning Ok () after its side effect. *)
+(* The framework acknowledges automatically after handle returns Ok (); a
+   generated worker must have no ~ack param to call, misorder, or forget. *)
 let test_worker_has_no_ack_param () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_worker "comms/notify";

@@ -244,7 +244,6 @@ let test_svc_namespace_in_workload () =
    Secret resource (kind: Secret) that carries STRIPE_KEY in its stringData
    section.  The value is empty — operators fill it in at apply time. *)
 let test_user_secret_key_in_secret_resource () =
-  (* Kubernetes_placeholder: check key names appear in Secret without needing env vars. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -253,7 +252,6 @@ let test_user_secret_key_in_secret_resource () =
 
 (* The key reference in the Deployment env block must also be present. *)
 let test_user_secret_key_ref_in_deployment () =
-  (* Kubernetes_placeholder: check secretKeyRef present without needing STRIPE_KEY set. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -261,7 +259,6 @@ let test_user_secret_key_ref_in_deployment () =
 
 (* Multiple user-defined secret keys must all appear in the Secret resource. *)
 let test_multiple_user_secret_keys_in_secret_resource () =
-  (* Kubernetes_placeholder: check multiple key names without needing env vars. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", ""; "SENDGRID_API_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -271,7 +268,6 @@ let test_multiple_user_secret_keys_in_secret_resource () =
 
 (* The default POSTGRES_URL must still be present alongside user secrets. *)
 let test_default_secrets_preserved_with_user_secrets () =
-  (* Kubernetes_placeholder: verify default + user keys both appear in Secret. *)
   let spec = { svc_spec with secrets = [ "STRIPE_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -279,8 +275,7 @@ let test_default_secrets_preserved_with_user_secrets () =
   assert_contains "POSTGRES_URL still in Secret" secret_block "POSTGRES_URL:";
   assert_contains "STRIPE_KEY also in Secret"    secret_block "STRIPE_KEY:"
 
-(* GitOps output must carry the required secret keys but no values. This pins
-   the FEAT-019 redaction contract used by Sun_cli_executor.gitops. *)
+(* GitOps output must carry the required secret keys but no values. *)
 let test_gitops_redacts_all_secret_values () =
   let spec = {
     svc_spec with
@@ -298,7 +293,6 @@ let test_gitops_redacts_all_secret_values () =
 
 (* Worker with secret_keys also emits Secret resource with those keys. *)
 let test_worker_user_secret_key_in_secret_resource () =
-  (* Kubernetes_placeholder: check key appears in Secret without setting env var. *)
   let spec = { worker_spec with secrets = [ "STRIPE_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -307,7 +301,6 @@ let test_worker_user_secret_key_in_secret_resource () =
 
 (* Fn/CronJob with secret_keys also emits Secret resource with those keys. *)
 let test_fn_user_secret_key_in_secret_resource () =
-  (* Kubernetes_placeholder: check key appears in Secret without setting env var. *)
   let spec = { fn_spec with secrets = [ "STRIPE_KEY", "" ] } in
   let (_ns, workload) = render_spec_ok
       ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec in
@@ -499,7 +492,6 @@ let test_progressive_blue_green_rollout () =
 (* Canary Rollout with secrets must reference charge-svc-secrets (not sun-secrets)
    in the secretKeyRef block. *)
 let test_rollout_canary_secrets_use_sun_secrets () =
-  (* Kubernetes_placeholder: check secret name refs without setting STRIPE_KEY/DATABASE_URL. *)
   let spec = {
     svc_spec with
     progressive_delivery =
@@ -518,7 +510,6 @@ let test_rollout_canary_secrets_use_sun_secrets () =
 
 (* Blue-green Rollout with secrets must also reference charge-svc-secrets. *)
 let test_rollout_blue_green_secrets_use_sun_secrets () =
-  (* Kubernetes_placeholder: check secret name refs without setting API_TOKEN. *)
   let spec = {
     svc_spec with
     progressive_delivery = Some Sun_cli_toml.Blue_green;
@@ -966,18 +957,15 @@ let test_render_spec_k8s_placeholder_default () =
 (* When Kubernetes_live is used and a user-declared secret key is absent from
    the process environment, render_spec must return Error — not Ok with "". *)
 let test_live_backend_missing_user_secret_returns_error () =
-  (* Ensure MISSING_SECRET_KEY_FOR_TEST is definitely not set *)
   (try Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "" with _ -> ());
   Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "__marker__";
-  (* First ensure that setting the env var does succeed *)
   let spec_with_secret = { svc_spec with secrets = [ "MISSING_SECRET_KEY_FOR_TEST", "" ] } in
   (match Sun_cli_deployment_render.render_spec
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_with_secret with
   | Ok _ -> ()
   | Error e -> Alcotest.fail ("Expected Ok when env var set, got Error: " ^ e));
-  (* Now unset it and verify we get an Error *)
   Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "";
-  (* putenv cannot unset; use a key that is genuinely never set *)
+  (* Unix.putenv cannot unset a var, so use a key that was never set. *)
   let absent_key = "__SUN_TEST_ABSENT_KEY_XQ9Z2__" in
   let spec_missing = { svc_spec with secrets = [ absent_key, "" ] } in
   (match Sun_cli_deployment_render.render_spec

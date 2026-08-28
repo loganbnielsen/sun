@@ -213,9 +213,7 @@ let test_publish_consume_roundtrip () =
                 Kafka_consumer.Stop
               ) ())
           );
-          (* Wait until the broker has assigned partitions before publishing.
-             Fail fast if the consumer never gets assigned — catches rebalance bugs
-             rather than hanging the entire test suite indefinitely. *)
+          (* Fail fast if the consumer never gets assigned, rather than hanging. *)
           (match Eio.Time.with_timeout env#clock 15.0
                    (fun () -> Ok (Eio.Promise.await consumer_ready_p)) with
            | Error `Timeout ->

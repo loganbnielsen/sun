@@ -50,14 +50,11 @@ let run (req : Sun_cli_command_request.up_request) =
     exit 1
   end;
 
-  (* Pre-flight: POSTGRES_URL must be set before applying to non-local
-     clusters.  For local k3d, populate it with the in-cluster dev Postgres
-     URL so generated Secrets carry a usable value instead of "".
-     Dry-run is exempt because it only prints YAML. *)
+  (* POSTGRES_URL must be set for non-local clusters; for local k3d it's
+     auto-populated with the in-cluster dev URL unless already set. Dry-run
+     is exempt since it only prints YAML. *)
   if not req.dry_run then begin
     if is_known_local_dev_context () then begin
-      (* Inject the dev Postgres URL when running against the local k3d cluster
-         and the operator has not already overridden it. *)
       (match Sys.getenv_opt "POSTGRES_URL" with
        | None | Some "" ->
          Unix.putenv "POSTGRES_URL"
@@ -79,10 +76,9 @@ let run (req : Sun_cli_command_request.up_request) =
   if req.dry_run then Printf.printf "(dry-run)\n";
   Printf.printf "\n%!";
 
-  (* k3d's registries.yaml maps sun-registry:5000 → the registry container.
-     The env target owns the cluster-internal registry address (sun-registry:5000).
-     Push uses localhost:5000 (host-accessible); that address is build-step-only
-     and is computed locally — not embedded in the plan. *)
+  (* k3d maps sun-registry:5000 to the registry container; the env target owns
+     that in-cluster address, while push uses localhost:5000 (host-accessible,
+     build-step-only, not embedded in the plan). *)
   let env_target    = Sun_cli_env_target.local_defaults ~image_tag:sha in
   let push_registry = "localhost:5000" in
 
@@ -115,12 +111,9 @@ let run (req : Sun_cli_command_request.up_request) =
     end
   end;
 
-  (* The multi-stage Dockerfile compiles from source inside ubuntu-24.04, so
-     vendor/ symlinks (which point outside the workspace) must be resolved into
-     real files before docker build runs.  We create a temporary self-contained
-     copy with rsync --copy-links (follow symlinks, exclude _build and .git to
-     avoid stale dune internal symlinks that cp -rL cannot resolve) and remove
-     the copy when done. *)
+  (* vendor/ symlinks point outside the workspace, so docker build needs a
+     resolved copy; rsync --copy-links builds one, excluding _build/.git to
+     dodge stale dune internal symlinks. *)
   let ctx_dir = repo_root ^ ".docker-ctx" in
   if not req.dry_run then begin
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
@@ -168,9 +161,8 @@ let run (req : Sun_cli_command_request.up_request) =
          | Ok () -> ())
       end;
 
-      (* dry-run shows push_image (what actually gets pushed);
-         live apply uses spec.image (the cluster-resolved reference).
-         We pass the spec with the appropriate image to the local executor. *)
+      (* dry-run shows push_image (what actually gets pushed); live apply uses
+         spec.image (the cluster-resolved reference). *)
       let exec_spec =
         if req.dry_run then { spec with Sun_cli_deployment_plan.image = push_image }
         else spec
@@ -226,7 +218,6 @@ let run (req : Sun_cli_command_request.up_request) =
     ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote ctx_dir)));
     Printf.printf "Done. %d service(s) deployed.\n" (List.length services);
     Printf.printf "Run 'sun status' to check pod health.\n";
-    (* Warn if unapplied migration files exist *)
     let n = Sun_cli_workspace.pending_migration_count ~dir:(Sys.getcwd ()) in
     if n > 0 then
       Printf.printf

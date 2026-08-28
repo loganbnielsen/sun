@@ -1,9 +1,7 @@
 open Cmdliner
 
-(* Derive the default migration table name from the workspace directory.
-   Using a per-workspace name avoids version-number collisions when multiple
-   workspaces share the same local Postgres instance (e.g. from sun dev up).
-   The --table flag always overrides this default. *)
+(* Per-workspace table name avoids version-number collisions when multiple
+   workspaces share one local Postgres instance; --table always overrides it. *)
 let default_table_name =
   let cwd_name = Filename.basename (Sys.getcwd ()) in
   let buf = Buffer.create (String.length cwd_name) in

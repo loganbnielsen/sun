@@ -64,14 +64,12 @@ let provider_name = function Aws -> "aws" | Gcp -> "gcp"
 let cloud_init ~provider ~var_file ~dry_run () =
   let pname = provider_name provider in
 
-  (* Check prerequisites *)
   if not (Sun_cli_terraform.which_check ()) then begin
     Printf.eprintf "error: %S not found in PATH.\n" "terraform";
     Printf.eprintf "  Install: %s\n" "https://developer.hashicorp.com/terraform/install";
     exit 1
   end;
 
-  (* Locate terraform module directory *)
   let sun_home = resolve_sun_home () in
   let infra_dir = Filename.concat sun_home
     (Printf.sprintf "platform/infra/%s" pname) in
@@ -87,7 +85,6 @@ let cloud_init ~provider ~var_file ~dry_run () =
     | Error _ -> 1
   in
 
-  (* Step 1: terraform init *)
   Printf.printf "\n[1/3] terraform init\n%!";
   let rc = exit_code_of (Sun_cli_terraform.init ~chdir:infra_dir) in
   if rc <> 0 then begin
@@ -95,7 +92,6 @@ let cloud_init ~provider ~var_file ~dry_run () =
     exit 1
   end;
 
-  (* Step 2: terraform plan or apply *)
   if dry_run then begin
     Printf.printf "\n[2/3] terraform plan  (--dry-run)\n%!";
     let var_files = match var_file with None -> [] | Some f -> [f] in
@@ -114,7 +110,6 @@ let cloud_init ~provider ~var_file ~dry_run () =
       exit 1
     end;
 
-    (* Step 3: print outputs *)
     Printf.printf "\n[3/3] Provisioned endpoints:\n%!";
     print_outputs infra_dir;
   end;
