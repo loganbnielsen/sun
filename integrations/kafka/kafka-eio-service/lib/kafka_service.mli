@@ -129,7 +129,8 @@ val publish
 
 (** [consume svc topic ~group_id ~sw ?on_ready ?on_decode_error ~handler]
     subscribes to the topic and calls [handler] for each successfully decoded message.
-    [ack ()] commits the offset after processing.
+    New consumer groups start from the earliest retained offset. [ack ()] commits
+    the offset after processing.
 
     [trace_ctx] in the handler is the parsed [traceparent] header from the incoming
     Kafka message, or [None] if the message carries no trace header. Pass it as

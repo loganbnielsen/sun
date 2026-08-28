@@ -95,7 +95,7 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     brokers      = svc.brokers;
     group_id;
     topics       = [topic.name];
-    offset_reset = Kafka_consumer.Latest;
+    offset_reset = Kafka_consumer.Earliest;
     auto_commit  = false;
     security     = svc.security;
     properties   = [];

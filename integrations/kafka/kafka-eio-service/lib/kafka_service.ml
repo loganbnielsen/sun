@@ -124,7 +124,7 @@ let consume svc topic ~group_id ~sw
     brokers      = svc.brokers;
     group_id;
     topics       = [topic.name];
-    offset_reset = Kafka_consumer.Latest;
+    offset_reset = Kafka_consumer.Earliest;
     auto_commit  = false;
     security     = svc.security;
     properties   = [];
@@ -157,7 +157,7 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
       brokers      = svc.brokers;
       group_id;
       topics       = [topic.name];
-      offset_reset = Kafka_consumer.Latest;
+      offset_reset = Kafka_consumer.Earliest;
       auto_commit  = false;
       security     = svc.security;
       properties   = [];
