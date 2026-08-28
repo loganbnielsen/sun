@@ -15,7 +15,6 @@ let not_found          = { status = 404; headers = []; body = "" }
 let unprocessable msg  = { status = 422; headers = ["content-type","text/plain"]; body = msg }
 let payload_too_large  = { status = 413; headers = []; body = "Payload Too Large" }
 let internal_error msg = { status = 500; headers = ["content-type","text/plain"]; body = msg }
-let not_implemented    = { status = 501; headers = []; body = "Not Implemented" }
 
 let json ?(status=200) ?(headers=[]) body =
   { status; headers = ("content-type","application/json") :: headers; body }

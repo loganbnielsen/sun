@@ -77,15 +77,37 @@ and jwt_config =
   { scopes       : string list
   (** Required scopes, e.g. ["write:payments"]. All must be present. *)
   ; verification : jwt_verification
-  (** [Verified_signature_required] is the production-facing mode. It returns
-      501 until v2 signature verification is implemented.
-      [Unverified_dev_only] decodes unsigned v1 tokens and must only be used
-      for local development and tests. *)
+  (** [Verified_signature_required] is the production-facing mode: signature,
+      issuer, audience, and algorithm allowlist are all checked before a
+      token is trusted. [Unverified_dev_only] decodes unsigned v1 tokens and
+      must only be used for local development and tests. *)
   }
 
 and jwt_verification =
-  | Verified_signature_required
+  | Verified_signature_required of jwt_verified_config
   | Unverified_dev_only
+
+and jwt_algorithm = [ `HS256 | `RS256 | `ES256 | `ES384 | `ES512 ]
+
+and jwt_key_source =
+  | Hs256_secret of string
+      (** Shared secret. Verified through [jose]'s HS256 path — never a
+          hand-rolled HMAC comparison. *)
+  | Jwks_static  of string
+      (** A JWKS document (RFC 7517), e.g. baked into config for a fixed,
+          non-rotating key set. *)
+  | Jwks_url     of string
+      (** HTTPS URL of a JWKS endpoint (Auth0/Cognito/Okta-style). Fetched
+          over TLS and cached for 5 minutes; never fetched on every request. *)
+
+and jwt_verified_config =
+  { issuer     : string
+  ; audience   : string
+  ; algorithms : jwt_algorithm list
+  (** Allowlist. A token whose header [alg] is not in this list is rejected
+      before any key lookup or signature check runs. *)
+  ; key_source : jwt_key_source
+  }
 
 (** Resolved identity after successful validation.
     Available in the handler via [Request.t.auth]. *)
@@ -138,7 +160,32 @@ For v1 development mode (`verification = Unverified_dev_only`):
    (space-separated string or JSON array).
 5. Return `User { sub; scopes = token_scopes; claims = full_payload_json }`.
 
-When `verification = Verified_signature_required` and v2 is not implemented → 501.
+For production mode (`verification = Verified_signature_required vconfig`):
+
+1. Parse the token (header + payload) with [`jose`](https://github.com/ulrikstrid/ocaml-jose) —
+   no hand-rolled base64/signature comparison anywhere in this path.
+2. Reject if the header's `alg` is not in `vconfig.algorithms` — before any key
+   lookup or signature check.
+3. Resolve the verification key from `vconfig.key_source`:
+   - `Hs256_secret secret` — a `jose` HS256 (`Oct`) key built from the shared secret.
+   - `Jwks_static doc` — parse the JWKS document, look up by the token's `kid`.
+   - `Jwks_url url` — fetch the JWKS over HTTPS (`https-eio`, so RNG seeding and
+     CA-bundle handling are inherited, not reimplemented), cache it for 5 minutes,
+     look up by `kid`. A fetch or parse failure returns `Server_error` (500) —
+     it never falls back to `Unverified_dev_only` behavior.
+4. Verify the signature and `exp` via `Jose.Jwt.validate`.
+5. Check `iss` equals `vconfig.issuer` and `aud` contains `vconfig.audience`
+   (`aud` may be a single string or a JSON array per RFC 7519).
+6. Check every scope in `config.scopes` is present in the token's `scope` claim.
+7. Return `User { sub; scopes = token_scopes; claims = full_payload_json }`.
+
+HS256 support exists alongside JWKS-based RS256/ES256/ES384/ES512 because plenty
+of real deployments are HS256-only — but it always goes through the same `jose`
+verification call, never a separate hand-rolled comparison. There is no code
+path where an attacker-supplied `alg` can force HMAC verification against an
+RSA/EC public key: `jose`'s `Jws.validate` dispatches on the concrete key value
+you pass it (a GADT), not on the token's claimed `alg`, so key selection is
+driven by `kid` lookup in the JWKS, not by attacker input.
 
 **Error responses:**
 
@@ -147,10 +194,11 @@ When `verification = Verified_signature_required` and v2 is not implemented → 
 | Missing `Authorization` / `X-Api-Key` header | 401 |
 | Wrong API key | 401 |
 | `SUN_API_KEY` and `SUN_API_KEY_FILE` both unset | 500 (misconfiguration) |
-| Malformed JWT (not three base64 segments) | 401 |
+| Malformed JWT (not three base64 segments, in dev mode) | 401 |
 | Expired JWT | 401 |
 | JWT missing a required scope | 403 |
-| `verification = Verified_signature_required`, v2 not implemented | 501 |
+| Verified mode: malformed token, `alg` not in allowlist, unknown/missing `kid`, invalid signature, wrong `iss`/`aud` | 401 |
+| Verified mode: JWKS fetch or parse failure (`Jwks_url`) | 500 (fail closed) |
 
 ---
 
@@ -571,7 +619,11 @@ Eio.Promise.await server_ready;
 - Jwt missing one scope → 403
 - Jwt expired → 401; malformed → 401
 - Jwt scope superset (token has more than required) → ok
-- `verification = Verified_signature_required` → 501
+- `verification = Verified_signature_required`, HS256 secret, valid → `User` principal
+- `verification = Verified_signature_required`, RS256 via `Jwks_static`, valid → `User` principal
+- Verified: tampered signature → 401; `alg` outside allowlist → 401
+- Verified: wrong `iss` → 401; wrong `aud` → 401; expired → 401; missing scope → 403
+- Verified: `Jwks_url` unreachable → 500 (fails closed, no fallback to unverified)
 
 ### `test_service.ml`
 

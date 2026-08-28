@@ -1,4 +1,5 @@
 (library
  (name sun_svc)
  (wrapped false)
- (libraries cohttp-eio http uri yojson base64 eio eio.unix obs-eio))
+ (libraries cohttp-eio http uri yojson base64 eio eio.unix obs-eio
+            jose ptime https-eio))
