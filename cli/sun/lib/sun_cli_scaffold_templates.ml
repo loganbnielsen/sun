@@ -661,7 +661,7 @@ let () =
   let publish_charged event =
     match Eio.Promise.await (Kafka_service.publish kafka charged_topic event) with
     | Ok () -> Ok ()
-    | Error e -> Error (Kafka_error.to_string e)
+    | Error e -> Error (Kafka.Error.to_string e)
   in
   Service.run (Handler.routes pool ~publish_charged) ~env ~ot ~metrics_renderer:render ()
 |tpl}

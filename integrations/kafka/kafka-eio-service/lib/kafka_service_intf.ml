@@ -55,23 +55,23 @@ type config = {
   admin_url           : string;
   linger_ms           : int;
   partitions          : int;
-  security            : Kafka_security.t;
+  security            : Kafka.Security.t;
 }
 
 type t = {
-  producer            : Kafka_producer.t;
+  producer            : Kafka.Producer.t;
   brokers             : string list;
   schema_registry_url : string;
   admin_url           : string;
   partitions          : int;
-  security            : Kafka_security.t;
+  security            : Kafka.Security.t;
 }
 
 let ensure_topic producer ~topic_name ~partitions =
-  match Kafka_producer.create_topic producer ~topic_name ~partitions ~replication_factor:1 with
+  match Kafka.Producer.create_topic producer ~topic_name ~partitions ~replication_factor:1 with
   | Ok ()   -> Ok ()
   | Error e ->
-    Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka_error.to_string e))
+    Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka.Error.to_string e))
 
 type topic_partition_metadata =
   | Topic_not_found

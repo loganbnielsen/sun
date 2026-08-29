@@ -6,7 +6,7 @@ let config_of_env () =
   in
   let brokers_str = env_or "KAFKA_BROKERS" "localhost:9092" in
   let security =
-    match Kafka_security.of_env () with
+    match Kafka.Security.of_env () with
     | Ok security -> security
     | Error msg   -> invalid_arg msg
   in

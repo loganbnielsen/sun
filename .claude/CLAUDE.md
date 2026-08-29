@@ -60,7 +60,9 @@ sun/
   # kafka-eio-core/producer/consumer + the produce-then-consume demo moved out to the
   # standalone `kafka-eio` opam package at ~/Code/kafka-eio (own git repo, opam-pinned
   # into this switch). Edit there, then `opam pin add kafka-eio ~/Code/kafka-eio` to
-  # pick up changes. Findlib names: `kafka-eio.core`, `kafka-eio.producer`, `kafka-eio.consumer`.
+  # pick up changes. Single findlib library `kafka-eio`; public API is the nested
+  # `Kafka.Producer`/`Kafka.Consumer`/`Kafka.Error`/`Kafka.Security` modules
+  # (flat `Kafka_producer`/etc. names are private to the kafka-eio package).
   # obs-eio (core: spans, metrics, trace context), obs-loki-eio (Loki HTTP push
   # backend), and obs-prometheus-eio (Prometheus exposition backend) moved out to
   # standalone opam packages at ~/Code/obs-eio, ~/Code/obs-loki-eio, and

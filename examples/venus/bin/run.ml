@@ -215,7 +215,7 @@ let () =
     (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
      | Ok ()    -> ()
      | Error ke ->
-       Printf.eprintf "[charge-svc]    publish error: %s\n%!" (Kafka_error.to_string ke));
+       Printf.eprintf "[charge-svc]    publish error: %s\n%!" (Kafka.Error.to_string ke));
     Response.json ~status:202
       (Printf.sprintf {|{"charge_id":%S,"accepted":true}|} charge_id)
   in
