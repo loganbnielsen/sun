@@ -1,5 +1,40 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: track every support package's `main` instead of stale tags (2026-08-29)
+
+Local opam switch and both `.github/workflows/{ci,release}.yml` pin steps now track
+`#main` for every one of the nine extracted support packages (`kafka-eio`, `aws-eio`,
+`pg-eio`, `obs-eio`, `obs-loki-eio`, `obs-prometheus-eio`, `s3-eio`, `dynamodb-eio`,
+`lambda-eio`), matching the `#main` convention `s3-eio`/`dynamodb-eio`/`lambda-eio`
+already used since they have no tagged release. `kafka-eio`/`obs-eio`/
+`obs-loki-eio`/`obs-prometheus-eio`/`pg-eio`/`aws-eio` previously pinned to fixed
+version tags (`v0.2.0`/`v0.1.0`) that had fallen behind each repo's actual `main` —
+deliberate for now, while all of these packages are under active parallel
+development; revert to tagged pins once they settle. Accepted tradeoff: a sun
+release build re-run later can pull different dependency code than what originally
+shipped, until real tags come back.
+
+Two real fixes were needed to build against kafka-eio's current `main` (2 commits
+past `v0.2.0`, not yet re-tagged): `Kafka.Consumer.stream` was removed from the
+public facade (PR #11, `kafka-eio`) — `kafka_service_retry_topics.ml`'s retry-topic
+consumer loop switched from `Eio.Stream.take (Kafka.Consumer.stream ...)` to
+`Kafka.Consumer.fetch`, the documented direct-style equivalent, treating
+`Error Destroy` as a clean loop exit. `Kafka.Consumer.consume_partitioned` now
+returns `(unit, 'e Kafka.Consumer.consume_error) result` instead of `(unit, 'e)
+result` (PR #12) — both call sites in `kafka_service.ml`/`kafka_service_retry_topics.ml`
+now unwrap `Handler_error e -> e` / `Invalid_config msg -> Kafka.Error.Config_error
+msg` before returning, keeping `Kafka_service.consume_partitioned`'s own public
+contract at `(unit, Kafka.Error.t) result` unchanged (`Invalid_config` is
+unreachable in practice here — no caller passes a non-default `queue_capacity`).
+
+Separately, the local opam switch had drifted from what CI/release actually pin:
+`s3-eio` was pinned to a stray already-merged feature branch instead of `main`, and
+`https-eio` was pinned via a plain local-dir pin (tracks the working tree, not a
+commit) instead of a git ref. Both fixed as part of this pass.
+
+`rm -rf _build && dune build @all` and `dune test framework/ integrations/ cli/`
+pass clean against the re-pinned switch.
+
 ## Latest: adopt kafka-eio's public API cleanup (2026-08-28)
 
 Upstream `kafka-eio` (`~/Code/kafka-eio`, PR #9, `codex/kafka-public-api-cleanup`)
