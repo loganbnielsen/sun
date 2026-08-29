@@ -22,7 +22,7 @@ module type WORKER = sig
       worker stops and raises [Failure msg]. *)
 end
 
-type retry_policy = Kafka_consumer.retry_policy = {
+type retry_policy = Kafka.Consumer.retry_policy = {
   base_delay_s : float;
   (** Initial backoff in seconds. Doubles on each consecutive failure. *)
   max_delay_s  : float;
@@ -64,7 +64,7 @@ module Make (W : WORKER) : sig
         already happened — logged at [Warn], and the message is left
         uncommitted for natural redelivery rather than retried immediately.
         Escalates to [Error] (stopping the worker) only when the commit
-        failure is [Kafka_error.is_fatal] — a broken consumer, not a
+        failure is [Kafka.Error.is_fatal] — a broken consumer, not a
         transient hiccup — logged at [Error] in that case. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
@@ -76,7 +76,7 @@ module Make (W : WORKER) : sig
     (** Failure strategy for [Error] results from [W.handle]. Defaults to
         [In_memory default_retry]. See [retry_strategy] for the two modes. *)
     -> ?test_consume_loop:
-         (handler:(W.Message.t -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
+         (handler:(W.Message.t -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
           -> unit -> unit)
     (** Test injection: replace the real per-partition consume loop with a stub.
         The stub receives the handler directly; retry logic is not applied. *)

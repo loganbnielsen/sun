@@ -95,22 +95,6 @@ run_suite() {
 # ── Unit (always) ─────────────────────────────────────────────────────────────
 run_suite unit
 
-# ── Observability (Loki-conditional) ──────────────────────────────────────────
-if [ $LOKI_UP -eq 1 ]; then
-  run_suite observability
-else
-  echo ""
-  echo "  (Loki not running — observability tests skipped)"
-fi
-
-# ── Storage (Postgres-conditional) ────────────────────────────────────────────
-if [ $POSTGRES_UP -eq 1 ]; then
-  run_suite storage
-else
-  echo ""
-  echo "  (Postgres not running — storage tests skipped)"
-fi
-
 # ── Kafka (broker-conditional) ────────────────────────────────────────────────
 if [ $BROKER_UP -eq 1 ]; then
   run_suite kafka

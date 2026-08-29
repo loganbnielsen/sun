@@ -4,7 +4,7 @@ module type WORKER = sig
   val handle : Message.t -> trace_ctx:Obs_trace.t option -> (unit, string) result
 end
 
-type retry_policy = Kafka_consumer.retry_policy = {
+type retry_policy = Kafka.Consumer.retry_policy = {
   base_delay_s : float;
   max_delay_s  : float;
   max_attempts : int;
@@ -78,7 +78,7 @@ module Make (W : WORKER) = struct
             | None   -> false
           in
           if Atomic.get stop_flag || limit_reached then
-            Kafka_consumer.Stop
+            Kafka.Consumer.Stop
           else begin
             let t0 = Eio.Time.now env#clock in
             match W.handle msg ~trace_ctx with
@@ -88,21 +88,21 @@ module Make (W : WORKER) = struct
                | None   -> ());
               (* Signal consume_partitioned to retry with backoff.
                  For the test_consume_loop test path this propagates as a Failure. *)
-              Kafka_consumer.Error Kafka_error.Application
+              Kafka.Consumer.Error Kafka.Error.Application
             | Ok () ->
               let dt = Eio.Time.now env#clock -. t0 in
               (match msg_duration with Some h -> h dt | None -> ());
               let advance () =
                 match remaining with
-                | None -> Kafka_consumer.Continue
+                | None -> Kafka.Consumer.Continue
                 | Some r ->
                   decr r;
-                  if !r <= 0 then Kafka_consumer.Stop else Kafka_consumer.Continue
+                  if !r <= 0 then Kafka.Consumer.Stop else Kafka.Consumer.Continue
               in
               (* Ack only after the handler succeeds, so a side effect is never
                  acked before it happens. An ack failure is a commit failure,
                  not a processing failure — retrying would risk a duplicate —
-                 so it's only escalated to Kafka_consumer.Error when fatal. *)
+                 so it's only escalated to Kafka.Consumer.Error when fatal. *)
               match ack () with
               | Ok () ->
                 (match msg_count with
@@ -116,14 +116,14 @@ module Make (W : WORKER) = struct
                 (match ot with
                  | None -> ()
                  | Some o ->
-                   Obs_eio.log_standalone o (if Kafka_error.is_fatal e then Obs_eio.Error else Obs_eio.Warn)
-                     ~fields:[("error", Kafka_error.to_string e)]
-                     (if Kafka_error.is_fatal e
+                   Obs_eio.log_standalone o (if Kafka.Error.is_fatal e then Obs_eio.Error else Obs_eio.Warn)
+                     ~fields:[("error", Kafka.Error.to_string e)]
+                     (if Kafka.Error.is_fatal e
                       then "sun-worker: fatal ack failure, stopping consumer"
                       else "sun-worker: ack failed, offset not committed; \
                             message eligible for redelivery"));
-                if Kafka_error.is_fatal e
-                then Kafka_consumer.Error e
+                if Kafka.Error.is_fatal e
+                then Kafka.Consumer.Error e
                 else advance ()
           end
         in
@@ -149,6 +149,6 @@ module Make (W : WORKER) = struct
     | Error (`Create msg)   -> raise (Failure ("sun-worker: create failed: " ^ msg))
     | Error (`Register msg) -> raise (Failure ("sun-worker: register failed: " ^ msg))
     | Error (`Consume ke)   ->
-      raise (Failure ("sun-worker: consume error: " ^ Kafka_error.to_string ke))
+      raise (Failure ("sun-worker: consume error: " ^ Kafka.Error.to_string ke))
 
 end

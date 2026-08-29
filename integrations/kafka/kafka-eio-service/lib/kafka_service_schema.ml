@@ -139,11 +139,11 @@ let decode_wire bytes = Confluent_wire.decode bytes
 
 let decode_message topic raw_msg =
   let ( let* ) = Result.bind in
-  let raw_bytes = raw_msg.Kafka_consumer.value in
+  let raw_bytes = raw_msg.Kafka.Consumer.value in
   let string_headers =
     List.filter_map
       (fun (k, v) -> Option.map (fun v -> (k, v)) v)
-      raw_msg.Kafka_consumer.headers
+      raw_msg.Kafka.Consumer.headers
   in
   let trace_ctx = Obs_trace.extract_from_headers string_headers in
   let result =

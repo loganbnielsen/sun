@@ -1,5 +1,27 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: adopt kafka-eio's public API cleanup (2026-08-28)
+
+Upstream `kafka-eio` (`~/Code/kafka-eio`, PR #9, `codex/kafka-public-api-cleanup`)
+collapsed its three sub-libraries (`kafka-eio-core`/`-producer`/`-consumer`) into a
+single `lib/` and a single findlib library, `kafka-eio`. The public contract is now
+the nested `Kafka.Producer`/`Kafka.Consumer`/`Kafka.Error`/`Kafka.Security` modules
+declared in `lib/kafka.mli`; the flat `Kafka_producer`/`Kafka_consumer`/`Kafka_error`/
+`Kafka_security`/`Kafka_raw` module names are `private_modules` and unreachable from
+outside the package.
+
+Updated in this repo to match: `framework/sun-worker/{lib,test}/dune` and
+`integrations/kafka/kafka-eio-service/{lib,test}/dune` now depend on plain `kafka-eio`
+(not `kafka-eio.core`/`.producer`/`.consumer`, which no longer exist). All call sites
+in `framework/sun-worker/`, `integrations/kafka/kafka-eio-service/`,
+`examples/local-demo/`, `examples/venus/`, and the kafka scaffold template in
+`cli/sun/lib/sun_cli_scaffold_templates.ml` moved from the flat `Kafka_*` names to
+`Kafka.*`. Re-pinned `kafka-eio` to the PR branch tip to verify before merge.
+
+`dune build @all` and `dune test framework/` pass from a clean `_build`. The
+`kafka-eio-service` integration test still needs a live broker
+(`bash platform/local/scripts/ensure-broker.sh`) and was not exercised here.
+
 ## Latest: `aws-eio` extracted to a standalone opam package (2026-08-25)
 
 Unlike every other extraction this repo has done (`kafka-eio`, `obs-eio` family,

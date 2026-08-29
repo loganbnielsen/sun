@@ -114,7 +114,7 @@ let make_config () : Kafka_service.config = {
   admin_url;
   linger_ms           = 5;
   partitions          = 1;
-  security            = Kafka_security.default;
+  security            = Kafka.Security.default;
 }
 
 (* ------------------------------------------------------------------ *)
@@ -210,7 +210,7 @@ let test_publish_consume_roundtrip () =
               ~handler:(fun msg ~ack ~trace_ctx:_ ->
                 ignore (ack ());
                 Eio.Promise.resolve received_r msg;
-                Kafka_consumer.Stop
+                Kafka.Consumer.Stop
               ) ())
           );
           (* Fail fast if the consumer never gets assigned, rather than hanging. *)
@@ -224,7 +224,7 @@ let test_publish_consume_roundtrip () =
             amount_cents = 9900;
           } in
           (match Eio.Promise.await (Kafka_service.publish svc topic expected) with
-           | Error e -> Alcotest.failf "publish failed: %s" (Kafka_error.to_string e)
+           | Error e -> Alcotest.failf "publish failed: %s" (Kafka.Error.to_string e)
            | Ok () -> ());
           (* Wait up to 15s for the consumer to receive it. *)
           (match Eio.Time.with_timeout env#clock 15.0 (fun () ->
@@ -263,11 +263,11 @@ let test_decode_error_callback () =
               ~on_decode_error:(fun e ~raw_bytes:_ ~ack ->
                 Eio.Stream.add error_stream e;
                 ignore (ack ());
-                Kafka_consumer.Stop
+                Kafka.Consumer.Stop
               )
               ~handler:(fun _msg ~ack ~trace_ctx:_ ->
                 ignore (ack ());
-                Kafka_consumer.Stop
+                Kafka.Consumer.Stop
               ) ())
           );
           (* Wait until the broker has assigned partitions before publishing. *)
@@ -277,26 +277,26 @@ let test_decode_error_callback () =
              Alcotest.fail "timed out waiting for consumer partition assignment (on_ready)"
            | Ok () -> ());
           (* Publish raw bytes (no Confluent wire framing) via the raw producer. *)
-          let producer_cfg : Kafka_producer.config = {
+          let producer_cfg : Kafka.Producer.config = {
             brokers = Kafka_test_helpers.brokers ();
-            delivery_mode = Kafka_producer.At_least_once;
+            delivery_mode = Kafka.Producer.At_least_once;
             linger_ms     = None;
-            security      = Kafka_security.default;
+            security      = Kafka.Security.default;
             properties    = [];
           } in
-          (match Kafka_producer.create producer_cfg ~sw with
+          (match Kafka.Producer.create producer_cfg ~sw with
            | Error e ->
-             Alcotest.failf "raw producer create failed: %s" (Kafka_error.to_string e)
+             Alcotest.failf "raw producer create failed: %s" (Kafka.Error.to_string e)
            | Ok producer ->
              let raw = Bytes.of_string {|{"id":"raw-no-wire-format"}|} in
              (match Eio.Promise.await
-                      (Kafka_producer.produce_await producer
+                      (Kafka.Producer.produce_await producer
                          ~topic:RawTestEvent.topic_name
                          ~value:(Some raw) ()) with
               | Error e ->
-                Alcotest.failf "raw publish failed: %s" (Kafka_error.to_string e)
+                Alcotest.failf "raw publish failed: %s" (Kafka.Error.to_string e)
               | Ok () -> ());
-             Kafka_producer.close producer);
+             Kafka.Producer.close producer);
           (* Wait up to 10s for the decode error to be observed. *)
           match Eio.Time.with_timeout env#clock 10.0 (fun () ->
               Ok (Eio.Stream.take error_stream)) with

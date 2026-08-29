@@ -36,18 +36,18 @@ let execute_action action ~raw_msg ~attempt ~publish_raw ~ack =
   | Ack -> ignore (ack ())
   | Forward_retry { target; delay_s } ->
     (match publish_raw ~target_topic:target ~attempt
-             ~raw_bytes:raw_msg.Kafka_consumer.value
-             ~headers:raw_msg.Kafka_consumer.headers
+             ~raw_bytes:raw_msg.Kafka.Consumer.value
+             ~headers:raw_msg.Kafka.Consumer.headers
              ~delay_s
-             ~partition:raw_msg.Kafka_consumer.partition with
+             ~partition:raw_msg.Kafka.Consumer.partition with
      | Ok ()   -> ignore (ack ())
      | Error _ -> ())
   | Forward_dlq { target } ->
     (match publish_raw ~target_topic:target ~attempt
-             ~raw_bytes:raw_msg.Kafka_consumer.value
-             ~headers:raw_msg.Kafka_consumer.headers
+             ~raw_bytes:raw_msg.Kafka.Consumer.value
+             ~headers:raw_msg.Kafka.Consumer.headers
              ~delay_s:0.0
-             ~partition:raw_msg.Kafka_consumer.partition with
+             ~partition:raw_msg.Kafka.Consumer.partition with
      | Ok ()   -> ignore (ack ())
      | Error _ -> ())
 
@@ -79,7 +79,7 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
       strip_sun_hdrs headers
     in
     match Eio.Promise.await (
-      Kafka_producer.produce_await svc.producer
+      Kafka.Producer.produce_await svc.producer
         ~topic:target_topic
         ~value:raw_bytes ~headers:new_headers ()
     ) with
@@ -88,55 +88,55 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
       Printf.eprintf
         "sun-worker: PUBLISH_FAILED target=%s attempt=%d error=%s — not acking\n%!"
         target_topic
-        attempt (Kafka_error.to_string e);
+        attempt (Kafka.Error.to_string e);
       Error e
   in
-  let consumer_cfg : Kafka_consumer.config = {
+  let consumer_cfg : Kafka.Consumer.config = {
     brokers      = svc.brokers;
     group_id;
     topics       = [topic.name];
-    offset_reset = Kafka_consumer.Earliest;
+    offset_reset = Kafka.Consumer.Earliest;
     auto_commit  = false;
     security     = svc.security;
     properties   = [];
   } in
-  match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
+  match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
   | Ok consumer ->
-    let retry_consumer_cfg : Kafka_consumer.config = {
+    let retry_consumer_cfg : Kafka.Consumer.config = {
       brokers      = svc.brokers;
       group_id     = group_id ^ "-sun-retry";
       topics       = [retry_topic_name];
-      offset_reset = Kafka_consumer.Earliest;
+      offset_reset = Kafka.Consumer.Earliest;
       auto_commit  = false;
       security     = svc.security;
       properties   = [];
     } in
-    (match Kafka_consumer.create retry_consumer_cfg ~sw with
+    (match Kafka.Consumer.create retry_consumer_cfg ~sw with
      | Error e ->
-       Printf.eprintf "warn: kafka_service: retry consumer: %s\n%!" (Kafka_error.to_string e)
+       Printf.eprintf "warn: kafka_service: retry consumer: %s\n%!" (Kafka.Error.to_string e)
      | Ok retry_consumer ->
        let decode_retry raw_msg ~ack ~attempt =
          match Kafka_service_schema.decode_message topic raw_msg with
          | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
          | Ok (msg, trace_ctx)  ->
            match handler msg ~ack ~trace_ctx with
-           | Kafka_consumer.Continue -> Kafka_consumer.Continue
-           | Kafka_consumer.Stop     -> Kafka_consumer.Stop
-           | Kafka_consumer.Error _  ->
+           | Kafka.Consumer.Continue -> Kafka.Consumer.Continue
+           | Kafka.Consumer.Stop     -> Kafka.Consumer.Stop
+           | Kafka.Consumer.Error _  ->
              let next   = attempt + 1 in
              let action = decide_action ~retry_topic:retry_topic_name
                             ~dlq_topic:dlq_topic_name
                             ~max_attempts ~attempt:next in
              execute_action action ~raw_msg ~attempt:next ~publish_raw ~ack;
-             Kafka_consumer.Continue
+             Kafka.Consumer.Continue
        in
        Eio.Fiber.fork ~sw (fun () ->
-         let retry_stream = Kafka_consumer.stream retry_consumer in
+         let retry_stream = Kafka.Consumer.stream retry_consumer in
          let rec loop () =
            let raw_msg = Eio.Stream.take retry_stream in
-           let attempt  = get_int_hdr   hdr_attempt  raw_msg.Kafka_consumer.headers in
-           let retry_at = get_float_hdr hdr_retry_at raw_msg.Kafka_consumer.headers in
+           let attempt  = get_int_hdr   hdr_attempt  raw_msg.Kafka.Consumer.headers in
+           let retry_at = get_float_hdr hdr_retry_at raw_msg.Kafka.Consumer.headers in
            let delay = max 0.0 (retry_at -. Unix.gettimeofday ()) in
            (* ponytail: kafka-eio 0.1 hid Kafka_raw, so this loop can no longer
               librdkafka-pause the partition during the backoff sleep; the retry
@@ -147,15 +147,15 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
            let ack () =
              if not !acked then begin
                acked := true;
-               Kafka_consumer.commit retry_consumer raw_msg
+               Kafka.Consumer.commit retry_consumer raw_msg
              end else Ok ()
            in
            (match decode_retry raw_msg ~ack ~attempt with
-            | Kafka_consumer.Stop                                 -> ()
-            | Kafka_consumer.Continue | Kafka_consumer.Error _ -> loop ())
+            | Kafka.Consumer.Stop                                 -> ()
+            | Kafka.Consumer.Continue | Kafka.Consumer.Error _ -> loop ())
          in
          (try loop () with Eio.Cancel.Cancelled _ -> ());
-         Kafka_consumer.close retry_consumer
+         Kafka.Consumer.close retry_consumer
        )
     );
     let decode_and_handle raw_msg ~ack =
@@ -163,23 +163,23 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
       | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
       | Ok (msg, trace_ctx)  ->
         match handler msg ~ack ~trace_ctx with
-        | Kafka_consumer.Continue -> Kafka_consumer.Continue
-        | Kafka_consumer.Stop     -> Kafka_consumer.Stop
-        | Kafka_consumer.Error _  ->
+        | Kafka.Consumer.Continue -> Kafka.Consumer.Continue
+        | Kafka.Consumer.Stop     -> Kafka.Consumer.Stop
+        | Kafka.Consumer.Error _  ->
           let action = decide_action ~retry_topic:retry_topic_name
                          ~dlq_topic:dlq_topic_name
                          ~max_attempts ~attempt:1 in
           execute_action action ~raw_msg ~attempt:1 ~publish_raw ~ack;
-          Kafka_consumer.Continue
+          Kafka.Consumer.Continue
     in
-    let no_retry : Kafka_consumer.retry_policy =
+    let no_retry : Kafka.Consumer.retry_policy =
       { base_delay_s = 0.0; max_delay_s = 0.0; max_attempts = 0 }
     in
     let result =
-      Kafka_consumer.consume_partitioned consumer ~sw ~clock
+      Kafka.Consumer.consume_partitioned consumer ~sw ~clock
         ~retry:no_retry
         ~on_retry:(fun ~partition:_ ~attempt:_ ~delay_s:_ -> ())
         ~handler:decode_and_handle ()
     in
-    Kafka_consumer.close consumer;
+    Kafka.Consumer.close consumer;
     result

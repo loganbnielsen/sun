@@ -177,7 +177,7 @@ let () =
     (match Eio.Promise.await (Kafka_service.publish svc topic j) with
      | Ok ()    -> ()
      | Error ke ->
-       Printf.eprintf "[prod]   publish error: %s\n%!" (Kafka_error.to_string ke))
+       Printf.eprintf "[prod]   publish error: %s\n%!" (Kafka.Error.to_string ke))
   ) jobs;
   Printf.printf "%s\n%!" sep;
 

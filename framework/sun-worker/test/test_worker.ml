@@ -28,7 +28,7 @@ let fake_config : Kafka_service.config = {
   admin_url           = "http://127.0.0.1:1";
   linger_ms           = 5;
   partitions          = 1;
-  security            = Kafka_security.default;
+  security            = Kafka.Security.default;
 }
 
 (* ── Worker fixtures ─────────────────────────────────────────────────── *)
@@ -54,8 +54,8 @@ end
 let one_message msg ~handler () =
   let result = handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None in
   match result with
-  | Kafka_consumer.Continue | Kafka_consumer.Stop -> ()
-  | Kafka_consumer.Error _ ->
+  | Kafka.Consumer.Continue | Kafka.Consumer.Stop -> ()
+  | Kafka.Consumer.Error _ ->
     (* Worker returned Error (retryable failure). Simulate what consume_partitioned
        would do after exhausting retries: surface as a Failure to the caller. *)
     failwith "sun-worker: handler returned error"
@@ -63,8 +63,8 @@ let one_message msg ~handler () =
 let two_messages msgs ~handler () =
   List.iter (fun msg ->
     match handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None with
-    | Kafka_consumer.Continue | Kafka_consumer.Stop -> ()
-    | Kafka_consumer.Error _ ->
+    | Kafka.Consumer.Continue | Kafka.Consumer.Stop -> ()
+    | Kafka.Consumer.Error _ ->
       failwith "sun-worker: handler returned error"
   ) msgs
 
@@ -220,9 +220,9 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
     let result_r = ref None in
     W.run ~env ~config:fake_config ~ot
       ~test_consume_loop:(one_message_with_ack msg
-        ~ack:(fun () -> Error Kafka_error.Application) ~result_r) ();
+        ~ack:(fun () -> Error Kafka.Error.Application) ~result_r) ();
     (match !result_r with
-     | Some Kafka_consumer.Continue -> ()
+     | Some Kafka.Consumer.Continue -> ()
      | _ -> Alcotest.fail "expected Continue after a non-fatal ack failure");
     let output = render () in
     Alcotest.(check bool) "status=ack_failed label present"
@@ -233,7 +233,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
               if String.sub output i n = needle then found := true
             done; !found))
 
-(* Verifies only that the handler closure computes Kafka_consumer.Error for a
+(* Verifies only that the handler closure computes Kafka.Consumer.Error for a
    fatal ack failure — the real consume_partitioned path turning that into a
    process-ending Failure is not exercised here. *)
 let test_ack_failure_fatal_escalates () =
@@ -243,10 +243,10 @@ let test_ack_failure_fatal_escalates () =
     let result_r = ref None in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message_with_ack msg
-        ~ack:(fun () -> Error Kafka_error.Fatal) ~result_r) ();
+        ~ack:(fun () -> Error Kafka.Error.Fatal) ~result_r) ();
     match !result_r with
-    | Some (Kafka_consumer.Error e) ->
-      Alcotest.(check bool) "escalated error is fatal" true (Kafka_error.is_fatal e)
+    | Some (Kafka.Consumer.Error e) ->
+      Alcotest.(check bool) "escalated error is fatal" true (Kafka.Error.is_fatal e)
     | _ -> Alcotest.fail "expected the handler to return Error for a fatal ack failure")
 
 let test_external_stop_flag_skips_messages () =

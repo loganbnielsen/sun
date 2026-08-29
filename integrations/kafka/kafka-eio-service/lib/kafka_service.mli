@@ -60,8 +60,8 @@ type config = {
   admin_url           : string;       (** Redpanda admin API, e.g. "http://localhost:9644" *)
   linger_ms           : int;          (** produce batch window in ms; 50 is a good default *)
   partitions          : int;          (** partition count for auto-provisioned topics *)
-  security            : Kafka_security.t;
-  (** Transport security for broker connections. Use [Kafka_security.default] for local dev.
+  security            : Kafka.Security.t;
+  (** Transport security for broker connections. Use [Kafka.Security.default] for local dev.
       Production: set [KAFKA_SECURITY_PROTOCOL=sasl_ssl] and supply SASL credentials via env. *)
 }
 
@@ -125,7 +125,7 @@ val publish
   -> 'a topic
   -> ?trace_ctx:Obs_trace.t
   -> 'a
-  -> (unit, Kafka_error.t) result Eio.Promise.t
+  -> (unit, Kafka.Error.t) result Eio.Promise.t
 
 (** [consume svc topic ~group_id ~sw ?on_ready ?on_decode_error ~handler]
     subscribes to the topic and calls [handler] for each successfully decoded message.
@@ -152,11 +152,11 @@ val consume
   -> group_id:string
   -> sw:Eio.Switch.t
   -> ?on_ready:(unit -> unit)
-  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
+  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka.Error.t) result) -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> ?ot:Obs_eio.t
-  -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
+  -> handler:('a -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> unit
-  -> (unit, Kafka_error.t) result
+  -> (unit, Kafka.Error.t) result
 
 (** How [consume_partitioned] should handle transient handler failures.
 
@@ -172,11 +172,11 @@ val consume
       [max_attempts] total failures the message is routed to [<topic>-dlq].
       Both topics are auto-provisioned on startup. *)
 type retry_strategy =
-  | In_memory    of Kafka_consumer.retry_policy
+  | In_memory    of Kafka.Consumer.retry_policy
   | Retry_topics of { max_attempts : int }
 
 val default_retry_strategy : retry_strategy
-(** [In_memory Kafka_consumer.default_retry] — in-process exponential backoff,
+(** [In_memory Kafka.Consumer.default_retry] — in-process exponential backoff,
     indefinite retries.  Suitable for transient failures in low-traffic topics. *)
 
 (** [consume_partitioned svc topic ~group_id ~sw ~clock ...] is like [consume]
@@ -194,10 +194,10 @@ val consume_partitioned
   -> sw:Eio.Switch.t
   -> clock:_ Eio.Time.clock
   -> ?on_ready:(unit -> unit)
-  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka_error.t) result) -> Kafka_error.t Kafka_consumer.handler_result)
+  -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka.Error.t) result) -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> ?retry_strategy:retry_strategy
   -> ?on_retry:(partition:int32 -> attempt:int -> delay_s:float -> unit)
   -> ?ot:Obs_eio.t
-  -> handler:('a -> ack:(unit -> (unit, Kafka_error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka_error.t Kafka_consumer.handler_result)
+  -> handler:('a -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> unit
-  -> (unit, Kafka_error.t) result
+  -> (unit, Kafka.Error.t) result

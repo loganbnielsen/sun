@@ -18,16 +18,16 @@ type config = Kafka_service_intf.config = {
   admin_url           : string;
   linger_ms           : int;
   partitions          : int;
-  security            : Kafka_security.t;
+  security            : Kafka.Security.t;
 }
 
 type t = Kafka_service_intf.t = {
-  producer            : Kafka_producer.t;
+  producer            : Kafka.Producer.t;
   brokers             : string list;
   schema_registry_url : string;
   admin_url           : string;
   partitions          : int;
-  security            : Kafka_security.t;
+  security            : Kafka.Security.t;
 }
 
 module Schema = Kafka_service_schema.Schema
@@ -37,15 +37,15 @@ let encode_wire = Kafka_service_schema.encode_wire
 let config_of_env = Kafka_service_config.config_of_env
 
 let create (cfg : config) ~sw =
-  let producer_cfg : Kafka_producer.config = {
+  let producer_cfg : Kafka.Producer.config = {
     brokers       = cfg.brokers;
-    delivery_mode = Kafka_producer.At_least_once;
+    delivery_mode = Kafka.Producer.At_least_once;
     linger_ms     = Some cfg.linger_ms;
     security      = cfg.security;
     properties    = [];
   } in
-  match Kafka_producer.create producer_cfg ~sw with
-  | Error e -> Error ("producer: " ^ Kafka_error.to_string e)
+  match Kafka.Producer.create producer_cfg ~sw with
+  | Error e -> Error ("producer: " ^ Kafka.Error.to_string e)
   | Ok producer ->
     Ok {
       Kafka_service_intf.producer;
@@ -98,19 +98,19 @@ let publish svc topic ?trace_ctx msg =
   in
   let headers = List.map (fun (k, v) -> (k, Some v)) headers in
   let payload = encode_wire ~schema_id:topic.schema_id (topic.encode msg) in
-  Kafka_producer.produce_await svc.producer
+  Kafka.Producer.produce_await svc.producer
     ~topic:topic.name ~value:(Some payload) ~headers ()
 
 type retry_strategy =
-  | In_memory    of Kafka_consumer.retry_policy
+  | In_memory    of Kafka.Consumer.retry_policy
   | Retry_topics of { max_attempts : int }
 
-let default_retry_strategy = In_memory Kafka_consumer.default_retry
+let default_retry_strategy = In_memory Kafka.Consumer.default_retry
 
 let default_on_decode_error e ~raw_bytes:_ ~ack =
   Printf.eprintf "sun-worker: DECODE_ERROR skip=true error=%S\n%!" e;
   ignore (ack ());
-  Kafka_consumer.Continue
+  Kafka.Consumer.Continue
 
 let consume svc topic ~group_id ~sw
     ?(on_ready = ignore)
@@ -120,16 +120,16 @@ let consume svc topic ~group_id ~sw
   let on_decode_error =
     Kafka_service_intf.wrap_on_decode_error ~ot ~topic_name:topic.name on_decode_error
   in
-  let consumer_cfg : Kafka_consumer.config = {
+  let consumer_cfg : Kafka.Consumer.config = {
     brokers      = svc.brokers;
     group_id;
     topics       = [topic.name];
-    offset_reset = Kafka_consumer.Earliest;
+    offset_reset = Kafka.Consumer.Earliest;
     auto_commit  = false;
     security     = svc.security;
     properties   = [];
   } in
-  match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
+  match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
   | Error e -> Error e
   | Ok consumer ->
     let decode_and_handle raw_msg ~ack =
@@ -137,8 +137,8 @@ let consume svc topic ~group_id ~sw
       | Error (e, raw_bytes) -> on_decode_error e ~raw_bytes ~ack
       | Ok (msg, trace_ctx)  -> handler msg ~ack ~trace_ctx
     in
-    let result = Kafka_consumer.consume consumer ~handler:decode_and_handle () in
-    Kafka_consumer.close consumer;
+    let result = Kafka.Consumer.consume consumer ~handler:decode_and_handle () in
+    Kafka.Consumer.close consumer;
     result
 
 let consume_partitioned svc topic ~group_id ~sw ~clock
@@ -153,16 +153,16 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
   in
   match retry_strategy with
   | In_memory retry ->
-    let consumer_cfg : Kafka_consumer.config = {
+    let consumer_cfg : Kafka.Consumer.config = {
       brokers      = svc.brokers;
       group_id;
       topics       = [topic.name];
-      offset_reset = Kafka_consumer.Earliest;
+      offset_reset = Kafka.Consumer.Earliest;
       auto_commit  = false;
       security     = svc.security;
       properties   = [];
     } in
-    (match Kafka_consumer.create ~on_ready consumer_cfg ~sw with
+    (match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
      | Error e -> Error e
      | Ok consumer ->
        let decode_and_handle raw_msg ~ack =
@@ -171,10 +171,10 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
          | Ok (msg, trace_ctx)  -> handler msg ~ack ~trace_ctx
        in
        let result =
-         Kafka_consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
+         Kafka.Consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
            ~handler:decode_and_handle ()
        in
-       Kafka_consumer.close consumer;
+       Kafka.Consumer.close consumer;
        result)
   | Retry_topics { max_attempts } ->
     Kafka_service_retry_topics.consume svc topic ~group_id ~sw ~clock
