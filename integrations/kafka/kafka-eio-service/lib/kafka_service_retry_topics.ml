@@ -132,27 +132,30 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
              Kafka.Consumer.Continue
        in
        Eio.Fiber.fork ~sw (fun () ->
-         let retry_stream = Kafka.Consumer.stream retry_consumer in
          let rec loop () =
-           let raw_msg = Eio.Stream.take retry_stream in
-           let attempt  = get_int_hdr   hdr_attempt  raw_msg.Kafka.Consumer.headers in
-           let retry_at = get_float_hdr hdr_retry_at raw_msg.Kafka.Consumer.headers in
-           let delay = max 0.0 (retry_at -. Unix.gettimeofday ()) in
-           (* ponytail: kafka-eio 0.1 hid Kafka_raw, so this loop can no longer
-              librdkafka-pause the partition during the backoff sleep; the retry
-              stream's bounded capacity still caps how far ahead librdkafka can
-              prefetch. Revisit if that prefetch overhead matters. *)
-           if delay > 0.001 then Eio.Time.sleep clock delay;
-           let acked = ref false in
-           let ack () =
-             if not !acked then begin
-               acked := true;
-               Kafka.Consumer.commit retry_consumer raw_msg
-             end else Ok ()
-           in
-           (match decode_retry raw_msg ~ack ~attempt with
-            | Kafka.Consumer.Stop                                 -> ()
-            | Kafka.Consumer.Continue | Kafka.Consumer.Error _ -> loop ())
+           match Kafka.Consumer.fetch retry_consumer with
+           | Error Kafka.Error.Destroy -> ()
+           | Error e ->
+             Printf.eprintf "warn: kafka_service: retry consumer fetch: %s\n%!" (Kafka.Error.to_string e)
+           | Ok raw_msg ->
+             let attempt  = get_int_hdr   hdr_attempt  raw_msg.Kafka.Consumer.headers in
+             let retry_at = get_float_hdr hdr_retry_at raw_msg.Kafka.Consumer.headers in
+             let delay = max 0.0 (retry_at -. Unix.gettimeofday ()) in
+             (* ponytail: kafka-eio 0.1 hid Kafka_raw, so this loop can no longer
+                librdkafka-pause the partition during the backoff sleep; the retry
+                stream's bounded capacity still caps how far ahead librdkafka can
+                prefetch. Revisit if that prefetch overhead matters. *)
+             if delay > 0.001 then Eio.Time.sleep clock delay;
+             let acked = ref false in
+             let ack () =
+               if not !acked then begin
+                 acked := true;
+                 Kafka.Consumer.commit retry_consumer raw_msg
+               end else Ok ()
+             in
+             (match decode_retry raw_msg ~ack ~attempt with
+              | Kafka.Consumer.Stop                                 -> ()
+              | Kafka.Consumer.Continue | Kafka.Consumer.Error _ -> loop ())
          in
          (try loop () with Eio.Cancel.Cancelled _ -> ());
          Kafka.Consumer.close retry_consumer
@@ -180,6 +183,9 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
         ~retry:no_retry
         ~on_retry:(fun ~partition:_ ~attempt:_ ~delay_s:_ -> ())
         ~handler:decode_and_handle ()
+      |> Result.map_error (function
+           | Kafka.Consumer.Handler_error e -> e
+           | Kafka.Consumer.Invalid_config msg -> Kafka.Error.Config_error msg)
     in
     Kafka.Consumer.close consumer;
     result

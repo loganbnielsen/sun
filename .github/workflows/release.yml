@@ -24,13 +24,18 @@ jobs:
 
       - name: Pin extracted opam packages
         run: |
-          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#v0.2.0 -y
-          opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#v0.1.0 -y
-          opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#v0.1.0 -y
-          opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#v0.1.0 -y
-          opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#v0.1.0 -y
-          opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#v0.1.0 -y
-          # s3-eio, dynamodb-eio, lambda-eio have no tagged release yet — pin to main.
+          # Tracking #main on every support package during active parallel
+          # development across all of them — sun should build against their
+          # latest code, not a tag that's fallen behind. Revert to tagged
+          # pins once these settle and cut real releases (re-running a past
+          # sun release build later can then pull in different dependency
+          # code than what originally shipped — accepted tradeoff for now).
+          opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#main -y
+          opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#main -y
+          opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#main -y
+          opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#main -y
+          opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#main -y
+          opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#main -y
           opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y
           opam pin add dynamodb-eio https://github.com/loganbnielsen/dynamodb-eio.git#main -y
           opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
