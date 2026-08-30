@@ -62,8 +62,8 @@ let read_body_limited headers (body : Cohttp_eio.Body.t) max_bytes =
 
 let ( let* ) = Result.bind
 
-let auth_result ?fetch_jwks auth_cfg headers =
-  match Auth.validate ?fetch_jwks auth_cfg headers with
+let auth_result ?read_api_key ?fetch_jwks auth_cfg headers =
+  match Auth.validate ?read_api_key ?fetch_jwks auth_cfg headers with
   | Error (`Unauthorized _)    -> Error Response.unauthorized
   | Error (`Forbidden _)       -> Error Response.forbidden
   | Error (`Server_error msg)  -> Error (Response.internal_error msg)
@@ -74,7 +74,7 @@ let body_result headers body max_bytes =
   | None   -> Error Response.payload_too_large
   | Some s -> Ok s
 
-let dispatch ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
+let dispatch ?read_api_key ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
   let meth_opt = Route.method_of_http (Http.Request.meth req) in
   match meth_opt with
   | None -> { Response.status = 405; headers = []; body = "" }
@@ -98,7 +98,7 @@ let dispatch ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes
          | None -> Some Response.not_found
          | Some render ->
            let result =
-             let* _ = auth_result ?fetch_jwks metrics_auth headers in
+             let* _ = auth_result ?read_api_key ?fetch_jwks metrics_auth headers in
              Ok (Response.ok
                ~headers:["content-type","text/plain; version=0.0.4; charset=utf-8"]
                (render ()))
@@ -115,7 +115,7 @@ let dispatch ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes
        | Found (route, params) ->
          observe (Route.pattern_to_string route.Route.pattern);
          let result =
-           let* auth_ctx = auth_result ?fetch_jwks route.Route.auth headers in
+           let* auth_ctx = auth_result ?read_api_key ?fetch_jwks route.Route.auth headers in
            let* body_str = body_result headers body max_body_bytes in
            let trace_ctx =
              Http.Header.to_list headers
@@ -165,7 +165,7 @@ exception Drain_timeout
 
 module Make (H : HANDLER) = struct
 
-  let run ~(env : < net: _ Eio.Net.t; clock: _ Eio.Time.clock; .. >)
+  let run ~(env : < net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >)
       ?(port=8080) ?metrics_renderer ?(metrics_auth=`Public) ?ot
       ?(max_body_bytes=10_485_760) ?(drain_timeout_s=30.0) ?on_listen () =
     let port =
@@ -189,6 +189,15 @@ module Make (H : HANDLER) = struct
         Some (req_count, req_duration)
     in
     let fetch_jwks = Auth.fetch_jwks_over_https ~env in
+    let read_api_key () =
+      match Sys.getenv_opt "SUN_API_KEY_FILE" with
+      | None -> Sys.getenv_opt "SUN_API_KEY"
+      | Some path ->
+        (try Some (String.trim (Eio.Path.load Eio.Path.(env#fs / path)))
+         with
+         | Eio.Cancel.Cancelled _ as exn -> raise exn
+         | _ -> None)
+    in
     let stop, stop_r = Eio.Promise.create () in
     (try Eio.Switch.run (fun sw ->
       install_signal_handler ~sw stop_r;
@@ -212,6 +221,7 @@ module Make (H : HANDLER) = struct
         in
         let sun_resp =
           dispatch ~fetch_jwks ~routes:H.routes ~metrics_renderer ~metrics_auth
+            ~read_api_key
             ~max_body_bytes ?route_observer req body
         in
         (match metrics_fns, t0 with

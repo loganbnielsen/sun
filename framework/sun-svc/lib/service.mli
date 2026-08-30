@@ -4,7 +4,7 @@ end
 
 module Make (H : HANDLER) : sig
   val run
-    :  env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; .. >
+    :  env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >
     -> ?port:int
     -> ?metrics_renderer:(unit -> string)
     (** Renderer for the built-in [/metrics] endpoint.
@@ -23,7 +23,7 @@ end
 
 val run
   :  Route.t list
-  -> env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; .. >
+  -> env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >
   -> ?port:int
   -> ?metrics_renderer:(unit -> string)
   -> ?metrics_auth:Auth.level
