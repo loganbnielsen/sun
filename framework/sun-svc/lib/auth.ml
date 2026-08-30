@@ -46,37 +46,6 @@ type error =
   | `Server_error    of string
   ]
 
-let key_cache : (float * string) option Atomic.t = Atomic.make None
-let key_cache_mutex = Mutex.create ()
-
-let load_from_path path mtime =
-  try
-    In_channel.with_open_text path (fun ic ->
-	      let key = String.trim (input_line ic) in
-	      Atomic.set key_cache (Some (mtime, key));
-	      Some key)
-	  with
-	  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-	  | End_of_file | Sys_error _ -> None
-
-let read_api_key () =
-  match Sys.getenv_opt "SUN_API_KEY_FILE" with
-  | None -> Sys.getenv_opt "SUN_API_KEY"
-  | Some path ->
-    let mtime =
-      try Some (Unix.stat path).Unix.st_mtime with
-      | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-      | Unix.Unix_error _ -> None
-    in
-    Option.bind mtime (fun mtime ->
-      match Atomic.get key_cache with
-      | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
-      | _ ->
-        Mutex.protect key_cache_mutex (fun () ->
-          match Atomic.get key_cache with
-          | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
-          | _ -> load_from_path path mtime))
-
 let constant_time_equal s1 s2 =
   let len1 = String.length s1 and len2 = String.length s2 in
   if len1 <> len2 then false
@@ -333,7 +302,7 @@ let validate_jwt ?fetch_jwks config headers =
   | Unverified_dev_only ->
     validate_unverified_jwt config headers
 
-let validate ?(read_api_key = read_api_key) ?fetch_jwks level headers =
+let validate ?(read_api_key = Fun.const None) ?fetch_jwks level headers =
   match level with
   | `Public    -> Ok { principal = Public }
   | `Api_key   -> validate_api_key ~read_api_key headers
