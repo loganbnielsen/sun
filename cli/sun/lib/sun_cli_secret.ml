@@ -250,17 +250,25 @@ let delete ~env ~workspace:_ ~namespaces ~key =
     key
   in
   let remove_from namespace name =
-    ignore (Sun_cli_kubectl.patch ~resource:"secret" ~name ~namespace
-              ~patch_type:"json" ~patch);
-    Ok ()
+    let* existing = get_named_secret_json ~name namespace in
+    let data = existing_data existing in
+    if not (List.mem_assoc key data) then Ok ()
+    else
+      match Sun_cli_kubectl.patch ~resource:"secret" ~name ~namespace
+              ~patch_type:"json" ~patch with
+      | Ok result when result.Sun_cli_process.exit_code = 0 -> Ok ()
+      | Ok result ->
+        Error (Printf.sprintf "kubectl patch secret/%s in namespace %s failed: %s"
+          name namespace result.Sun_cli_process.stderr)
+      | Error e -> Error (Sun_cli_process.error_to_string e)
   in
   let* () =
     iter_namespaces namespaces ~f:(fun namespace ->
       let* () = remove_from namespace Sun_cli_manifest.runtime_secret_name in
-      list_workload_secrets namespace
-      |> List.iter (fun secret_name ->
-           let _ = remove_from namespace secret_name in
-           ());
+      let* () =
+        iter_namespaces (list_workload_secrets namespace) ~f:(fun secret_name ->
+          remove_from namespace secret_name)
+      in
       rollout_restart namespace;
       Ok ())
   in
