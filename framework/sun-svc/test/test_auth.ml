@@ -14,29 +14,29 @@ let test_public () =
 
 (* ── Api_key ─────────────────────────────────────────────────────────── *)
 
-let with_api_key_env value f =
-  Unix.putenv "SUN_API_KEY" value;
-  (try f () with exn -> Unix.putenv "SUN_API_KEY" ""; raise exn);
-  Unix.putenv "SUN_API_KEY" ""
-
 let test_api_key_valid () =
-  with_api_key_env "secretkey123" (fun () ->
-    match Auth.validate `Api_key (api_key "secretkey123") with
-    | Ok { principal = Auth.Service { key_id } } ->
-      Alcotest.(check string) "key_id truncated" "secretke" key_id
-    | _ -> Alcotest.fail "expected Service principal")
+  let read_api_key () = Some "secretkey123" in
+  match Auth.validate ~read_api_key `Api_key (api_key "secretkey123") with
+  | Ok { principal = Auth.Service { key_id } } ->
+    Alcotest.(check string) "key_id truncated" "secretke" key_id
+  | _ -> Alcotest.fail "expected Service principal"
 
 let test_api_key_wrong () =
-  with_api_key_env "secretkey123" (fun () ->
-    match Auth.validate `Api_key (api_key "wrongkey") with
-    | Error (`Unauthorized _) -> ()
-    | _ -> Alcotest.fail "expected Unauthorized")
+  let read_api_key () = Some "secretkey123" in
+  match Auth.validate ~read_api_key `Api_key (api_key "wrongkey") with
+  | Error (`Unauthorized _) -> ()
+  | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_api_key_missing_header () =
-  with_api_key_env "secretkey123" (fun () ->
-    match Auth.validate `Api_key (headers_of []) with
-    | Error (`Unauthorized _) -> ()
-    | _ -> Alcotest.fail "expected Unauthorized")
+  let read_api_key () = Some "secretkey123" in
+  match Auth.validate ~read_api_key `Api_key (headers_of []) with
+  | Error (`Unauthorized _) -> ()
+  | _ -> Alcotest.fail "expected Unauthorized"
+
+let test_api_key_without_reader_fails_closed () =
+  match Auth.validate `Api_key (api_key "secretkey123") with
+  | Error (`Server_error _) -> ()
+  | _ -> Alcotest.fail "expected Server_error"
 
 let test_api_key_uses_injected_reader () =
   let read_api_key () = Some "secretkey123" in
@@ -273,6 +273,7 @@ let () =
       Alcotest.test_case "injected reader"      `Quick test_api_key_uses_injected_reader;
       Alcotest.test_case "wrong key → 401"      `Quick test_api_key_wrong;
       Alcotest.test_case "missing header → 401" `Quick test_api_key_missing_header;
+      Alcotest.test_case "no reader fails closed" `Quick test_api_key_without_reader_fails_closed;
     ];
     "jwt_unverified", [
       Alcotest.test_case "valid token"           `Quick test_jwt_valid;
