@@ -172,6 +172,8 @@ let run_golden_path () =
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
         ~max_messages:orders_count
         ()
+      |> Result.map_error Worker.run_error_to_string
+      |> function Ok () -> () | Error msg -> failwith msg
     with Failure _ -> ());
     (try Eio.Promise.resolve worker_done_r () with _ -> ())
   );

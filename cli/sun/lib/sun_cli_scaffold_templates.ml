@@ -762,6 +762,8 @@ let () =
   end) in
   let module WR = Worker.Make(W) in
   WR.run ~env ~config:kafka_config ~ot ()
+  |> Result.map_error Worker.run_error_to_string
+  |> function Ok () -> () | Error msg -> failwith msg
 |tpl}
 
 (* app/comms/notify_worker/bin/dune *)
@@ -899,6 +901,8 @@ let () = Eio_main.run @@ fun env ->
   let config = Kafka_service.config_of_env () |> require_ok "kafka config" in
   let module W = Worker.Make({{Mod}}) in
   W.run ~env ~config ()
+  |> Result.map_error Worker.run_error_to_string
+  |> function Ok () -> () | Error msg -> failwith msg
 |tpl}
 
 (* Generic worker: bin/dune *)

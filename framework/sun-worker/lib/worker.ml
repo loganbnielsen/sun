@@ -14,6 +14,31 @@ type retry_strategy = Kafka_service.retry_strategy =
   | In_memory    of retry_policy
   | Retry_topics of { max_attempts : int }
 
+type run_error =
+  [ `Create   of string
+  | `Register of string
+  | `Consume  of Kafka_service.consume_partitioned_error
+  ]
+
+let consume_error_to_string = function
+  | Kafka_service.Consumer_error ke ->
+    Kafka.Error.to_string ke
+  | Kafka_service.Partition_errors errs ->
+    errs
+    |> List.map (fun (p, e) -> Printf.sprintf "partition %ld: %s" p (Kafka.Error.to_string e))
+    |> String.concat "; "
+
+let run_error_to_string = function
+  | `Create msg   -> "sun-worker: create failed: " ^ msg
+  | `Register msg -> "sun-worker: register failed: " ^ msg
+  | `Consume e ->
+    match e with
+    | Kafka_service.Consumer_error _ ->
+      "sun-worker: consume error: " ^ consume_error_to_string e
+    | Kafka_service.Partition_errors errs ->
+      "sun-worker: consume error (" ^ string_of_int (List.length errs) ^
+      " partition(s)): " ^ consume_error_to_string e
+
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
 (* Self-pipe: signal handler writes one byte; an Eio fiber reads it and sets
@@ -69,8 +94,7 @@ module Make (W : WORKER) = struct
       | Some c -> c ~labels:[("status","retry")] 1
       | None   -> ()
     in
-    let result =
-      Eio.Switch.run (fun sw ->
+    let result = Eio.Switch.run (fun sw ->
         install_signal_handler ~sw stop_flag;
         let handler msg ~ack ~trace_ctx =
           let limit_reached = match remaining with
@@ -142,29 +166,18 @@ module Make (W : WORKER) = struct
                ~group_id:W.group_id ~sw ~clock:env#clock
                ?on_ready ~retry_strategy ~on_retry ?ot ~handler ()
              |> Result.map_error (fun ke -> `Consume ke))
-      )
-    in
-    match result with
-    | Ok ()                 -> ()
-    | Error (`Create msg)   -> raise (Failure ("sun-worker: create failed: " ^ msg))
-    | Error (`Register msg) -> raise (Failure ("sun-worker: register failed: " ^ msg))
-    | Error (`Consume (Kafka_service.Consumer_error ke)) ->
-      raise (Failure ("sun-worker: consume error: " ^ Kafka.Error.to_string ke))
-    | Error (`Consume (Kafka_service.Partition_errors errs)) ->
-      (match ot with
-       | None -> ()
-       | Some o ->
-         List.iter (fun (partition, e) ->
-           Obs_eio.log_standalone o Obs_eio.Error
-             ~fields:[("partition", Int32.to_string partition); ("error", Kafka.Error.to_string e)]
-             "sun-worker: partition exhausted its retry budget"
-         ) errs);
-      let detail =
-        errs
-        |> List.map (fun (p, e) -> Printf.sprintf "partition %ld: %s" p (Kafka.Error.to_string e))
-        |> String.concat "; "
-      in
-      raise (Failure ("sun-worker: consume error (" ^ string_of_int (List.length errs) ^
-                       " partition(s)): " ^ detail))
+    ) in
+    (match result with
+     | Error (`Consume (Kafka_service.Partition_errors errs)) ->
+       (match ot with
+        | None -> ()
+        | Some o ->
+          List.iter (fun (partition, e) ->
+            Obs_eio.log_standalone o Obs_eio.Error
+              ~fields:[("partition", Int32.to_string partition); ("error", Kafka.Error.to_string e)]
+              "sun-worker: partition exhausted its retry budget"
+          ) errs)
+     | _ -> ());
+    result
 
 end

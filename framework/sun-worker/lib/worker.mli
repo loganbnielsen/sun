@@ -19,7 +19,7 @@ module type WORKER = sig
       Return [Error msg] to signal a retryable failure (nothing is acknowledged).
       The worker retries the same message using the [retry] policy passed to
       [Make(W).run]. Once [max_attempts] is exhausted (if non-negative), the
-      worker stops and raises [Failure msg]. *)
+      worker stops and [Make(W).run] returns [Error]. *)
 end
 
 type retry_policy = Kafka.Consumer.retry_policy = {
@@ -46,6 +46,14 @@ type retry_policy = Kafka.Consumer.retry_policy = {
 type retry_strategy = Kafka_service.retry_strategy =
   | In_memory    of retry_policy
   | Retry_topics of { max_attempts : int }
+
+type run_error =
+  [ `Create   of string
+  | `Register of string
+  | `Consume  of Kafka_service.consume_partitioned_error
+  ]
+
+val run_error_to_string : run_error -> string
 
 module Make (W : WORKER) : sig
   val run
@@ -81,5 +89,5 @@ module Make (W : WORKER) : sig
     (** Test injection: replace the real per-partition consume loop with a stub.
         The stub receives the handler directly; retry logic is not applied. *)
     -> unit
-    -> unit
+    -> (unit, run_error) result
 end
