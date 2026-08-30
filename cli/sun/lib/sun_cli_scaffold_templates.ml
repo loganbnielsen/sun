@@ -641,7 +641,7 @@ let require_ok label = function
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
   let loki_url     = env_nonempty "LOKI_URL" in
-  let kafka_config = Kafka_service.config_of_env () in
+  let kafka_config = Kafka_service.config_of_env () |> require_ok "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, render = Obs_prometheus.create () in
@@ -737,10 +737,14 @@ let optional_db_pool ~sw ~stdenv postgres_url =
   Option.bind postgres_url (fun url ->
     Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
 
+let require_ok label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ e)
+
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
   let loki_url     = env_nonempty "LOKI_URL" in
-  let kafka_config = Kafka_service.config_of_env () in
+  let kafka_config = Kafka_service.config_of_env () |> require_ok "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, _render = Obs_prometheus.create () in
@@ -887,8 +891,12 @@ let worker_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic worker: bin/main.ml *)
-let worker_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
-  let config = Kafka_service.config_of_env () in
+let worker_bin_ml = {tpl|let require_ok label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ e)
+
+let () = Eio_main.run @@ fun env ->
+  let config = Kafka_service.config_of_env () |> require_ok "kafka config" in
   let module W = Worker.Make({{Mod}}) in
   W.run ~env ~config ()
 |tpl}

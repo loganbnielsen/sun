@@ -13,6 +13,10 @@ let require_storage label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
 
+let require_ok label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ e)
+
 let create_db_pool ~sw ~stdenv url =
   Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
 
@@ -34,7 +38,7 @@ let () =
   let loki_url        = env_nonempty "LOKI_URL" in
   let postgres_url    = env_nonempty "POSTGRES_URL" in
   let migrations_dir  = env_nonempty "MIGRATIONS_DIR" in
-  let kafka_config    = Kafka_service.config_of_env () in
+  let kafka_config    = Kafka_service.config_of_env () |> require_ok "kafka config" in
 
   Eio_main.run @@ fun env ->
 

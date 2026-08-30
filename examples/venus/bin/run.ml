@@ -43,8 +43,12 @@ let loki_url        = env_nonempty "LOKI_URL"
 let pushgateway_url = env_nonempty "PUSHGATEWAY_URL"
 let postgres_url    = env_nonempty "POSTGRES_URL"
 
+let require_kafka label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ e)
+
 let kafka_config : Kafka_service.config =
-  { (Kafka_service.config_of_env ()) with linger_ms = 5 }
+  { (Kafka_service.config_of_env () |> require_kafka "kafka config") with linger_ms = 5 }
 
 (* ── Helpers ─────────────────────────────────────────────────────────────── *)
 
@@ -65,10 +69,6 @@ let log_backend ~net ~clock = function
 let require_storage label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
-
-let require_kafka label = function
-  | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
 
 let create_db_pool ~sw ~stdenv url =
   Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"

@@ -59,7 +59,12 @@ end
 (* ── Demo configuration ─────────────────────────────────────────────────── *)
 
 let kafka_config : Kafka_service.config =
-  { (Kafka_service.config_of_env ()) with linger_ms = 5 }
+  let config =
+    match Kafka_service.config_of_env () with
+    | Ok config -> config
+    | Error e   -> failwith ("kafka config: " ^ e)
+  in
+  { config with linger_ms = 5 }
 
 let sep       = String.make 60 '-'
 let say fmt   = Printf.ksprintf (Printf.printf "\n[demo]   %s\n%!") fmt

@@ -93,7 +93,12 @@ let run_golden_path () =
   let orders_count = 3 in
 
   let kafka_config : Kafka_service.config =
-    { (Kafka_service.config_of_env ()) with linger_ms = 5 }
+    let config =
+      match Kafka_service.config_of_env () with
+      | Ok config -> config
+      | Error e   -> failwith ("kafka config: " ^ e)
+    in
+    { config with linger_ms = 5 }
   in
 
   Eio_main.run @@ fun env ->
