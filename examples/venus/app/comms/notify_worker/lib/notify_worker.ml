@@ -20,9 +20,10 @@ end) = struct
                  ("currency",     msg.Message.currency)]
         "recording charge notification"
     );
-    (match Config.pool with
-     | None -> ()
-     | Some pool ->
+    let persist_result =
+      match Config.pool with
+      | None -> Ok ()
+      | Some pool ->
        let row = Notification.Schema.{
          charge_id    = msg.Message.charge_id;
          amount_cents = msg.Message.amount_cents;
@@ -30,11 +31,17 @@ end) = struct
          currency     = msg.Message.currency;
        } in
        (match Notification.insert pool row with
-        | Ok ()   -> ()
+        | Ok ()   -> Ok ()
         | Error e ->
-          Printf.eprintf "[notify-worker] db error: %s\n%!" (Storage_error.to_string e)));
-    Printf.printf "[notify-worker] recorded   charge=%-20s  customer=%-10s  %5d %s\n%!"
-      msg.Message.charge_id msg.Message.customer_id
-      msg.Message.amount_cents msg.Message.currency;
-    Ok ()
+          let msg = Storage_error.to_string e in
+          Printf.eprintf "[notify-worker] db error: %s\n%!" msg;
+          Error msg)
+    in
+    match persist_result with
+    | Ok () ->
+      Printf.printf "[notify-worker] recorded   charge=%-20s  customer=%-10s  %5d %s\n%!"
+        msg.Message.charge_id msg.Message.customer_id
+        msg.Message.amount_cents msg.Message.currency;
+      Ok ()
+    | Error _ as error -> error
 end

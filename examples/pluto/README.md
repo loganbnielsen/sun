@@ -12,14 +12,17 @@ dune build
 ## Run locally
 
 ```bash
-# Start Kafka (Redpanda)
+# Start Kafka (Redpanda) and Postgres
 bash <path-to-sun>/platform/local/scripts/ensure-broker.sh
+bash <path-to-sun>/platform/local/scripts/ensure-postgres.sh
 
-# Run the worker
-KAFKA_BROKERS=localhost:9092 dune exec app/comms/notify_worker/bin/main.exe
+# Run the worker (POSTGRES_URL is required — both services depend on Postgres)
+KAFKA_BROKERS=localhost:9092 POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
+  dune exec app/comms/notify_worker/bin/main.exe
 
 # In another terminal, run the service
-dune exec app/payments/charge_svc/bin/main.exe
+POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
+  dune exec app/payments/charge_svc/bin/main.exe
 ```
 
 ## CLI commands

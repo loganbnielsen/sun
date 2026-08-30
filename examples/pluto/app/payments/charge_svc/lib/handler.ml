@@ -1,4 +1,4 @@
-(* POST /charges  — write notification to DB (if POSTGRES_URL is set in cluster)
+(* POST /charges  — write notification to DB
    GET  /health      — liveness probe
    GET  /notifications — list recent charges from DB *)
 
@@ -35,30 +35,26 @@ let routes pool = [
       Response.bad_request msg
     | Ok (customer_id, amount_cents, currency) ->
       let charge_id = Printf.sprintf "ch_%06d" (Random.int 999999) in
-      (match pool with
-       | None -> ()
-       | Some p ->
-         ignore (Notification.insert p
-           ~charge_id ~customer_id ~amount_cents ~currency));
-      Response.json ~status:202
-        (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
+      (match Notification.insert pool
+               ~charge_id ~customer_id ~amount_cents ~currency with
+       | Ok () ->
+         Response.json ~status:202
+           (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
+       | Error e ->
+         Response.internal_error ("db insert failed: " ^ Storage_error.to_string e))
   );
   Route.get "/notifications" ~auth:`Public (fun _req ->
-    match pool with
-    | None ->
-      Response.json {|[]|}
-    | Some p ->
-      (match Notification.list_recent p with
-       | Error _  -> Response.json ~status:500 {|{"error":"db unavailable"}|}
-       | Ok rows  ->
-         let row_json (charge_id, customer_id, amount_cents, currency) =
-           `Assoc [
-             ("charge_id",    `String charge_id);
-             ("customer_id",  `String customer_id);
-             ("amount_cents", `Int amount_cents);
-             ("currency",     `String currency);
-           ]
-         in
-         Response.json (Yojson.Basic.to_string (`List (List.map row_json rows))))
+    match Notification.list_recent pool with
+    | Error _  -> Response.json ~status:500 {|{"error":"db unavailable"}|}
+    | Ok rows  ->
+      let row_json (charge_id, customer_id, amount_cents, currency) =
+        `Assoc [
+          ("charge_id",    `String charge_id);
+          ("customer_id",  `String customer_id);
+          ("amount_cents", `Int amount_cents);
+          ("currency",     `String currency);
+        ]
+      in
+      Response.json (Yojson.Basic.to_string (`List (List.map row_json rows)))
   );
 ]

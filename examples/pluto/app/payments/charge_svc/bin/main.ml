@@ -9,9 +9,15 @@ let optional_log_backend ~net ~clock = function
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
 
-let optional_db_pool ~sw ~stdenv postgres_url =
-  Option.bind postgres_url (fun url ->
-    Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
+let require_db_pool ~sw ~stdenv postgres_url =
+  let url =
+    match postgres_url with
+    | Some url -> url
+    | None -> failwith "db pool: POSTGRES_URL is required"
+  in
+  match Db.create_pool ~url ~sw ~stdenv () with
+  | Ok pool -> pool
+  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
@@ -26,5 +32,5 @@ let () =
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
-  let pool = optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
+  let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
   Service.run (Handler.routes pool) ~env ~ot ~metrics_renderer:render ()
