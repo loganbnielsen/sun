@@ -115,8 +115,18 @@ let test_config_of_env_rejects_unknown_security_protocol () =
         (contains msg "KAFKA_SECURITY_PROTOCOL"))
 
 (* ------------------------------------------------------------------ *)
-(* Retry-topic metadata                                                *)
+(* Retry topic control flow                                            *)
 (* ------------------------------------------------------------------ *)
+
+let raw_retry_msg ?(headers = []) () : Kafka.Consumer.message = {
+  topic = "orders-retry";
+  partition = 0l;
+  offset = 0L;
+  key = None;
+  value = Some (Bytes.of_string "payload");
+  timestamp = None;
+  headers;
+}
 
 let test_retry_metadata_rejects_malformed_headers () =
   let check_error name headers =
@@ -140,6 +150,40 @@ let test_retry_metadata_rejects_malformed_headers () =
   check_error "missing retry_at" [ "X-Sun-Attempt", Some "1" ];
   check_error "bad retry_at"
     [ "X-Sun-Attempt", Some "1"; "X-Sun-Retry-At", Some "soon" ]
+
+let test_retry_publish_then_ack_failure_is_error () =
+  let acked = ref 0 in
+  let publish_raw ~target_topic:_ ~attempt:_ ~raw_bytes:_ ~headers:_ ~delay_s:_ ~partition:_ =
+    Ok ()
+  in
+  let ack () =
+    incr acked;
+    Error Kafka.Error.Application
+  in
+  let target = Kafka_service.topic_name_exn "orders-retry" in
+  let action = Kafka_service_retry_topics.Forward_retry { target; delay_s = 1.0 } in
+  match Kafka_service_retry_topics.execute_action action
+          ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
+  | Error Kafka.Error.Application ->
+    Alcotest.(check int) "ack attempted once" 1 !acked
+  | _ -> Alcotest.fail "expected ack failure to be returned"
+
+let test_retry_publish_failure_does_not_ack () =
+  let acked = ref false in
+  let publish_raw ~target_topic:_ ~attempt:_ ~raw_bytes:_ ~headers:_ ~delay_s:_ ~partition:_ =
+    Error Kafka.Error.Transport
+  in
+  let ack () =
+    acked := true;
+    Ok ()
+  in
+  let target = Kafka_service.topic_name_exn "orders-dlq" in
+  let action = Kafka_service_retry_topics.Forward_dlq { target } in
+  match Kafka_service_retry_topics.execute_action action
+          ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
+  | Error Kafka.Error.Transport ->
+    Alcotest.(check bool) "ack skipped" false !acked
+  | _ -> Alcotest.fail "expected publish failure to be returned"
 
 (* ------------------------------------------------------------------ *)
 (* Topic names                                                         *)
@@ -268,8 +312,10 @@ let () =
     "config", [
       test_case "unknown security protocol fails clearly" `Quick test_config_of_env_rejects_unknown_security_protocol;
     ];
-    "retry_metadata", [
+    "retry_topics", [
       test_case "malformed retry headers are rejected" `Quick test_retry_metadata_rejects_malformed_headers;
+      test_case "ack failure after publish is returned" `Quick test_retry_publish_then_ack_failure_is_error;
+      test_case "publish failure does not ack" `Quick test_retry_publish_failure_does_not_ack;
     ];
     "topic_name", [
       test_case "accepts Kafka-compatible names" `Quick test_topic_name_accepts_kafka_compatible_names;
