@@ -1,4 +1,4 @@
-# Sun Deployment Pipeline — Architecture Guide
+# Sun Factory Pipeline — Architecture Guide
 
 **Audience:** Contributors adding or modifying deployment behavior in Sun.  
 **Scope:** CLI commands, OCaml modules, pipeline phases, state management, and where to add tests.
@@ -7,16 +7,24 @@
 
 ## Overview
 
-The Sun deployment pipeline converts a workspace directory scan and CLI flags into
-Kubernetes manifests, then applies them to a cluster (or emits them to a directory
-for GitOps). The pipeline is composed of five distinct phases that run in sequence:
-**Plan**, **Render**, **Change Set**, **Execute**, and **State**. Each phase is
-isolated in its own module with typed inputs and outputs, so individual phases can
-be tested or replaced without touching the others.
+Sun is a software factory. The CLI is the control panel; this pipeline is the
+factory machinery that turns a workspace directory scan and CLI flags into a
+typed deployment plan, Kubernetes/GitOps artifacts, release state, and live
+cluster changes.
+
+The deployment pipeline is composed of five distinct phases that run in
+sequence: **Plan**, **Render**, **Change Set**, **Execute**, and **State**. Each
+phase is isolated in its own module with typed inputs and outputs, so individual
+phases can be tested or replaced without touching the others.
+
+Normal users should experience this as one paved path. Contributors should keep
+the internals shaped like a compiler pipeline: raw CLI inputs are validated once,
+domain intent becomes typed data, generated artifacts are outputs, and accidental
+escape hatches do not become public API.
 
 ---
 
-## Pipeline phases
+## Pipeline Phases
 
 ```
 CLI flags
@@ -66,8 +74,8 @@ CLI flags
 
 **Module:** `cli/sun/bin/cmd_dev.ml` → `dev_up`
 
-Provisions a local k3d cluster and installs infrastructure via Helm. Does **not**
-run the Plan/Render/Execute pipeline. Steps:
+Provisions a local k3d cluster and installs the local factory substrate via
+Helm. Does **not** run the Plan/Render/Execute pipeline. Steps:
 
 1. Check required tools (k3d, helm, kubectl).
 2. Create k3d cluster `sun-local` with a local registry on port 5000 (idempotent).
@@ -79,7 +87,8 @@ run the Plan/Render/Execute pipeline. Steps:
 
 **Key modules:** `Sun_cli_workspace`, `Sun_cli_helm`, `Sun_cli_port_forward`, `Sun_cli_state`
 
-**No deployment plan is constructed** — this command only manages infrastructure.
+**No deployment plan is constructed** — this command manages the local substrate
+the rest of the factory targets.
 
 ---
 
@@ -102,6 +111,7 @@ port-forwards started by `sun dev up`. Prefixes each service's stdout/stderr wit
 **Module:** `cli/sun/bin/cmd_up.ml` → `run`
 
 Full local deploy: builds Docker images, synthesizes manifests, applies to k3d.
+This is the self-contained factory path for local smoke tests.
 
 Pipeline:
 
@@ -128,7 +138,9 @@ Pipeline:
 
 **Module:** `cli/sun/bin/cmd_deploy.ml` → `run`
 
-CI/CD deploy: skips image build. Images must already be in the registry.
+CI/CD deploy: skips image build. Images must already be in the registry. This is
+the customer-cloud factory path: Sun owns deployment intent and artifact
+synthesis; customer CI or a future `sun build` owns image production.
 
 Pipeline:
 
@@ -333,7 +345,7 @@ Tests run without a cluster: `eval $(opam env) && dune test cli/sun/test/`.
 ## CI Workflow Contract
 
 Generated CI workflows (`.github/workflows/sun-ci.yml`) are a thin wrapper around
-Sun's typed deployment contract. The contract divides CI into two explicit phases.
+Sun's typed factory contract. The contract divides CI into two explicit phases.
 
 **Phase 1 — Build (user-owned)**
 
@@ -343,7 +355,7 @@ GCP Artifact Registry, Docker Hub, GHCR). A future `sun build` command will repl
 the manual `docker build/push` loop; the template contains a `TODO(sun-build)` marker
 at that step.
 
-**Phase 2 — Deploy (Sun-owned)**
+**Phase 2 — Deploy (Sun-owned factory work)**
 
 The deploy job uses two stable `sun deploy` invocations:
 

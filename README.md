@@ -1,16 +1,16 @@
 # Sun
 
-Sun is an OCaml production platform for startups. Write a service, run one command, get Kafka, HTTP routing, PostgreSQL, observability, and Kubernetes deployment — running in your own AWS or GCP account. No Terraform expertise. No hand-written Kubernetes YAML. No dedicated DevOps hire.
+Sun is an open-source OCaml software factory for backend systems. Developers write direct-style OCaml domain logic; Sun provides the paved path that scaffolds, builds, packages, observes, and deploys it without hand-writing Dockerfiles, Kubernetes YAML, CI glue, or infrastructure wiring.
 
 **On OCaml:** OCaml's type system catches entire classes of bugs at compile time — no null, errors as values, exhaustive pattern matching. OCaml 5 adds structured concurrency via Eio. The result: services whose failure modes are explicit and typed rather than implicit and surprising. If you're used to Go or Rust, OCaml will feel familiar. If you're coming from Python or JavaScript, expect a learning curve — and a different relationship with production incidents.
 
-**The model:** you own the infrastructure. Sun provisions it, derives manifests from your code, and handles deployments. Your cluster, your cloud account, your bill — no lock-in to Sun's infrastructure.
+**The model:** the open-source factory is yours to run. Sun derives deployment artifacts from your code and can operate against local clusters, customer-owned cloud infrastructure, or a future hosted control plane. The same application model should work whether you run the factory yourself or pay Sun to run the factory floor for you.
 
 ---
 
-## The Model
+## The Factory Model
 
-A company adopting Sun creates a **workspace** with three layers:
+A company adopting Sun creates a **workspace** that is the source of truth for the application. The factory reads that workspace, compiles it into a deployment plan, and produces the runtime artifacts needed to run it.
 
 ```
 venus/
@@ -29,7 +29,7 @@ venus/
       broadcast-svc/          ← REST API service
       broadcast-worker/       ← Kafka consumer — imports events/payments/
       target-svc/             ← REST API service
-  infra/                      ← global platform infrastructure
+  infra/                      ← optional global platform infrastructure
     cluster.tf
     kafka.tf
     observability.tf
@@ -43,7 +43,7 @@ venus/
 **`app/<team>/<name>-worker`** — a Kafka consumer. Processes event streams.  
 **`app/<team>/<name>-fn`** — a scheduled function. Runs on a cron schedule.
 
-**`infra/`** — global platform resources (cluster, networking, Kafka, observability). Team-level infrastructure (namespaces, Kafka ACLs, network policies, service accounts) is derived automatically by Sun from the `app/` structure.
+**`infra/`** — optional global platform resources (cluster, networking, Kafka, observability) for self-managed deployments. Team-level infrastructure (namespaces, Kafka ACLs, network policies, service accounts) is derived automatically by Sun from the `app/` structure.
 
 Teams are autonomous at the domain level. They don't coordinate through shared code — they coordinate through **events**.
 
@@ -66,7 +66,7 @@ Each team consumes at their own pace with their own consumer group. Sun's schema
 
 ## What Sun Handles
 
-When you define a service in a Sun workspace, you get the full stack without writing infrastructure code:
+When you define a service in a Sun workspace, the factory owns the repeatable production machinery:
 
 - **Kafka** — topic provisioning, schema registration, Confluent wire format, producer and consumer lifecycle *(complete)*
 - **HTTP** — REST routing, middleware, request/response types *(complete)*
@@ -74,27 +74,29 @@ When you define a service in a Sun workspace, you get the full stack without wri
 - **Observability** — structured logs to Loki, metrics to Prometheus, Grafana dashboards — wired automatically, no instrumentation code required *(complete)*
 - **Deployment** — Kubernetes manifests, Terraform for cloud infrastructure, Argo CD for GitOps, CI workflow references *(complete)*
 
-You focus on the handler. Sun handles the rest.
+You focus on domain logic. Sun handles the factory work: scaffold, build, package, deploy, observe, inspect, and roll back.
 
 ---
 
-## AI-Agent-First Design
+## AI-Agent-First Factory
 
 Sun's conventions are regular enough that AI coding agents produce correct output without needing to understand Kubernetes internals. `sun new svc payments/charge-svc` generates a compilable service with routes, Kafka wiring, and observability already connected. The type checker validates every change before it runs.
 
-The intended workflow: describe what a service should do, let an AI agent scaffold and wire it, let the compiler catch what slips through. Sun is designed to make this loop fast and reliable from day one.
+The intended workflow: describe what a service should do, let an AI agent scaffold and wire it, let the compiler catch what slips through, and let the factory synthesize the deployable system around it. Sun is designed to make this loop fast and reliable from day one.
 
 ---
 
-## Framework, Not Library
+## Software Factory, Not Just Framework
 
-Sun crosses the line from library to framework along two axes.
+Sun includes framework libraries, but the product boundary is larger than a framework. It is a factory: a CLI control surface, a runtime contract layer, a deployment compiler, and a set of generated production artifacts that all agree on one application model.
 
 **Code layer — Inversion of Control.** You don't write a `main` that calls Sun. Sun's functors (`Sun.Service.Make`, `Sun.Worker.Make`, `Sun.Fn.Make`) own the application lifecycle — Eio fiber loops, signal handling, telemetry wiring, graceful shutdown. You provide routes, schedules, and handlers. Sun runs them.
 
-**Infrastructure layer — Infrastructure Synthesis.** Sun derives Kubernetes manifests, Kafka ACLs, and NetworkPolicies directly from the `app/` directory structure. Generated YAML is a build artifact, not a file you write or commit. Each service may optionally carry a `sun.toml` with high-level overrides (`[infra.scale]`, `[infra.kafka]`, `[infra.env]`, `[infra.deploy]`, `[infra.labels]`, `[infra.rollout]`); Sun merges those overrides into its synthesized manifests at deploy time. See `docs/deployment/escape-hatches.md` for the full reference.
+**Factory control layer — CLI operations.** `sun new`, `sun dev up`, `sun dev run`, `sun up`, `sun deploy`, `sun status`, `sun logs`, `sun rollback`, `sun migrate`, and `sun secret` are not unrelated utilities. They are factory controls over the same workspace model.
 
-The boundary: Sun behaves as a framework at the network and infrastructure boundaries. Inside those boundaries — storage clients, business logic, data modeling — it behaves as a library of typed primitives.
+**Infrastructure layer — Infrastructure Synthesis.** Sun derives Kubernetes manifests, Kafka ACLs, NetworkPolicies, image names, secret references, observability labels, and rollout behavior directly from the workspace structure plus high-level `sun.toml` overrides. Generated YAML is a build artifact, not a file you write or commit. See `docs/deployment/escape-hatches.md` for the full reference.
+
+The boundary: Sun owns the repeatable production machinery. Inside that machinery — business logic, data modeling, product behavior, and security decisions — developers still write ordinary typed OCaml.
 
 ---
 
@@ -106,7 +108,7 @@ The boundary: Sun behaves as a framework at the network and infrastructure bound
 
 **Explicit over implicit.** No magic. No hidden control flow. If something happens, there is a function call you can find. This applies especially to security: auth is always declared explicitly on each route. Sun does not infer auth strategy from path conventions or other signals. The developer states intent; the framework enforces it.
 
-**DevOps expertise, not engineering judgment.** Sun removes the need to know Terraform, Helm, or Kubernetes to ship a production service. It does not remove the need to make sound engineering decisions. Infrastructure, deployment, and observability are handled by the framework. Security design, data modeling, and business logic stay in the developer's hands and stay readable in the code.
+**DevOps expertise, not engineering judgment.** Sun productizes the repeatable parts of platform engineering and DevOps. It removes the need to know Terraform, Helm, Kubernetes, image wiring, and CI deployment glue to ship a production service. It does not remove the need to make sound engineering decisions. Security design, data modeling, and business logic stay in the developer's hands and stay readable in the code.
 
 **Security on Day 1.** Sun's framework types carry security configuration as a first-class concern — transport encryption, SASL authentication, and TLS are all part of the data model from the beginning, defaulting to plaintext only in dev and reading from environment variables in all other environments. You can't accidentally ship a production service with no security configuration because the type forces the field.
 
@@ -118,9 +120,11 @@ The boundary: Sun behaves as a framework at the network and infrastructure bound
 
 ---
 
-## Scaling Story
+## Scaling And Business Model
 
 Sun is designed to carry a startup from their first deployed service to hundreds of thousands of users before infrastructure complexity would require rethinking the platform. The teams that outgrow Sun will do so because they have strict requirements at significant scale — not because Sun's architecture is limiting at the stage where most teams actually are.
+
+The open-source project should remain a complete self-hostable factory blueprint. A future commercial Sun can charge for running the factory floor: hosted deployments, preview environments, managed secrets, release history, dashboards, RBAC, audit logs, and zero-config infrastructure operations.
 
 ---
 

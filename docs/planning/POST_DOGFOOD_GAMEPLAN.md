@@ -1,26 +1,27 @@
 # Post-Dogfood Gameplan
 
-Dogfood Alpha proved the non-hosted product loop end to end: install, scaffold,
-local substrate, local deploy, migration, status, logs, rollback, customer-cloud
-manifest export, and the first release binary.
+Dogfood Alpha proved the open-source factory loop end to end: install,
+scaffold, local substrate, local deploy, migration, status, logs, rollback,
+customer-cloud manifest export, and the first release binary.
 
 The next phase should make the production path harder to misuse and easier to
-operate, then turn the hosted mock boundary into a believable managed product.
+operate, then turn the hosted boundary into a believable managed factory floor.
 
 ## Direction
 
-Sun is driving toward one product model with four ownership lanes:
+Sun is driving toward one software-factory model with four ownership lanes:
 
 - Local Dev: Sun owns the laptop substrate loop.
 - Managed Customer Cloud: Sun owns the standard substrate shape inside the
   customer's cloud account.
 - Exported Self-Managed: Sun emits artifacts; the customer owns apply, drift,
   and overlays.
-- Sun Hosted: Sun owns substrate, builders, registry, URLs, TLS, logs, release
-  history, and billing guardrails.
+- Future Sun Hosted: Sun owns the factory floor — substrate, builders, preview
+  environments, registry, URLs, TLS, logs, release history, RBAC, audit logs,
+  and billing guardrails.
 
 The next features should strengthen that model rather than add arbitrary
-deployment flexibility. The goal is a production platform that makes the secure,
+deployment flexibility. The goal is a factory that makes the secure,
 observable, typed-event architecture the default.
 
 ## Feature Track 1: GitOps And Secrets Hardening
@@ -73,8 +74,8 @@ First tickets:
   upgrade behavior.
 
 Why this matters: a public alpha cannot ask users to understand the framework
-repo layout before `sun new workspace` works. The release artifact should be the
-product, not just the CLI executable.
+repo layout before `sun new workspace` works. The release artifact should feel
+like the factory, not just the CLI executable.
 
 ## Feature Track 4: Day-2 Operations From Sun Commands
 
@@ -95,24 +96,26 @@ Why this matters: Sun's promise is not just deployment. A small team should
 debug, roll back, and inspect services through Sun before dropping to raw
 Kubernetes or Grafana.
 
-## Feature Track 5: Hosted Product Reality
+## Feature Track 5: Hosted Factory Floor Reality
 
-Status: design and mock boundary complete. The hosted executor, release model,
-release inspection, default URLs, custom-domain design, project registry, deploy
-API contract, and release history model are implemented as local/stubbed
-contracts.
+Status: future product lane. The earlier hosted executor spike was removed, so
+there is no shipped `sun cloud deploy` path today. The retained foundation is
+the deployment plan, release inspection model, and customer-cloud/exported
+self-managed executors that hosted should eventually run behind a managed API.
 
 First tickets after hardening:
 
 - Replace in-memory hosted registry with a durable Postgres-backed control-plane
   store.
-- Add a real builder/registry handoff for `sun cloud deploy`.
+- Define the hosted deploy command/API around the same deployment plan used by
+  `sun deploy`.
+- Add a real builder/registry handoff for the hosted deploy path.
 - Add authentication and account/environment isolation to hosted APIs.
 - Connect hosted release logs to the same inspection model used by
   customer-cloud plans.
 
-Why this waits: hosted should be "Sun runs the same platform for you." The
-non-hosted path needs hardening first so hosted does not become a separate
+Why this waits: hosted should be "Sun runs the same factory for you." The
+self-hosted path needs hardening first so hosted does not become a separate
 product shape.
 
 ## Suggested Order
@@ -150,8 +153,9 @@ model that a non-hosted alpha user can actually install and verify.
 ## Hosted Realization Wave
 
 Status: ready after the alpha release is republished and verified. The hosted
-contracts exist, but the implementation is still stubbed around in-memory state
-and fake build/registry handoff.
+product shape exists as an architecture direction, but the previous stubbed
+executor was removed. New hosted work should start from the hardened deployment
+plan instead of reviving the old mock surface.
 
 First tickets:
 
