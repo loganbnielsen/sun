@@ -170,7 +170,10 @@ val consume
       retry consumer (group [<group_id>-sun-retry]) subscribes to [<topic>-retry],
       waits until [X-Sun-Retry-At], then re-runs the handler.  After
       [max_attempts] total failures the message is routed to [<topic>-dlq].
-      Both topics are auto-provisioned on startup. *)
+      [max_attempts] must be at least 1. Both topics are auto-provisioned
+      before consumption starts; provisioning or retry-consumer startup
+      failures return [Consumer_error] instead of running with a partially
+      installed retry strategy. *)
 type retry_strategy =
   | In_memory    of Kafka.Consumer.retry_policy
   | Retry_topics of { max_attempts : int }
