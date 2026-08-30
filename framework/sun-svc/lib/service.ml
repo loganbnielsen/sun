@@ -132,7 +132,8 @@ let dispatch ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes
              trace_ctx;
            } in
            (try Ok (route.Route.handler sun_req)
-            with exn ->
+            with Eio.Cancel.Cancelled _ as exn -> raise exn
+               | exn ->
               Printf.eprintf "sun-svc: handler exception: %s\n%!"
                 (Printexc.to_string exn);
               Ok (Response.internal_error "Internal server error"))
