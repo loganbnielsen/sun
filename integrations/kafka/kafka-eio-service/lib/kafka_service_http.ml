@@ -49,6 +49,8 @@ let http_do net ~clock request =
         | Ok https -> Ok (http_do_once net ~sw ?https request)))
   with
   | Eio.Time.Timeout -> Error "HTTP request timed out after 10s"
+  | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
   | exn -> Error (Printexc.to_string exn)
 
 let http_post net ~clock ~base_url ~path ~content_type ~body =

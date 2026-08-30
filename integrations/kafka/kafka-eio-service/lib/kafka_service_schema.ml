@@ -153,7 +153,9 @@ let decode_message topic raw_msg =
     let* (_schema_id, json_str) = decode_wire raw_bytes in
     let* json =
       (try Ok (Yojson.Safe.from_string json_str)
-       with exn -> Error ("json parse: " ^ Printexc.to_string exn))
+       with
+       | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+       | exn -> Error ("json parse: " ^ Printexc.to_string exn))
     in
     topic.Kafka_service_intf.decode json
     |> Result.map_error (fun e -> "message decode: " ^ e)

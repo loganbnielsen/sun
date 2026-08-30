@@ -63,6 +63,7 @@ module Make (F : FN) = struct
       match
         (try Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
          | Eio.Cancel.Cancelled _ as exn -> raise exn
+         | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
          | exn -> Error (Printexc.to_string exn))
       with
       | Ok ()     -> ()
@@ -112,6 +113,7 @@ module Make (F : FN) = struct
                   let result =
                     try F.run () with
                     | Eio.Cancel.Cancelled _ as exn -> raise exn
+                    | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
                     | exn -> Error (Printexc.to_string exn)
                   in
                   record_and_push ~t0 (`Completed result);
