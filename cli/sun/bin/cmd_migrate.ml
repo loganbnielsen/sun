@@ -39,25 +39,41 @@ let auto_forward_pg () =
   at_exit (fun () ->
     (try Unix.kill pid Sys.sigterm with _ -> ());
     (try ignore (Unix.waitpid [Unix.WNOHANG] pid) with _ -> ()));
-  (* Poll until localhost:15432 accepts a TCP connection, up to 5 s. *)
+  (* Poll until localhost:15432 accepts a TCP connection, up to 5 s. Only
+     the connect-failure codes that genuinely mean "nothing is listening
+     yet" are treated as expected and retried silently; anything else
+     (fd exhaustion, permission issues, ...) is a real problem that ten
+     silent retries would otherwise mask behind a generic "did not become
+     ready in time" — surfaced immediately instead, without wasting the
+     remaining attempts on a failure that retrying can't fix. *)
+  let is_not_listening_yet = function
+    | Unix.ECONNREFUSED | Unix.ETIMEDOUT | Unix.ENETUNREACH
+    | Unix.EHOSTUNREACH | Unix.ECONNRESET -> true
+    | _ -> false
+  in
+  let check_connect () =
+    match Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 with
+    | exception Unix.Unix_error (e, fn, _) -> `Failed (Printf.sprintf "%s: %s" fn (Unix.error_message e))
+    | s ->
+      let addr = Unix.ADDR_INET (Unix.inet_addr_loopback, 15432) in
+      (match Unix.connect s addr with
+       | () -> Unix.close s; `Ready
+       | exception Unix.Unix_error (e, _, _) when is_not_listening_yet e ->
+         Unix.close s; `Not_listening_yet
+       | exception Unix.Unix_error (e, fn, _) ->
+         Unix.close s; `Failed (Printf.sprintf "%s: %s" fn (Unix.error_message e))
+       | exception exn ->
+         Unix.close s; `Failed (Printexc.to_string exn))
+  in
   let max_attempts = 10 in
   let rec wait n =
     if n = 0 then
-      (Printf.eprintf "warning: port-forward did not become ready in time\n%!")
-    else begin
-      (try
-        let addr = Unix.ADDR_INET (Unix.inet_addr_loopback, 15432) in
-        let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-        (try
-          Unix.connect s addr;
-          Unix.close s
-        with exn ->
-          Unix.close s;
-          raise exn)
-      with _ ->
-        Unix.sleepf 0.5;
-        wait (n - 1))
-    end
+      Printf.eprintf "warning: port-forward did not become ready in time\n%!"
+    else
+      match check_connect () with
+      | `Ready -> ()
+      | `Not_listening_yet -> Unix.sleepf 0.5; wait (n - 1)
+      | `Failed msg -> Printf.eprintf "warning: port-forward readiness check failed: %s\n%!" msg
   in
   wait max_attempts;
   "postgresql://postgres:dev@localhost:15432/dev"
