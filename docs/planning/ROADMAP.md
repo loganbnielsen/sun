@@ -2,11 +2,17 @@
 
 ## Vision
 
-Sun is not a web framework, a Kafka wrapper, or a Kubernetes deployment tool.
+Sun is not a web framework, a Kafka wrapper, a Kubernetes deployment tool, or a
+CLI wrapper around DevOps scripts.
 
-Sun is a production platform for startups built around autonomous domain teams and typed event contracts.
+Sun is an open-source OCaml software factory for backend systems. The factory
+turns direct-style OCaml domain code into running production services by owning
+the repeatable machinery around it: scaffolding, build conventions,
+containerization, deployment-plan synthesis, Kubernetes/GitOps output,
+observability wiring, release inspection, and rollback.
 
-The framework pieces exist to make the intended architecture the path of least resistance:
+The framework pieces exist to make the intended architecture the path of least
+resistance:
 
 - Teams own domains
 - Domains communicate through typed events, never shared code
@@ -14,19 +20,24 @@ The framework pieces exist to make the intended architecture the path of least r
 - Operational concerns are standardized across every service
 - A small engineering organization can run production systems without dedicated platform engineers
 
-Sun removes the need to know Terraform, Helm, or Kubernetes to ship a production service. It does not remove the need to make sound engineering decisions.
+Sun productizes the repeatable parts of platform engineering and DevOps. It
+removes the need to know Terraform, Helm, Kubernetes, image wiring, or CI deploy
+glue to ship a production service. It does not remove the need to make sound
+engineering decisions.
 
 Every roadmap item should strengthen one of these goals. A feature that increases flexibility but weakens architectural consistency is usually the wrong tradeoff.
 
 ---
 
-Sun is built in layers, each one making the platform more complete. The Kafka layer is the proof-of-concept. Each subsequent phase adds a primitive that a team would otherwise have to build and operate themselves.
+Sun is built in layers, each one making the factory more complete. The Kafka
+layer is the proof-of-concept. Each subsequent phase adds machinery that a team
+would otherwise have to build, wire, document, and operate themselves.
 
 ---
 
 ## ~~Dogfood Alpha~~ ✓ done — 2026-06-11
 
-Sun proved the non-hosted product end-to-end. A new user can install Sun,
+Sun proved the self-hosted/open-source factory end-to-end. A new user can install Sun,
 create a workspace, run it locally, and deploy it into customer-owned
 infrastructure without learning OCaml internals, Kubernetes object shapes, Helm
 chart wiring, or Terraform module structure.
@@ -56,17 +67,24 @@ for full reports.
 | GitOps YAML includes secrets in plain-text `stringData` | DOGFOOD-005 | High |
 | `--emit-plan-to` always executes; needs `--dry-run` to preview only | DOGFOOD-005 | Low |
 
-### Deployment Ownership Lanes
+### Factory Ownership Lanes
 
-Sun has one app model and three deployment ownership lanes.
+Sun has one app model and three current ownership lanes. A future hosted lane
+should run the same factory contract rather than introduce a second product
+shape.
 
 | Lane | Who owns infra? | User interface | Sun responsibility |
 |---|---|---|---|
 | Local Dev | Developer machine | `sun dev up`, `sun dev run`, `sun up` | Provision local substrate, run app, expose logs/metrics |
 | Managed Customer Cloud | Customer cloud account, Sun substrate shape | high-level env/provider/tier config | Provision/update Sun's standard substrate, deploy app, operate release workflow |
 | Exported Self-Managed | Customer | generated Terraform/manifests/GitOps artifacts | Generate artifacts and inspect releases; customer owns apply/drift/ops |
+| Future Sun Hosted | Sun | hosted UI/API plus CLI | Run the factory floor: builders, previews, deploys, secrets, observability, release history, RBAC, audit, billing |
 
-> **Sun Hosted (removed 2026-06-22):** A fourth lane was spiked in Phase 7 and subsequently removed. Sun's identity is a self-hosted platform; users always own their infrastructure. The `sun cloud deploy/releases/logs` commands and the managed-hosting registry and control-plane modules have been deleted.
+> **Implementation note:** A mock Sun-hosted executor was spiked in Phase 7 and
+> removed on 2026-06-22 because the open-source factory contract was not yet
+> stable enough to support a managed control plane. That removal was an
+> implementation reset, not a rejection of hosted Sun as a future commercial
+> factory floor.
 
 The overlap is the app model and deployment plan, not shared Terraform editing.
 If a user edits generated Terraform, they have moved from managed customer-cloud
@@ -97,7 +115,7 @@ Sun decides the default infrastructure shape:
 
 `platform/infra/` is therefore not the primary user interface. It is an
 implementation of the substrate contract for customer-cloud and exported
-self-managed lanes, and may also inform Sun's own hosted substrate.
+self-managed lanes, and should also inform Sun's future hosted substrate.
 
 ### Dogfood Alpha Acceptance Test
 
@@ -121,7 +139,7 @@ and the same workspace has a documented path to customer-owned infrastructure
 without requiring the user to hand-author Kubernetes manifests or Terraform.
 
 Hosted work is deferred until this path is boring enough that Sun Cloud can be
-described as "Sun runs the same platform for you."
+described as "Sun runs the same factory for you."
 
 ---
 
@@ -586,7 +604,11 @@ sun deploy --emit-to /tmp/manifests --image-tag $SHA --registry $REGISTRY
 # → Argo CD detects the change and applies it
 ```
 
-**Sun-hosted executor** — spiked in Phase 7 and subsequently removed (2026-06-22). Sun's model is self-hosted; `sun cloud deploy` and the hosted runtime modules no longer exist.
+**Sun-hosted executor** — spiked in Phase 7 and subsequently removed
+(2026-06-22). The mock implementation was removed so the self-hosted factory
+contract could harden first; `sun cloud deploy` and the hosted runtime modules
+no longer exist in the codebase. Hosted remains a future product lane that
+should reuse the same deployment plan and release inspection model.
 
 ### `sun.toml` supported fields
 
@@ -649,9 +671,9 @@ and registry placeholders are explicit.
 ### ~~Sun-hosted executor spike (FEAT-010)~~ ✓ done → modules removed 2026-06-22
 
 `Sun_cli_hosted_executor` and `Sun_cli_hosted_model` were implemented as a mock
-boundary for the hosted path. DEC-001..DEC-007 resolved. The spike was subsequently
-removed on 2026-06-22 as part of the self-hosted product refocus — these modules no
-longer exist in the codebase.
+boundary for the hosted path. DEC-001..DEC-007 resolved. The spike was
+subsequently removed on 2026-06-22 as part of the self-hosted factory hardening
+phase — these modules no longer exist in the codebase.
 
 ### ~~Hosted release inspection and diagnostics (FEAT-015)~~ ✓ done
 
@@ -660,7 +682,9 @@ deployment-plan summary, image refs, affected services, rollout status, health
 status, error reasons, rendered manifest facts, reconciliation events,
 Kubernetes event summaries, and raw failure details.
 
-> Note: `Sun_cli_hosted_executor` references in this section were removed with the hosted layer deletion (2026-06-22). `Sun_cli_release_inspection` itself is retained.
+> Note: `Sun_cli_hosted_executor` references in this section were removed with
+> the hosted executor deletion (2026-06-22). `Sun_cli_release_inspection` itself
+> is retained.
 
 ### ~~Hosted default URLs and custom-domain flow (FEAT-017)~~ ✓ done → removed 2026-06-22
 
@@ -671,7 +695,7 @@ Kubernetes event summaries, and raw failure details.
 ## Next — Post-Dogfood Hardening
 
 Addresses the findings surfaced during Dogfood Alpha and turns the tested
-non-hosted path into a safer production path. See
+self-hosted factory path into a safer production path. See
 `docs/planning/POST_DOGFOOD_GAMEPLAN.md` for the bird's-eye plan.
 
 ### Priority items

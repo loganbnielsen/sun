@@ -4,7 +4,7 @@
 (package
  (name sun)
  (allow_empty)
- (synopsis "Sun — opinionated OCaml 5 production platform for startups")
+ (synopsis "Sun — open-source OCaml software factory for backend systems")
  (depends
   (ocaml (>= 5.4.0))
   (dune  (>= 3.0))

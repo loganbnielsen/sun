@@ -1,12 +1,26 @@
 # Sun Product Architecture
 
-Sun is an OCaml production platform for startups. The product has three layers:
+Sun is an open-source OCaml software factory for backend systems. It is not only
+a runtime framework and not only a deployment CLI; it is the productized path
+from typed domain code to running production services.
 
-1. **Sun framework repo** — the framework, CLI, scaffold templates, service primitives, deployment compiler, local dev tooling, and infrastructure modules.
-2. **User workspace repo** — the application source of truth: domain events, service code, workers, functions, migrations, and high-level service config.
-3. **Sun hosting plane** — the future managed service layer: projects, environments, clusters, registries, secrets, deploy history, domains, logs, rollbacks, and billing.
+The product has four layers:
 
-The first two layers exist today. The third is the product direction and should shape deployment architecture, but it should not force a detailed control-plane API before the product decisions are ready.
+1. **User workspace repo** — the application source of truth: domain events,
+   service code, workers, functions, migrations, and high-level service config.
+2. **Sun open-source factory** — the framework libraries, CLI control surface,
+   scaffold templates, deployment compiler, local dev tooling, and infrastructure
+   modules.
+3. **Generated production artifacts** — Dune projects, Docker images, Kubernetes
+   manifests, GitOps output, deployment plans, release metadata, and observability
+   wiring.
+4. **Sun hosted factory floor** — the future managed service layer: projects,
+   environments, builders, clusters, registries, secrets, deploy history, domains,
+   logs, rollbacks, previews, RBAC, audit logs, and billing.
+
+The first three layers exist today. The hosted factory floor is the product
+direction: it should shape deployment architecture, but it should not force a
+detailed control-plane API before the factory contract is stable.
 
 ---
 
@@ -21,7 +35,7 @@ db/migrations/                   database migrations
 sun.toml                         high-level service overrides
 ```
 
-Sun derives runtime artifacts from that workspace:
+Sun compiles the workspace into runtime artifacts:
 
 - Kubernetes namespaces, Deployments, Services, CronJobs, NetworkPolicies, and Secrets
 - Kafka topics, schema registrations, consumer groups, and ACL intent
@@ -29,13 +43,38 @@ Sun derives runtime artifacts from that workspace:
 - image names and release identity
 - migration plan and migration tracking table
 
-Generated infrastructure is a build artifact. Users should not need to commit hand-written per-service Kubernetes YAML for normal workflows.
+Generated infrastructure is a build artifact. Users should not need to commit
+hand-written per-service Kubernetes YAML, Dockerfiles, or CI deployment glue for
+normal workflows.
 
 ---
 
-## Deployment Modes
+## Factory Responsibilities
 
-Sun should support three deployment modes over the same application model.
+The Sun CLI is the control panel, not the whole factory. Each command triggers
+one part of a larger automated pipeline:
+
+| Factory stage | Sun responsibility |
+|---|---|
+| Scaffold | Generate workspaces, services, workers, functions, events, tests, Dockerfiles, and CI templates |
+| Build | Compile OCaml via Dune and prepare container image inputs |
+| Package | Standardize Docker image shape and registry/image naming |
+| Plan | Turn workspace structure and environment inputs into a typed deployment plan |
+| Synthesize | Render Kubernetes, GitOps, secret references, rollout shape, and observability wiring |
+| Execute | Apply locally, emit artifacts, or submit to a future hosted executor |
+| Operate | Status, logs, migrations, secrets, rollback, and release inspection |
+
+Framework libraries (`sun-svc`, `sun-worker`, `sun-fn`) are the runtime contract
+layer inside that factory. Supporting libraries (`*-eio`) are factory machinery:
+their public APIs should expose domain operations and explicit results, not raw
+transport handles, hidden parsers, or implementation escape hatches.
+
+---
+
+## Ownership Lanes
+
+Sun should support three current ownership lanes plus one future hosted lane
+over the same application model.
 
 ### Local Dev
 
@@ -48,11 +87,13 @@ sun up
 
 Sun provisions or connects to a local k3d-backed platform, builds images, renders runtime artifacts, applies them locally, and starts port-forwards.
 
-### Customer Cloud
+### Managed Customer Cloud
 
 The customer owns the cloud account and cluster.
 
-Sun may help provision infrastructure with Terraform wrappers or guides, but the customer's account owns the cluster, registry, DNS, secrets backend, and cloud bill.
+Sun may help provision infrastructure with Terraform wrappers or guides, but the
+customer's account owns the cluster, registry, DNS, secrets backend, and cloud
+bill. Sun owns the standard substrate shape and release workflow.
 
 Deployments may be direct:
 
@@ -60,19 +101,23 @@ Deployments may be direct:
 sun deploy --env prod
 ```
 
-Or GitOps-based:
+### Exported Self-Managed
+
+The customer owns apply, drift, overlays, and operations. Sun still compiles the
+workspace into Terraform/manifests/GitOps artifacts, but those artifacts become
+handoff output rather than a Sun-operated release.
 
 ```bash
 sun deploy --env prod --emit-to <gitops-repo>
 ```
 
-### Sun Hosted
+### Sun Hosted Factory Floor
 
-Sun owns the hosting environment.
+Sun owns the hosting environment and operates the factory floor.
 
 The user's workspace repo still remains the source of truth, but Sun owns environment resolution, builds, registries, clusters, secrets, deploy execution, release records, logs, rollbacks, domains, and billing.
 
-The desired product path is:
+The desired commercial product path is:
 
 ```text
 connect Git provider
@@ -83,33 +128,36 @@ observe
 rollback
 ```
 
-The CLI should be able to interact with this mode, but the first architectural priority is making hosted deployment another executor over the same deployment plan.
+The CLI should be able to interact with this mode, but the first architectural
+priority is making hosted deployment another executor over the same deployment
+plan. Hosted Sun should run the same factory contract, not become a second
+application model.
 
 ---
 
 ## Ownership Matrix
 
-| Concern | Local Dev | Customer Cloud | Sun Hosted |
-|---|---|---|---|
-| Application source | user workspace repo | user workspace repo | user workspace repo |
-| Build execution | local CLI | customer CI or CLI | Sun |
-| Deployment execution | local CLI | customer CLI, CI, or GitOps | Sun hosting plane |
-| Cluster | local k3d | customer | Sun |
-| Registry | local k3d registry | customer | Sun |
-| Kafka / schema registry | local Redpanda | customer-managed or Sun-installed in customer cluster | Sun-managed |
-| Postgres | local/in-cluster | customer RDS, Cloud SQL, or in-cluster | Sun-managed |
-| Secrets | local/dev placeholders | customer secret backend | Sun secret backend |
-| Domains / TLS | localhost | customer DNS | Sun-managed DNS/TLS |
-| Observability | local Grafana/Loki/Prometheus | customer cluster | Sun-hosted views backed by managed telemetry |
-| Deploy history | local output | customer CI/GitOps | Sun release records |
-| Rollback | local CLI | customer CLI/GitOps | Sun hosting plane |
-| Billing | none | customer cloud bill | Sun |
+| Concern | Local Dev | Managed Customer Cloud | Exported Self-Managed | Future Sun Hosted |
+|---|---|---|---|---|
+| Application source | user workspace repo | user workspace repo | user workspace repo | user workspace repo |
+| Build execution | local CLI | customer CI or CLI | customer CI or CLI | Sun |
+| Deployment execution | local CLI | Sun CLI/CI in customer account | customer GitOps/apply path | Sun hosting plane |
+| Cluster | local k3d | customer | customer | Sun |
+| Registry | local k3d registry | customer | customer | Sun |
+| Kafka / schema registry | local Redpanda | customer-managed or Sun-installed in customer cluster | customer-managed | Sun-managed |
+| Postgres | local/in-cluster | customer RDS, Cloud SQL, or in-cluster | customer-managed | Sun-managed |
+| Secrets | local/dev placeholders | customer secret backend | generated references/placeholders | Sun secret backend |
+| Domains / TLS | localhost | customer DNS | customer DNS | Sun-managed DNS/TLS |
+| Observability | local Grafana/Loki/Prometheus | customer cluster | customer-managed | Sun-hosted views backed by managed telemetry |
+| Deploy history | local output | Sun release inspection over customer apply | emitted plan/artifact history | Sun release records |
+| Rollback | local CLI | Sun CLI/GitOps | customer operation | Sun hosting plane |
+| Billing | none | customer cloud bill | customer cloud bill | Sun |
 
 ---
 
 ## Deployment Compiler
 
-Sun should treat deployment as a compiler pipeline:
+Sun treats deployment as a compiler pipeline:
 
 ```text
 workspace scan
@@ -125,7 +173,9 @@ Today, manifest rendering is close to:
 workspace scan -> YAML -> apply or emit
 ```
 
-That works for local and early GitOps flows, but it will not scale cleanly to hosted deployment. The key architectural object is a typed, serializable deployment plan.
+That works for local and early GitOps flows, but it will not scale cleanly to a
+hosted factory floor. The key architectural object is a typed, serializable
+deployment plan.
 
 ---
 
@@ -194,7 +244,7 @@ Executors apply a deployment plan.
 | Local executor | deployment plan | applies manifests to local k3d cluster |
 | Direct Kubernetes executor | deployment plan | applies manifests to current kube context |
 | GitOps executor | deployment plan | writes manifests to a GitOps repo |
-| Sun hosted executor | deployment plan | submits or applies through Sun hosting plane |
+| Future Sun hosted executor | deployment plan | submits or applies through Sun hosting plane |
 
 Executor differences should be operational, not architectural. If two executors need different application models, the compiler pipeline is leaking.
 
@@ -229,9 +279,9 @@ For local and customer-cloud modes, environment config can live in local files o
 
 ---
 
-## Hosting Plane Direction
+## Hosted Factory Floor Direction
 
-The hosting plane should eventually manage:
+The hosted factory floor should eventually manage:
 
 - accounts and teams
 - projects and workspace repo connections
@@ -244,7 +294,10 @@ The hosting plane should eventually manage:
 - custom domains and TLS
 - billing and usage
 
-Do not build or over-specify this layer before the deployment plan exists. The near-term goal is to make hosted deployment possible by ensuring deployment is compiled into a stable plan that a future control plane can execute and record.
+Do not build or over-specify this layer before the deployment plan is stable.
+The near-term goal is to make hosted deployment possible by ensuring deployment
+is compiled into a stable plan that a future control plane can execute and
+record.
 
 ---
 
@@ -273,5 +326,5 @@ These are intentionally not settled yet:
 The current product bias is:
 
 - local dev should be excellent;
-- Sun-hosted should become the primary hosted product path;
+- Sun-hosted should become the paid managed factory floor;
 - customer-cloud should remain possible, but should not complicate the default user experience.
