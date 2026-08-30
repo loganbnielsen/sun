@@ -164,6 +164,42 @@ let install_signal_handler ~sw resolver =
 
 exception Drain_timeout
 
+type run_error = [ `Config of string ]
+
+let run_error_to_string (`Config msg) = "sun-svc: config error: " ^ msg
+
+let auth_uses_api_key = function
+  | `Api_key -> true
+  | `Public | `Jwt _ -> false
+
+let api_key_required routes metrics_auth =
+  auth_uses_api_key metrics_auth ||
+  List.exists (fun route -> auth_uses_api_key route.Route.auth) routes
+
+let env_nonempty name =
+  match Sys.getenv_opt name with
+  | Some value when String.trim value <> "" -> Some value
+  | _ -> None
+
+let api_key_reader ~env ~required =
+  match env_nonempty "SUN_API_KEY_FILE", env_nonempty "SUN_API_KEY" with
+  | Some path, _ ->
+    (try
+       let key = String.trim (Eio.Path.load Eio.Path.(env#fs / path)) in
+       if key = "" then Error (`Config ("API key file is empty: " ^ path))
+       else Ok (fun () -> Some key)
+     with
+     | Eio.Cancel.Cancelled _ as exn -> raise exn
+     | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+     | exn -> Error (`Config ("could not read SUN_API_KEY_FILE " ^ path ^ ": " ^ Printexc.to_string exn)))
+  | None, Some key when String.trim key <> "" ->
+    let key = String.trim key in
+    Ok (fun () -> Some key)
+  | None, _ when required ->
+    Error (`Config "API key auth configured but SUN_API_KEY/SUN_API_KEY_FILE is not set")
+  | None, _ ->
+    Ok (fun () -> None)
+
 module Make (H : HANDLER) = struct
 
   let run ~(env : < net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >)
@@ -190,18 +226,9 @@ module Make (H : HANDLER) = struct
         Some (req_count, req_duration)
     in
     let fetch_jwks = Auth.fetch_jwks_over_https ~env in
-    let read_api_key () =
-      match Sys.getenv_opt "SUN_API_KEY_FILE" with
-      | None -> Sys.getenv_opt "SUN_API_KEY"
-	    | Some path ->
-	        (try Some (String.trim (Eio.Path.load Eio.Path.(env#fs / path)))
-	         with
-	         | Eio.Cancel.Cancelled _ as exn -> raise exn
-	         | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-	         | _ -> None)
-    in
+    let* read_api_key = api_key_reader ~env ~required:(api_key_required H.routes metrics_auth) in
     let stop, stop_r = Eio.Promise.create () in
-    (try Eio.Switch.run (fun sw ->
+    Ok (try Eio.Switch.run (fun sw ->
       install_signal_handler ~sw stop_r;
       let socket =
         Eio.Net.listen ~sw ~reuse_addr:true ~backlog:128

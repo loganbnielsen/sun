@@ -664,6 +664,8 @@ let () =
     | Error e -> Error (Kafka.Error.to_string e)
   in
   Service.run (Handler.routes pool ~publish_charged) ~env ~ot ~metrics_renderer:render ()
+  |> Result.map_error Service.run_error_to_string
+  |> function Ok () -> () | Error e -> failwith e
 |tpl}
 
 (* app/payments/charge_svc/bin/dune *)
@@ -834,6 +836,8 @@ let svc_lib_dune = {tpl|(library
 (* Generic svc: bin/main.ml *)
 let svc_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
   Service.run Handler.routes ~env ()
+  |> Result.map_error Service.run_error_to_string
+  |> function Ok () -> () | Error e -> failwith e
 |tpl}
 
 (* Generic svc: bin/dune *)

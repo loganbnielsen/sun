@@ -2,6 +2,10 @@ module type HANDLER = sig
   val routes : Route.t list
 end
 
+type run_error = [ `Config of string ]
+
+val run_error_to_string : run_error -> string
+
 module Make (H : HANDLER) : sig
   val run
     :  env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >
@@ -18,7 +22,7 @@ module Make (H : HANDLER) : sig
     -> ?drain_timeout_s:float
     -> ?on_listen:(int -> unit)
     -> unit
-    -> unit
+    -> (unit, run_error) result
 end
 
 val run
@@ -32,7 +36,7 @@ val run
   -> ?drain_timeout_s:float
   -> ?on_listen:(int -> unit)
   -> unit
-  -> unit
+  -> (unit, run_error) result
 (** Functional alternative to [Make(H).run]. Equivalent to
     [Make(struct let routes = routes end).run]. Use when routes are defined
     inline or captured from a closure, avoiding the module boilerplate. *)
