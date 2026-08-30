@@ -104,6 +104,9 @@ module Make (F : FN) = struct
           Eio.Fiber.first
             (fun () ->
               Lambda_runtime.run_loop runtime
+                ~on_error:(fun msg ->
+                  Obs_eio.log_standalone ot Obs_eio.Error ~fields:[("error", msg)]
+                    "sun-fn: lambda-eio runtime loop error")
                 ~handler:(fun (_ : Lambda_runtime.invocation) ->
                   let t0 = Eio.Time.now env#clock in
                   let result =
@@ -114,7 +117,7 @@ module Make (F : FN) = struct
                   record_and_push ~t0 (`Completed result);
                   match result with
                   | Ok ()     -> Ok {|{"status":"ok"}|}
-                  | Error msg -> Error msg))
+                  | Error msg -> Error msg) ())
             (fun () -> Eio.Promise.await stop))
         (* Fiber.first discards the losing fiber's Cancelled internally, so when
            stop resolves first this Switch.run completes normally — it ends the
