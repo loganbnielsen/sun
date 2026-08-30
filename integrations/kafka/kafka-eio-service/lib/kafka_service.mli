@@ -86,7 +86,7 @@ module Confluent_wire : sig
 end
 
 
-val config_of_env : unit -> config
+val config_of_env : unit -> (config, string) result
 (** Build a [config] from environment variables with sensible local-dev defaults.
     - [KAFKA_BROKERS]           — comma-separated broker addresses (default: ["localhost:9092"])
     - [SCHEMA_REGISTRY_URL]     — schema registry HTTP URL (default: ["http://localhost:8081"])
@@ -95,6 +95,8 @@ val config_of_env : unit -> config
     - [KAFKA_SSL_CA_LOCATION]   — path to CA cert bundle (optional)
     - [KAFKA_SASL_MECHANISM]    — e.g. ["SCRAM-SHA-256"] (optional)
     - [KAFKA_SASL_USERNAME] / [KAFKA_SASL_PASSWORD] — SASL credentials (optional)
+    Returns [Error msg] when a supplied Kafka security setting is malformed or
+    incomplete.
     [linger_ms = 50], [partitions = 1]. *)
 
 type t

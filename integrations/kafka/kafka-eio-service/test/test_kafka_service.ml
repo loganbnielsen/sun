@@ -109,8 +109,8 @@ let with_env name value f =
 let test_config_of_env_rejects_unknown_security_protocol () =
   with_env "KAFKA_SECURITY_PROTOCOL" "scram" (fun () ->
     match Kafka_service.config_of_env () with
-    | _ -> Alcotest.fail "expected invalid security protocol to fail"
-    | exception Invalid_argument msg ->
+    | Ok _ -> Alcotest.fail "expected invalid security protocol to fail"
+    | Error msg ->
       Alcotest.(check bool) "clear env protocol error" true
         (contains msg "KAFKA_SECURITY_PROTOCOL"))
 
