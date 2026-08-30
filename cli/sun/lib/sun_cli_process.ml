@@ -137,55 +137,56 @@ let run ?(echo = false) c =
   | [] -> Error (Spawn_failed "empty argv")
   | prog :: _ ->
     if echo then echo_cmd c.argv c.redact;
-    let saved_cwd = match c.cwd with
-      | None -> None
+    let cwd_result = match c.cwd with
+      | None -> Ok None
       | Some dir ->
         let orig = Sys.getcwd () in
-        (try Unix.chdir dir; Some orig
-         with Unix.Unix_error (e, _, _) ->
-           let msg = Printf.sprintf "chdir %s: %s" dir (Unix.error_message e) in
-           (* return without spawning *)
-           ignore msg; None)
+        try Ok (Unix.chdir dir; Some orig)
+        with Unix.Unix_error (e, _, _) ->
+          Error (Printf.sprintf "chdir %s: %s" dir (Unix.error_message e))
     in
-    let env_arr = match c.env with
-      | None -> Unix.environment ()
-      | Some extras -> merge_env extras
-    in
-    let devnull = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
-    let out_r, out_w = Unix.pipe ~cloexec:true () in
-    let err_r, err_w = Unix.pipe ~cloexec:true () in
-    let spawn_result =
-      (try
-        let pid =
-          Unix.create_process_env prog (Array.of_list c.argv) env_arr
-            devnull out_w err_w
-        in
-        Ok pid
-      with Unix.Unix_error (e, fn, _) ->
-        Error (Printf.sprintf "%s: %s" fn (Unix.error_message e)))
-    in
-    close_noerr devnull;
-    close_noerr out_w;
-    close_noerr err_w;
-    (match saved_cwd with Some d -> (try Unix.chdir d with _ -> ()) | None -> ());
-    match spawn_result with
-    | Error msg ->
-      close_noerr out_r;
-      close_noerr err_r;
-      Error (Spawn_failed msg)
-    | Ok pid ->
-      let deadline = Option.map (fun s -> Unix.gettimeofday () +. s) c.timeout_s in
-      let (timed_out, stdout, stderr) = capture_until_closed ~deadline out_r err_r in
-      close_noerr out_r;
-      close_noerr err_r;
-      if timed_out then begin
-        (try Unix.kill pid Sys.sigkill with _ -> ());
-        ignore (Unix.waitpid [] pid);
-        Error (Timeout (Option.get c.timeout_s))
-      end else begin
-        let exit_code = status_to_exit_code (Unix.waitpid [] pid |> snd) in
-        Ok { exit_code; stdout = String.trim stdout; stderr = String.trim stderr }
-      end
+    match cwd_result with
+    | Error msg -> Error (Spawn_failed msg)
+    | Ok saved_cwd ->
+      let env_arr = match c.env with
+        | None -> Unix.environment ()
+        | Some extras -> merge_env extras
+      in
+      let devnull = Unix.openfile "/dev/null" [Unix.O_RDONLY] 0 in
+      let out_r, out_w = Unix.pipe ~cloexec:true () in
+      let err_r, err_w = Unix.pipe ~cloexec:true () in
+      let spawn_result =
+        (try
+           let pid =
+             Unix.create_process_env prog (Array.of_list c.argv) env_arr
+               devnull out_w err_w
+           in
+           Ok pid
+         with Unix.Unix_error (e, fn, _) ->
+           Error (Printf.sprintf "%s: %s" fn (Unix.error_message e)))
+      in
+      close_noerr devnull;
+      close_noerr out_w;
+      close_noerr err_w;
+      (match saved_cwd with Some d -> (try Unix.chdir d with _ -> ()) | None -> ());
+      match spawn_result with
+      | Error msg ->
+        close_noerr out_r;
+        close_noerr err_r;
+        Error (Spawn_failed msg)
+      | Ok pid ->
+        let deadline = Option.map (fun s -> Unix.gettimeofday () +. s) c.timeout_s in
+        let (timed_out, stdout, stderr) = capture_until_closed ~deadline out_r err_r in
+        close_noerr out_r;
+        close_noerr err_r;
+        if timed_out then begin
+          (try Unix.kill pid Sys.sigkill with _ -> ());
+          ignore (Unix.waitpid [] pid);
+          Error (Timeout (Option.get c.timeout_s))
+        end else begin
+          let exit_code = status_to_exit_code (Unix.waitpid [] pid |> snd) in
+          Ok { exit_code; stdout = String.trim stdout; stderr = String.trim stderr }
+        end
 
 let run_ok ?(echo = false) c =
   match run ~echo c with
@@ -195,10 +196,13 @@ let run_ok ?(echo = false) c =
 
 let run_shell ?(echo = false) cmd_str =
   if echo then Printf.printf "  $ %s\n%!" cmd_str;
-  let ic, oc, ec = Unix.open_process_full cmd_str (Unix.environment ()) in
-  close_out oc;
-  let stdout = In_channel.input_all ic in
-  let stderr = In_channel.input_all ec in
-  let status = Unix.close_process_full (ic, oc, ec) in
-  let exit_code = status_to_exit_code status in
-  Ok { exit_code; stdout = String.trim stdout; stderr = String.trim stderr }
+  try
+    let ic, oc, ec = Unix.open_process_full cmd_str (Unix.environment ()) in
+    close_out oc;
+    let stdout = In_channel.input_all ic in
+    let stderr = In_channel.input_all ec in
+    let status = Unix.close_process_full (ic, oc, ec) in
+    let exit_code = status_to_exit_code status in
+    Ok { exit_code; stdout = String.trim stdout; stderr = String.trim stderr }
+  with Unix.Unix_error (e, fn, _) ->
+    Error (Spawn_failed (Printf.sprintf "%s: %s" fn (Unix.error_message e)))

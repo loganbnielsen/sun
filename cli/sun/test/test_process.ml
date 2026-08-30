@@ -78,6 +78,13 @@ let contains s ~needle =
     let rec go i = i <= sl - nl && (String.sub s i nl = needle || go (i+1)) in
     go 0)
 
+let test_chdir_failed () =
+  match err_result (Sun_cli_process.run
+    (Sun_cli_process.cmd ~cwd:"/nonexistent-dir-xyz" ["pwd"])) with
+  | Sun_cli_process.Spawn_failed msg ->
+    check_bool "mentions chdir" true (contains msg ~needle:"chdir")
+  | e -> Alcotest.fail ("expected Spawn_failed, got: " ^ Sun_cli_process.error_to_string e)
+
 let test_redaction_in_echo () =
   let secret = "s3cr3t-p4ss" in
   let output = capture_stdout (fun () ->
@@ -121,6 +128,7 @@ let () =
         Alcotest.test_case "captured stderr"         `Quick test_captured_stderr;
         Alcotest.test_case "stdout stderr separate"  `Quick test_stdout_and_stderr_separate;
         Alcotest.test_case "spawn failed"            `Quick test_spawn_failed;
+        Alcotest.test_case "chdir failed"            `Quick test_chdir_failed;
         Alcotest.test_case "no shell expansion"      `Quick test_no_shell_expansion;
       ];
       "echo_redaction", [
