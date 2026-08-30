@@ -104,7 +104,7 @@ let test_metrics_ok_counter () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend in
+               ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-metrics" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
@@ -129,7 +129,7 @@ let test_metrics_error_counter () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend in
+               ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-err-metrics" } in
     let module W = Worker.Make(ErrWorker) in
     (try
@@ -149,7 +149,7 @@ let test_metrics_duration () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend in
+               ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-dur" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
@@ -214,7 +214,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
   Eio_main.run (fun env ->
     let backend, render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend in
+               ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-ack-fail" } in
     let module W = Worker.Make(OkWorker) in
     let result_r = ref None in

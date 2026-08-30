@@ -23,7 +23,7 @@ let () =
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"pluto-notify-worker" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom))
+         ~backend:(Obs_eio.compose log_backend prom) ())
       [("team", "comms")]
   in
   Eio.Switch.run @@ fun sw ->

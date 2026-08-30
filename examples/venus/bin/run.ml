@@ -138,11 +138,11 @@ let () =
   let log_backend = log_backend ~net:env#net ~clock:env#clock loki_url in
   let backend   = Obs_eio.compose log_backend prom_backend in
   let svc_ot    =
-    let base = Obs_eio.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend in
+    let base = Obs_eio.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend () in
     Obs_eio.with_context base [("team", "payments")]
   in
   let worker_ot =
-    let base = Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend in
+    let base = Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend () in
     Obs_eio.with_context base [("team", "comms")]
   in
 
