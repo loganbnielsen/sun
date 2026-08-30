@@ -23,10 +23,17 @@ let cluster_pg_exists () =
 let auto_forward_pg () =
   Printf.printf "Forwarding postgresql (cluster) → localhost:15432 ...\n%!";
   let devnull_w = Unix.openfile "/dev/null" [Unix.O_WRONLY] 0 in
-  let pid = Unix.create_process "kubectl"
-    [|"kubectl"; "port-forward"; "svc/postgresql";
-      "-n"; "postgresql"; "15432:5432"|]
-    Unix.stdin devnull_w devnull_w
+  let pid =
+    try
+      Unix.create_process "kubectl"
+        [|"kubectl"; "port-forward"; "svc/postgresql";
+          "-n"; "postgresql"; "15432:5432"|]
+        Unix.stdin devnull_w devnull_w
+    with Unix.Unix_error (e, fn, _) ->
+      Unix.close devnull_w;
+      Printf.eprintf "error: could not start kubectl port-forward: %s: %s\n"
+        fn (Unix.error_message e);
+      exit 1
   in
   Unix.close devnull_w;
   at_exit (fun () ->

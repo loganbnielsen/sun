@@ -67,6 +67,10 @@ type t = {
   security            : Kafka.Security.t;
 }
 
+type consume_partitioned_error =
+  | Consumer_error of Kafka.Error.t
+  | Partition_errors of (int32 * Kafka.Error.t) list
+
 let ensure_topic producer ~topic_name ~partitions =
   match Kafka.Producer.create_topic producer ~topic_name ~partitions ~replication_factor:1 with
   | Ok ()   -> Ok ()

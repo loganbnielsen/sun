@@ -179,6 +179,16 @@ val default_retry_strategy : retry_strategy
 (** [In_memory Kafka.Consumer.default_retry] — in-process exponential backoff,
     indefinite retries.  Suitable for transient failures in low-traffic topics. *)
 
+type consume_partitioned_error = Kafka_service_intf.consume_partitioned_error =
+  | Consumer_error of Kafka.Error.t
+      (** The consumer never started (create failed) or [consume_partitioned]
+          rejected its own arguments before consuming began — not tied to any
+          one partition. *)
+  | Partition_errors of (int32 * Kafka.Error.t) list
+      (** Every partition that exhausted its retry budget, not just one —
+          [kafka-eio]'s own [Handler_errors] list is preserved in full rather
+          than collapsed to a single partition's error. Non-empty. *)
+
 (** [consume_partitioned svc topic ~group_id ~sw ~clock ...] is like [consume]
     but routes each message to a dedicated per-partition fiber.  A partition's
     in-memory retry sleep blocks only that partition; other partitions continue
@@ -200,4 +210,4 @@ val consume_partitioned
   -> ?ot:Obs_eio.t
   -> handler:('a -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> unit
-  -> (unit, Kafka.Error.t) result
+  -> (unit, consume_partitioned_error) result
