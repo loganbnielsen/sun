@@ -62,6 +62,24 @@ let test_mkdir_p_raises_on_blocked_path () =
   | () -> Alcotest.fail "expected mkdir_p to raise when a path component is a file"
   | exception Failure _ -> ()
 
+(* Regression test: Sys.file_exists returns false for a broken symlink (it
+   follows the link and finds nothing), so the old implementation fell
+   through to Unix.mkdir, got EEXIST (the symlink dirent itself exists),
+   and treated that as success — silently leaving a still-unusable path
+   exactly like the original shell-out bug this fix was meant to eliminate. *)
+let test_mkdir_p_raises_on_broken_symlink () =
+  in_temp_dir @@ fun () ->
+  Unix.symlink "does-not-exist" "broken-link";
+  match Sun_cli_scaffold.mkdir_p "broken-link" with
+  | () -> Alcotest.fail "expected mkdir_p to raise for a broken symlink"
+  | exception Failure _ -> ()
+
+let test_mkdir_p_tolerates_symlink_to_real_directory () =
+  in_temp_dir @@ fun () ->
+  Unix.mkdir "real" 0o755;
+  Unix.symlink "real" "link-to-real";
+  Sun_cli_scaffold.mkdir_p "link-to-real" (* must not raise *)
+
 (* ── scaffold tests ───────────────────────────────────────────────────────── *)
 
 (* Verify that sun-ci.yml is generated *)
@@ -669,5 +687,9 @@ let () =
       ; Alcotest.test_case "tolerates an existing directory" `Quick test_mkdir_p_tolerates_existing_dir
       ; Alcotest.test_case "raises when a path component is a file" `Quick
           test_mkdir_p_raises_on_blocked_path
+      ; Alcotest.test_case "raises on a broken symlink" `Quick
+          test_mkdir_p_raises_on_broken_symlink
+      ; Alcotest.test_case "tolerates a symlink to a real directory" `Quick
+          test_mkdir_p_tolerates_symlink_to_real_directory
       ]
     ]
