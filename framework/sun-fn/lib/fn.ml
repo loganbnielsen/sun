@@ -103,7 +103,7 @@ module Make (F : FN) = struct
           let runtime = Lambda_runtime.create ~net:env#net ~sw ~base in
           Eio.Fiber.first
             (fun () ->
-              Lambda_runtime.run_loop runtime
+              Lambda_runtime.run_loop runtime ~clock:env#clock
                 ~on_error:(fun msg ->
                   Obs_eio.log_standalone ot Obs_eio.Error ~fields:[("error", msg)]
                     "sun-fn: lambda-eio runtime loop error")
