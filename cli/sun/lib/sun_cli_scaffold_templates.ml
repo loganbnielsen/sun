@@ -648,7 +648,7 @@ let () =
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"{{name}}-charge-svc" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom))
+         ~backend:(Obs_eio.compose log_backend prom) ())
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
@@ -745,7 +745,7 @@ let () =
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"{{name}}-notify-worker" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom))
+         ~backend:(Obs_eio.compose log_backend prom) ())
       [("team", "comms")]
   in
   Eio.Switch.run @@ fun sw ->

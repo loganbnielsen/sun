@@ -43,7 +43,7 @@ let () =
   let backend = Obs_eio.compose log_backend prom_backend in
   let ot =
     Obs_eio.with_context
-      (Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend)
+      (Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend ())
       [("team", "comms")]
   in
 

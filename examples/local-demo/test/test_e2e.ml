@@ -109,9 +109,9 @@ let run_golden_path () =
   in
   let backend   = Obs_eio.compose log_backend prom_backend in
   let svc_ot    = Obs_eio.create ~service:"order-svc"
-                    ~mono_clock:env#mono_clock ~backend in
+                    ~mono_clock:env#mono_clock ~backend () in
   let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
-                    ~mono_clock:env#mono_clock ~backend in
+                    ~mono_clock:env#mono_clock ~backend () in
 
   (* Storage *)
   let db_pool = match postgres_url with

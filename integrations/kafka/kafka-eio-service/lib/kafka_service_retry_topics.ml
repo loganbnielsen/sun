@@ -184,7 +184,13 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
         ~on_retry:(fun ~partition:_ ~attempt:_ ~delay_s:_ -> ())
         ~handler:decode_and_handle ()
       |> Result.map_error (function
-           | Kafka.Consumer.Handler_error e -> e
+           (* decode_and_handle above never returns Error — every app-level
+              failure is routed to a retry/DLQ topic and swallowed to
+              Continue — so this arm is unreachable in practice, but must
+              still type-check against consume_partitioned's error type. *)
+           | Kafka.Consumer.Handler_errors ((_, e) :: _) -> e
+           | Kafka.Consumer.Handler_errors [] ->
+             assert false (* consume_partitioned's documented contract: never empty *)
            | Kafka.Consumer.Invalid_config msg -> Kafka.Error.Config_error msg)
     in
     Kafka.Consumer.close consumer;

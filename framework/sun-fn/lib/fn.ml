@@ -47,7 +47,7 @@ module Make (F : FN) = struct
       | Some pair -> pair
       | None      -> Obs_prometheus.create ()
     in
-    let ot = Obs_eio.create ~service:job ~mono_clock:env#mono_clock ~backend in
+    let ot = Obs_eio.create ~service:job ~mono_clock:env#mono_clock ~backend () in
     let invocations, duration_h =
       Obs_eio.register_counter_and_histogram ot
         ~counter_name:"sun_fn_invocations_total"

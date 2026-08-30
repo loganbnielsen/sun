@@ -22,7 +22,7 @@ let () =
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"pluto-charge-svc" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom))
+         ~backend:(Obs_eio.compose log_backend prom) ())
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->

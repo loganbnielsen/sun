@@ -174,7 +174,13 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
          Kafka.Consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
            ~handler:decode_and_handle ()
          |> Result.map_error (function
-              | Kafka.Consumer.Handler_error e -> e
+              (* consume_partitioned only ever constructs Handler_errors for a
+                 non-empty, partition-sorted list; report the lowest-numbered
+                 partition's error, matching this function's single-error
+                 contract. *)
+              | Kafka.Consumer.Handler_errors ((_, e) :: _) -> e
+              | Kafka.Consumer.Handler_errors [] ->
+                assert false (* consume_partitioned's documented contract: never empty *)
               | Kafka.Consumer.Invalid_config msg -> Kafka.Error.Config_error msg)
        in
        Kafka.Consumer.close consumer;
