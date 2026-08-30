@@ -58,6 +58,7 @@ type error =
     touch it. If a route uses [Jwks_url] and no [fetch_jwks] is given, that
     route fails closed with [`Server_error]. *)
 val validate :
+  ?read_api_key:(unit -> string option) ->
   ?fetch_jwks:(string -> (Jose.Jwks.t, string) result) ->
   level -> Http.Header.t -> (context, error) result
 

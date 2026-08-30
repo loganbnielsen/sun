@@ -81,7 +81,7 @@ let constant_time_equal s1 s2 =
     done;
     !res = 0
 
-let validate_api_key headers =
+let validate_api_key ~read_api_key headers =
   match Http.Header.get headers "x-api-key" with
   | None -> Error (`Unauthorized "Missing X-Api-Key header")
   | Some provided ->
@@ -217,6 +217,7 @@ let fetch_jwks_over_https ~env url =
              with exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))))
   with
   | Eio.Time.Timeout -> Error "JWKS fetch timed out after 10s"
+  | Eio.Cancel.Cancelled _ as exn -> raise exn
   | exn -> Error (Printexc.to_string exn)
 
 let get_jwks ~fetch_jwks url =
@@ -321,8 +322,8 @@ let validate_jwt ?fetch_jwks config headers =
   | Unverified_dev_only ->
     validate_unverified_jwt config headers
 
-let validate ?fetch_jwks level headers =
+let validate ?(read_api_key = read_api_key) ?fetch_jwks level headers =
   match level with
   | `Public    -> Ok { principal = Public }
-  | `Api_key   -> validate_api_key headers
+  | `Api_key   -> validate_api_key ~read_api_key headers
   | `Jwt cfg   -> validate_jwt ?fetch_jwks cfg headers

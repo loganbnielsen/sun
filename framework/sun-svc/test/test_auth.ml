@@ -38,6 +38,13 @@ let test_api_key_missing_header () =
     | Error (`Unauthorized _) -> ()
     | _ -> Alcotest.fail "expected Unauthorized")
 
+let test_api_key_uses_injected_reader () =
+  let read_api_key () = Some "secretkey123" in
+  match Auth.validate ~read_api_key `Api_key (api_key "secretkey123") with
+  | Ok { principal = Auth.Service { key_id } } ->
+    Alcotest.(check string) "key_id truncated" "secretke" key_id
+  | _ -> Alcotest.fail "expected Service principal"
+
 (* ── JWT: Unverified_dev_only ──────────────────────────────────────────── *)
 
 (* Build a minimal (unverified) JWT payload: header.payload.sig
@@ -263,6 +270,7 @@ let () =
     ];
     "api_key", [
       Alcotest.test_case "valid key"            `Quick test_api_key_valid;
+      Alcotest.test_case "injected reader"      `Quick test_api_key_uses_injected_reader;
       Alcotest.test_case "wrong key → 401"      `Quick test_api_key_wrong;
       Alcotest.test_case "missing header → 401" `Quick test_api_key_missing_header;
     ];
