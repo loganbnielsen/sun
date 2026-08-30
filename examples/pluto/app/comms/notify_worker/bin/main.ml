@@ -34,3 +34,5 @@ let () =
   end) in
   let module WR = Worker.Make(W) in
   WR.run ~env ~config:kafka_config ~ot ()
+  |> Result.map_error Worker.run_error_to_string
+  |> function Ok () -> () | Error msg -> failwith msg

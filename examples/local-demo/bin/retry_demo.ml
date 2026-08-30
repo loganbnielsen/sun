@@ -148,6 +148,8 @@ let () =
            Printf.printf "\n[worker] partition assigned — ready\n%!";
            (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
          ()
+       |> Result.map_error Worker.run_error_to_string
+       |> function Ok () -> () | Error msg -> failwith msg
      with
      | Failure _  -> ()   (* clean exit via cancellation surfaces as Failure *)
      | _          -> ());

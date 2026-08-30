@@ -55,17 +55,13 @@ let one_message msg ~handler () =
   let result = handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None in
   match result with
   | Kafka.Consumer.Continue | Kafka.Consumer.Stop -> ()
-  | Kafka.Consumer.Error _ ->
-    (* Worker returned Error (retryable failure). Simulate what consume_partitioned
-       would do after exhausting retries: surface as a Failure to the caller. *)
-    failwith "sun-worker: handler returned error"
+  | Kafka.Consumer.Error _ -> ()
 
 let two_messages msgs ~handler () =
   List.iter (fun msg ->
     match handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None with
     | Kafka.Consumer.Continue | Kafka.Consumer.Stop -> ()
-    | Kafka.Consumer.Error _ ->
-      failwith "sun-worker: handler returned error"
+    | Kafka.Consumer.Error _ -> ()
   ) msgs
 
 (* Drives the handler with a caller-supplied ack and captures its result, to
@@ -74,6 +70,14 @@ let two_messages msgs ~handler () =
 let one_message_with_ack msg ~ack ~result_r ~handler () =
   result_r := Some (handler msg ~ack ~trace_ctx:None)
 
+let one_message_result msg result_r ~handler () =
+  result_r := Some (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None)
+
+let run_ok result =
+  match result with
+  | Ok () -> ()
+  | Error e -> Alcotest.fail (Worker.run_error_to_string e)
+
 (* ── Tests ───────────────────────────────────────────────────────────── *)
 
 let test_handle_ok () =
@@ -81,24 +85,18 @@ let test_handle_ok () =
     let msg = TestMsg.{ id = "msg-1" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config
-      ~test_consume_loop:(one_message msg) ())
+      ~test_consume_loop:(one_message msg) () |> run_ok)
 
-let test_handle_error_raises () =
+let test_handle_error_returns_consumer_error () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-err" } in
     let module W = Worker.Make(ErrWorker) in
-    match
-      (try
-         W.run ~env ~config:fake_config
-           ~test_consume_loop:(one_message msg) ();
-         Ok ()
-       with Failure e -> Error e)
-    with
-    | Error e ->
-      Alcotest.(check bool) "failure raised for handler error"
-        true (String.length e > 0)
-    | Ok () ->
-      Alcotest.fail "expected Failure to be raised")
+    let result_r = ref None in
+    W.run ~env ~config:fake_config
+      ~test_consume_loop:(one_message_result msg result_r) () |> run_ok;
+    match !result_r with
+    | Some (Kafka.Consumer.Error Kafka.Error.Application) -> ()
+    | _ -> Alcotest.fail "expected handler error to become Kafka.Consumer.Error")
 
 let test_metrics_ok_counter () =
   Eio_main.run (fun env ->
@@ -108,7 +106,7 @@ let test_metrics_ok_counter () =
     let msg = TestMsg.{ id = "msg-metrics" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
-      ~test_consume_loop:(one_message msg) ();
+      ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
     Alcotest.(check bool) "messages_total counter present"
       true (let needle = "sun_worker_messages_total" in
@@ -132,10 +130,8 @@ let test_metrics_error_counter () =
                ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-err-metrics" } in
     let module W = Worker.Make(ErrWorker) in
-    (try
-       W.run ~env ~config:fake_config ~ot
-         ~test_consume_loop:(one_message msg) ()
-     with Failure _ -> ());
+    ignore (W.run ~env ~config:fake_config ~ot
+              ~test_consume_loop:(one_message msg) ());
     let output = render () in
     Alcotest.(check bool) "status=error label present"
       true (let needle = {|status="error"|} in
@@ -153,7 +149,7 @@ let test_metrics_duration () =
     let msg = TestMsg.{ id = "msg-dur" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
-      ~test_consume_loop:(one_message msg) ();
+      ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
     Alcotest.(check bool) "duration histogram present"
       true (let needle = "sun_worker_message_duration_seconds" in
@@ -182,7 +178,7 @@ let test_stop_flag_stops_after_current_message () =
     let module W = Worker.Make(StopWorker) in
     (* Both messages processed because stop_flag is never set externally *)
     W.run ~env ~config:fake_config
-      ~test_consume_loop:(two_messages msgs) ();
+      ~test_consume_loop:(two_messages msgs) () |> run_ok;
     Alcotest.(check int) "both messages processed" 2 !processed)
 
 let test_no_metrics_without_ot () =
@@ -190,7 +186,7 @@ let test_no_metrics_without_ot () =
     let msg = TestMsg.{ id = "msg-no-ot" } in
     let module W = Worker.Make(OkWorker) in
     W.run ~env ~config:fake_config
-      ~test_consume_loop:(one_message msg) ())
+      ~test_consume_loop:(one_message msg) () |> run_ok)
 
 let test_max_messages_stops_cleanly () =
   Eio_main.run (fun env ->
@@ -207,7 +203,7 @@ let test_max_messages_stops_cleanly () =
         List.iter (fun msg ->
           ignore (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None)
         ) msgs)
-      ();
+      () |> run_ok;
     Alcotest.(check int) "stops after max_messages successful messages" 3 !processed)
 
 let test_ack_failure_non_fatal_continues_and_is_metered () =
@@ -220,7 +216,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
     let result_r = ref None in
     W.run ~env ~config:fake_config ~ot
       ~test_consume_loop:(one_message_with_ack msg
-        ~ack:(fun () -> Error Kafka.Error.Application) ~result_r) ();
+        ~ack:(fun () -> Error Kafka.Error.Application) ~result_r) () |> run_ok;
     (match !result_r with
      | Some Kafka.Consumer.Continue -> ()
      | _ -> Alcotest.fail "expected Continue after a non-fatal ack failure");
@@ -243,7 +239,7 @@ let test_ack_failure_fatal_escalates () =
     let result_r = ref None in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message_with_ack msg
-        ~ack:(fun () -> Error Kafka.Error.Fatal) ~result_r) ();
+        ~ack:(fun () -> Error Kafka.Error.Fatal) ~result_r) () |> run_ok;
     match !result_r with
     | Some (Kafka.Consumer.Error e) ->
       Alcotest.(check bool) "escalated error is fatal" true (Kafka.Error.is_fatal e)
@@ -261,14 +257,14 @@ let test_external_stop_flag_skips_messages () =
     let msgs = [TestMsg.{ id = "m1" }; TestMsg.{ id = "m2" }] in
     let module W = Worker.Make(StopWorker) in
     W.run ~env ~config:fake_config ~stop
-      ~test_consume_loop:(two_messages msgs) ();
+      ~test_consume_loop:(two_messages msgs) () |> run_ok;
     Alcotest.(check int) "W.handle never called when stop pre-set" 0 !processed)
 
 let () =
   Alcotest.run "sun_worker" [
     "lifecycle", [
       Alcotest.test_case "handle ok returns normally"  `Quick test_handle_ok;
-      Alcotest.test_case "handle error raises Failure" `Quick test_handle_error_raises;
+      Alcotest.test_case "handle error returns Error" `Quick test_handle_error_returns_consumer_error;
       Alcotest.test_case "no ot — no crash"           `Quick test_no_metrics_without_ot;
       Alcotest.test_case "two messages both processed" `Quick
         test_stop_flag_stops_after_current_message;

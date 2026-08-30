@@ -244,6 +244,8 @@ let () =
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
         ~max_messages:orders_count
         ()
+      |> Result.map_error Worker.run_error_to_string
+      |> function Ok () -> () | Error msg -> failwith msg
     with Failure msg ->
       Printf.eprintf "[worker] error: %s\n%!" msg);
     (try Eio.Promise.resolve worker_done_r () with _ -> ())
