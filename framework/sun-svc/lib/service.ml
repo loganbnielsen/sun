@@ -133,6 +133,7 @@ let dispatch ?read_api_key ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~
            } in
            (try Ok (route.Route.handler sun_req)
             with Eio.Cancel.Cancelled _ as exn -> raise exn
+               | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
                | exn ->
               Printf.eprintf "sun-svc: handler exception: %s\n%!"
                 (Printexc.to_string exn);
@@ -192,11 +193,12 @@ module Make (H : HANDLER) = struct
     let read_api_key () =
       match Sys.getenv_opt "SUN_API_KEY_FILE" with
       | None -> Sys.getenv_opt "SUN_API_KEY"
-      | Some path ->
-        (try Some (String.trim (Eio.Path.load Eio.Path.(env#fs / path)))
-         with
-         | Eio.Cancel.Cancelled _ as exn -> raise exn
-         | _ -> None)
+	    | Some path ->
+	        (try Some (String.trim (Eio.Path.load Eio.Path.(env#fs / path)))
+	         with
+	         | Eio.Cancel.Cancelled _ as exn -> raise exn
+	         | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+	         | _ -> None)
     in
     let stop, stop_r = Eio.Promise.create () in
     (try Eio.Switch.run (fun sw ->

@@ -52,16 +52,22 @@ let key_cache_mutex = Mutex.create ()
 let load_from_path path mtime =
   try
     In_channel.with_open_text path (fun ic ->
-      let key = String.trim (input_line ic) in
-      Atomic.set key_cache (Some (mtime, key));
-      Some key)
-  with _ -> None
+	      let key = String.trim (input_line ic) in
+	      Atomic.set key_cache (Some (mtime, key));
+	      Some key)
+	  with
+	  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+	  | End_of_file | Sys_error _ -> None
 
 let read_api_key () =
   match Sys.getenv_opt "SUN_API_KEY_FILE" with
   | None -> Sys.getenv_opt "SUN_API_KEY"
   | Some path ->
-    let mtime = try Some (Unix.stat path).Unix.st_mtime with _ -> None in
+    let mtime =
+      try Some (Unix.stat path).Unix.st_mtime with
+      | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+      | Unix.Unix_error _ -> None
+    in
     Option.bind mtime (fun mtime ->
       match Atomic.get key_cache with
       | Some (cached_mtime, key) when cached_mtime = mtime -> Some key
@@ -146,7 +152,8 @@ let decode_jwt_payload parts =
 
 let parse_jwt_payload payload_str =
   match Yojson.Safe.from_string payload_str with
-  | exception _ ->
+  | exception ((Out_of_memory | Stack_overflow | Sys.Break) as exn) -> raise exn
+  | exception Yojson.Json_error _ ->
     Error (`Unauthorized "Malformed JWT: payload is not valid JSON")
   | json ->
     Ok json
@@ -214,10 +221,14 @@ let fetch_jwks_over_https ~env url =
               Eio.Buf_read.(parse_exn take_all) body ~max_size:(1 * 1024 * 1024)
             in
             (try Ok (Jose.Jwks.of_string body_str)
-             with exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))))
+             with
+             | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+             | Eio.Cancel.Cancelled _ as exn -> raise exn
+             | exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))))
   with
   | Eio.Time.Timeout -> Error "JWKS fetch timed out after 10s"
   | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
   | exn -> Error (Printexc.to_string exn)
 
 let get_jwks ~fetch_jwks url =
