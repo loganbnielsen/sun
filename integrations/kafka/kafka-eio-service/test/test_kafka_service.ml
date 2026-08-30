@@ -115,6 +115,33 @@ let test_config_of_env_rejects_unknown_security_protocol () =
         (contains msg "KAFKA_SECURITY_PROTOCOL"))
 
 (* ------------------------------------------------------------------ *)
+(* Retry-topic metadata                                                *)
+(* ------------------------------------------------------------------ *)
+
+let test_retry_metadata_rejects_malformed_headers () =
+  let check_error name headers =
+    match Kafka_service_retry_topics.parse_retry_metadata headers with
+    | Ok _ -> Alcotest.failf "%s: expected retry metadata error" name
+    | Error _ -> ()
+  in
+  let valid =
+    [ "X-Sun-Attempt", Some "2";
+      "X-Sun-Retry-At", Some "123.5" ]
+  in
+  Alcotest.(check (result (pair int (float 0.0001)) string))
+    "valid retry metadata"
+    (Ok (2, 123.5))
+    (Kafka_service_retry_topics.parse_retry_metadata valid);
+  check_error "missing attempt" [ "X-Sun-Retry-At", Some "123.5" ];
+  check_error "zero attempt"
+    [ "X-Sun-Attempt", Some "0"; "X-Sun-Retry-At", Some "123.5" ];
+  check_error "bad attempt"
+    [ "X-Sun-Attempt", Some "nan"; "X-Sun-Retry-At", Some "123.5" ];
+  check_error "missing retry_at" [ "X-Sun-Attempt", Some "1" ];
+  check_error "bad retry_at"
+    [ "X-Sun-Attempt", Some "1"; "X-Sun-Retry-At", Some "soon" ]
+
+(* ------------------------------------------------------------------ *)
 (* Topic names                                                         *)
 (* ------------------------------------------------------------------ *)
 
@@ -240,6 +267,9 @@ let () =
     ];
     "config", [
       test_case "unknown security protocol fails clearly" `Quick test_config_of_env_rejects_unknown_security_protocol;
+    ];
+    "retry_metadata", [
+      test_case "malformed retry headers are rejected" `Quick test_retry_metadata_rejects_malformed_headers;
     ];
     "topic_name", [
       test_case "accepts Kafka-compatible names" `Quick test_topic_name_accepts_kafka_compatible_names;
