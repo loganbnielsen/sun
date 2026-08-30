@@ -19,8 +19,18 @@ let subst vars s =
     replace_all ~pat:("{{" ^ k ^ "}}") ~with_:v acc
   ) s vars
 
-let mkdir_p dir =
-  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)))
+let rec mkdir_p dir =
+  if dir = "" || dir = "." || dir = "/" then ()
+  else if Sys.file_exists dir then begin
+    if not (Sys.is_directory dir) then
+      raise (Failure (Printf.sprintf "could not create directory %s: a file already exists at that path" dir))
+  end else begin
+    mkdir_p (Filename.dirname dir);
+    try Unix.mkdir dir 0o755 with
+    | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
+    | Unix.Unix_error (e, _, _) ->
+      raise (Failure (Printf.sprintf "could not create directory %s: %s" dir (Unix.error_message e)))
+  end
 
 let write_file ~path ~content =
   mkdir_p (Filename.dirname path);

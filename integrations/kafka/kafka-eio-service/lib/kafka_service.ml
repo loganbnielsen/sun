@@ -30,6 +30,10 @@ type t = Kafka_service_intf.t = {
   security            : Kafka.Security.t;
 }
 
+type consume_partitioned_error = Kafka_service_intf.consume_partitioned_error =
+  | Consumer_error of Kafka.Error.t
+  | Partition_errors of (int32 * Kafka.Error.t) list
+
 module Schema = Kafka_service_schema.Schema
 module Confluent_wire = Kafka_service_schema.Confluent_wire
 
@@ -163,7 +167,7 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
       properties   = [];
     } in
     (match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
-     | Error e -> Error e
+     | Error e -> Error (Consumer_error e)
      | Ok consumer ->
        let decode_and_handle raw_msg ~ack =
          match Kafka_service_schema.decode_message topic raw_msg with
@@ -174,14 +178,8 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
          Kafka.Consumer.consume_partitioned consumer ~sw ~clock ~retry ~on_retry
            ~handler:decode_and_handle ()
          |> Result.map_error (function
-              (* consume_partitioned only ever constructs Handler_errors for a
-                 non-empty, partition-sorted list; report the lowest-numbered
-                 partition's error, matching this function's single-error
-                 contract. *)
-              | Kafka.Consumer.Handler_errors ((_, e) :: _) -> e
-              | Kafka.Consumer.Handler_errors [] ->
-                assert false (* consume_partitioned's documented contract: never empty *)
-              | Kafka.Consumer.Invalid_config msg -> Kafka.Error.Config_error msg)
+              | Kafka.Consumer.Handler_errors errs -> Partition_errors errs
+              | Kafka.Consumer.Invalid_config msg -> Consumer_error (Kafka.Error.Config_error msg))
        in
        Kafka.Consumer.close consumer;
        result)

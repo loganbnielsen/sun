@@ -148,7 +148,23 @@ module Make (W : WORKER) = struct
     | Ok ()                 -> ()
     | Error (`Create msg)   -> raise (Failure ("sun-worker: create failed: " ^ msg))
     | Error (`Register msg) -> raise (Failure ("sun-worker: register failed: " ^ msg))
-    | Error (`Consume ke)   ->
+    | Error (`Consume (Kafka_service.Consumer_error ke)) ->
       raise (Failure ("sun-worker: consume error: " ^ Kafka.Error.to_string ke))
+    | Error (`Consume (Kafka_service.Partition_errors errs)) ->
+      (match ot with
+       | None -> ()
+       | Some o ->
+         List.iter (fun (partition, e) ->
+           Obs_eio.log_standalone o Obs_eio.Error
+             ~fields:[("partition", Int32.to_string partition); ("error", Kafka.Error.to_string e)]
+             "sun-worker: partition exhausted its retry budget"
+         ) errs);
+      let detail =
+        errs
+        |> List.map (fun (p, e) -> Printf.sprintf "partition %ld: %s" p (Kafka.Error.to_string e))
+        |> String.concat "; "
+      in
+      raise (Failure ("sun-worker: consume error (" ^ string_of_int (List.length errs) ^
+                       " partition(s)): " ^ detail))
 
 end

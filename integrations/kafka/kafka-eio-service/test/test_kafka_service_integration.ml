@@ -237,6 +237,74 @@ let test_publish_consume_roundtrip () =
                expected.amount_cents msg.PaymentEvent.amount_cents)
 
 (* ------------------------------------------------------------------ *)
+(* consume_partitioned error surfacing                                 *)
+(* ------------------------------------------------------------------ *)
+
+module PartitionFailEvent = struct
+  type t = { n : int }
+
+  let topic_name =
+    Kafka_service.topic_name_exn (Printf.sprintf "sun-svc-partfail-%05d" run_id)
+
+  let schema = {|{
+    "type": "object",
+    "properties": { "n": { "type": "integer" } },
+    "required": ["n"]
+  }|}
+
+  let encode t = `Assoc [("n", `Int t.n)]
+
+  let decode = function
+    | `Assoc fields ->
+      (match List.assoc_opt "n" fields with
+       | Some (`Int n) -> Ok { n }
+       | _ -> Error "missing n")
+    | _ -> Error "expected object"
+end
+
+(* A handler that always fails, with a retry policy that gives up after one
+   attempt, should surface the failing partition's error wrapped in
+   Partition_errors — not collapsed into a bare Kafka.Error.t and not
+   silently dropped. Regression test for the "consume_partitioned
+   re-collapses kafka-eio's per-partition error list" audit finding. *)
+let test_consume_partitioned_reports_partition_error () =
+  Eio_main.run @@ fun env ->
+    Eio.Switch.run @@ fun sw ->
+      match Kafka_service.create (make_config ()) ~sw with
+      | Error e -> Alcotest.failf "create failed: %s" e
+      | Ok svc ->
+        match Kafka_service.register svc ~net:env#net ~clock:env#clock
+                (module PartitionFailEvent) with
+        | Error e -> Alcotest.failf "register failed: %s" e
+        | Ok topic ->
+          (match Eio.Promise.await
+                   (Kafka_service.publish svc topic PartitionFailEvent.{ n = 1 }) with
+           | Error e -> Alcotest.failf "publish failed: %s" (Kafka.Error.to_string e)
+           | Ok () -> ());
+          let group_id = Printf.sprintf "sun-test-partfail-%d-%d"
+            (Unix.getpid ()) (Random.int 9999) in
+          let retry_strategy =
+            Kafka_service.In_memory { base_delay_s = 0.0; max_delay_s = 0.0; max_attempts = 1 }
+          in
+          let result =
+            Eio.Time.with_timeout env#clock 20.0 (fun () ->
+              Ok (Kafka_service.consume_partitioned svc topic ~group_id ~sw ~clock:env#clock
+                    ~retry_strategy
+                    ~handler:(fun _msg ~ack:_ ~trace_ctx:_ ->
+                      Kafka.Consumer.Error Kafka.Error.Application)
+                    ()))
+          in
+          match result with
+          | Error `Timeout -> Alcotest.fail "timed out waiting for partition to exhaust retries"
+          | Ok (Ok ()) -> Alcotest.fail "expected the failing handler to exhaust retries"
+          | Ok (Error (Kafka_service.Consumer_error e)) ->
+            Alcotest.failf "expected Partition_errors, got Consumer_error: %s"
+              (Kafka.Error.to_string e)
+          | Ok (Error (Kafka_service.Partition_errors errs)) ->
+            Alcotest.(check bool) "at least one partition error reported"
+              true (errs <> [])
+
+(* ------------------------------------------------------------------ *)
 (* on_decode_error callback                                            *)
 (* ------------------------------------------------------------------ *)
 
@@ -318,6 +386,10 @@ let () =
     ];
     "roundtrip", [
       test_case "publish and consume"        `Slow test_publish_consume_roundtrip;
+    ];
+    "consume_partitioned", [
+      test_case "reports partition error, not a collapsed single error" `Slow
+        test_consume_partitioned_reports_partition_error;
     ];
     "error_handling", [
       test_case "on_decode_error fires for non-wire-format message" `Slow

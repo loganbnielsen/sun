@@ -40,6 +40,28 @@ let in_temp_dir f =
       ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
     f
 
+(* ── mkdir_p ──────────────────────────────────────────────────────────────── *)
+
+(* Regression test: mkdir_p used to shell out to `mkdir -p` and discard the
+   exit code, so a blocked path silently proceeded as if it had succeeded. *)
+let test_mkdir_p_creates_nested_dirs () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_scaffold.mkdir_p "a/b/c";
+  check_bool "nested directories created" true (Sys.is_directory "a/b/c")
+
+let test_mkdir_p_tolerates_existing_dir () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_scaffold.mkdir_p "a/b";
+  Sun_cli_scaffold.mkdir_p "a/b" (* must not raise *)
+
+let test_mkdir_p_raises_on_blocked_path () =
+  in_temp_dir @@ fun () ->
+  let oc = open_out "blocker" in
+  output_string oc "not a directory"; close_out oc;
+  match Sun_cli_scaffold.mkdir_p "blocker/child" with
+  | () -> Alcotest.fail "expected mkdir_p to raise when a path component is a file"
+  | exception Failure _ -> ()
+
 (* ── scaffold tests ───────────────────────────────────────────────────────── *)
 
 (* Verify that sun-ci.yml is generated *)
@@ -641,5 +663,11 @@ let () =
       ; Alcotest.test_case "new svc files"         `Quick test_golden_new_svc_files
       ; Alcotest.test_case "new worker files"      `Quick test_golden_new_worker_files
       ; Alcotest.test_case "new fn files"          `Quick test_golden_new_fn_files
+      ]
+    ; "mkdir_p", [
+        Alcotest.test_case "creates nested directories"    `Quick test_mkdir_p_creates_nested_dirs
+      ; Alcotest.test_case "tolerates an existing directory" `Quick test_mkdir_p_tolerates_existing_dir
+      ; Alcotest.test_case "raises when a path component is a file" `Quick
+          test_mkdir_p_raises_on_blocked_path
       ]
     ]
