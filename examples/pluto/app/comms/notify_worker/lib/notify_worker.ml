@@ -1,7 +1,7 @@
 (* Inject pool and observability handle via functor so there's no mutable state.
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
-  val pool : Db.pool option
+  val pool : Db.pool
   val ot   : Obs_eio.t
 end) = struct
 
@@ -14,17 +14,14 @@ end) = struct
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
                ("amount_cents", string_of_int msg.amount_cents)]
       "charge event received";
-    (match Config.pool with
-     | None -> ()
-     | Some pool ->
-       (match Notification.insert pool
-               ~charge_id:msg.id ~customer_id:msg.customer_id
-               ~amount_cents:msg.amount_cents ~currency:msg.currency with
-        | Ok ()   -> ()
-        | Error e ->
-          Obs_eio.log_standalone Config.ot Obs_eio.Error
-            ~fields:[("error", Storage_error.to_string e)]
-            "db insert failed"));
-    Ok ()
+    match Notification.insert Config.pool
+            ~charge_id:msg.id ~customer_id:msg.customer_id
+            ~amount_cents:msg.amount_cents ~currency:msg.currency with
+    | Ok ()   -> Ok ()
+    | Error e ->
+      Obs_eio.log_standalone Config.ot Obs_eio.Error
+        ~fields:[("error", Storage_error.to_string e)]
+        "db insert failed";
+      Error (Storage_error.to_string e)
 
 end

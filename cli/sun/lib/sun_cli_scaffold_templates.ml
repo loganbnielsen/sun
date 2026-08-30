@@ -590,22 +590,18 @@ let routes pool ~publish_charged = [
         Response.internal_error ("publish failed: " ^ msg)
   );
   Route.get "/notifications" ~auth:`Public (fun _req ->
-    match pool with
-    | None ->
-      Response.json {|[]|}
-    | Some p ->
-      (match Notification.list_recent p with
-       | Error _  -> Response.json ~status:500 {|{"error":"db unavailable"}|}
-       | Ok rows  ->
-         let row_json (charge_id, customer_id, amount_cents, currency) =
-           `Assoc [
-             ("charge_id",    `String charge_id);
-             ("customer_id",  `String customer_id);
-             ("amount_cents", `Int amount_cents);
-             ("currency",     `String currency);
-           ]
-         in
-         Response.json (Yojson.Basic.to_string (`List (List.map row_json rows))))
+    match Notification.list_recent pool with
+    | Error _  -> Response.json ~status:500 {|{"error":"db unavailable"}|}
+    | Ok rows  ->
+      let row_json (charge_id, customer_id, amount_cents, currency) =
+        `Assoc [
+          ("charge_id",    `String charge_id);
+          ("customer_id",  `String customer_id);
+          ("amount_cents", `Int amount_cents);
+          ("currency",     `String currency);
+        ]
+      in
+      Response.json (Yojson.Basic.to_string (`List (List.map row_json rows)))
   );
 ]
 |tpl}
@@ -630,13 +626,19 @@ let optional_log_backend ~net ~clock = function
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
 
-let optional_db_pool ~sw ~stdenv postgres_url =
-  Option.bind postgres_url (fun url ->
-    Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
-
 let require_ok label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ e)
+
+let require_db_pool ~sw ~stdenv postgres_url =
+  let url =
+    match postgres_url with
+    | Some url -> url
+    | None -> failwith "db pool: POSTGRES_URL is required"
+  in
+  match Db.create_pool ~url ~sw ~stdenv () with
+  | Ok pool -> pool
+  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
@@ -652,7 +654,7 @@ let () =
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
-  let pool = optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
+  let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
   let kafka = Kafka_service.create kafka_config ~sw |> require_ok "kafka create" in
   let charged_topic =
     Kafka_service.register kafka ~net:env#net ~clock:env#clock (module Charged)
@@ -682,7 +684,7 @@ let ws_svc_bin_dune = {tpl|(executable
 let ws_worker_ml = {tpl|(* Inject pool and observability handle via functor so there's no mutable state.
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
-  val pool : Db.pool option
+  val pool : Db.pool
   val ot   : Obs_eio.t
 end) = struct
 
@@ -695,18 +697,15 @@ end) = struct
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
                ("amount_cents", string_of_int msg.amount_cents)]
       "charge event received";
-    match Config.pool with
-    | None -> Ok ()
-    | Some pool ->
-      (match Notification.insert pool
-              ~charge_id:msg.id ~customer_id:msg.customer_id
-              ~amount_cents:msg.amount_cents ~currency:msg.currency with
-       | Ok ()   -> Ok ()
-       | Error e ->
-         Obs_eio.log_standalone Config.ot Obs_eio.Error
-           ~fields:[("error", Storage_error.to_string e)]
-           "db insert failed";
-         Error (Storage_error.to_string e))
+    match Notification.insert Config.pool
+            ~charge_id:msg.id ~customer_id:msg.customer_id
+            ~amount_cents:msg.amount_cents ~currency:msg.currency with
+    | Ok ()   -> Ok ()
+    | Error e ->
+      Obs_eio.log_standalone Config.ot Obs_eio.Error
+        ~fields:[("error", Storage_error.to_string e)]
+        "db insert failed";
+      Error (Storage_error.to_string e)
 
 end
 |tpl}
@@ -733,9 +732,15 @@ let optional_log_backend ~net ~clock = function
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label "team"] ()
 
-let optional_db_pool ~sw ~stdenv postgres_url =
-  Option.bind postgres_url (fun url ->
-    Db.create_pool ~url ~sw ~stdenv () |> Result.to_option)
+let require_db_pool ~sw ~stdenv postgres_url =
+  let url =
+    match postgres_url with
+    | Some url -> url
+    | None -> failwith "db pool: POSTGRES_URL is required"
+  in
+  match Db.create_pool ~url ~sw ~stdenv () with
+  | Ok pool -> pool
+  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
 
 let require_ok label = function
   | Ok value -> value
@@ -755,7 +760,7 @@ let () =
       [("team", "comms")]
   in
   Eio.Switch.run @@ fun sw ->
-  let pool = optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
+  let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
   let module W = Notify_worker.Make(struct
     let pool = pool
     let ot   = ot
