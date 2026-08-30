@@ -53,7 +53,9 @@ let with_server env ~sw f =
   let port_p, port_r = Promise.create () in
   Fiber.fork_daemon ~sw (fun () ->
     let module S = Service.Make(H) in
-    S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ();
+    S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ()
+    |> Result.map_error Service.run_error_to_string
+    |> (function Ok () -> () | Error e -> failwith e);
     `Stop_daemon
   );
   let port = Promise.await port_p in
@@ -66,7 +68,9 @@ let with_server_obs env ~sw f =
   Fiber.fork_daemon ~sw (fun () ->
     let module S = Service.Make(H) in
     S.run ~env ~port:0 ~ot ~metrics_renderer:render
-      ~on_listen:(fun p -> Promise.resolve port_r p) ();
+      ~on_listen:(fun p -> Promise.resolve port_r p) ()
+    |> Result.map_error Service.run_error_to_string
+    |> (function Ok () -> () | Error e -> failwith e);
     `Stop_daemon
   );
   let port = Promise.await port_p in
@@ -171,7 +175,9 @@ let test_handler_exception env () =
   Switch.run (fun sw ->
     Fiber.fork_daemon ~sw (fun () ->
       let module S = Service.Make(Hx) in
-      S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ();
+      S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ()
+      |> Result.map_error Service.run_error_to_string
+      |> (function Ok () -> () | Error e -> failwith e);
       `Stop_daemon
     );
     let port = Promise.await port_p in
@@ -224,12 +230,36 @@ module Hauth = struct
   ]
 end
 
+module Hapi_key = struct
+  let routes = [
+    Route.get "/api-key" ~auth:`Api_key get_json;
+  ]
+end
+
+let with_env name value f =
+  let old = Sys.getenv_opt name in
+  Unix.putenv name value;
+  Fun.protect f ~finally:(fun () ->
+    Unix.putenv name (Option.value old ~default:""))
+
+let test_api_key_file_error_is_startup_error env () =
+  with_env "SUN_API_KEY" "" (fun () ->
+    with_env "SUN_API_KEY_FILE" "/definitely/not/a/sun/api/key" (fun () ->
+      let module S = Service.Make(Hapi_key) in
+      match S.run ~env ~port:0 () with
+      | Error (`Config msg) ->
+        Alcotest.(check bool) "mentions API key file" true
+          (contains "SUN_API_KEY_FILE" msg)
+      | Ok () -> Alcotest.fail "expected API key file config error"))
+
 let with_small_body_server env ~sw ?(max_body_bytes = 50) f =
   let port_p, port_r = Promise.create () in
   Fiber.fork_daemon ~sw (fun () ->
     let module S = Service.Make(Hauth) in
     S.run ~env ~port:0 ~max_body_bytes
-      ~on_listen:(fun p -> Promise.resolve port_r p) ();
+      ~on_listen:(fun p -> Promise.resolve port_r p) ()
+    |> Result.map_error Service.run_error_to_string
+    |> (function Ok () -> () | Error e -> failwith e);
     `Stop_daemon
   );
   let port = Promise.await port_p in
@@ -300,5 +330,7 @@ let () =
           `Quick (test_auth_oversized_body_gets_413 env);
         Alcotest.test_case "public route + oversized body → 413"
           `Quick (test_public_oversized_body_gets_413 env);
+        Alcotest.test_case "api key file read failure is startup error"
+          `Quick (test_api_key_file_error_is_startup_error env);
       ];
     ])

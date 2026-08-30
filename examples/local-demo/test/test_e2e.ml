@@ -199,7 +199,9 @@ let run_golden_path () =
     Service.run [ Route.post "/orders" ~auth:`Public handle_order ]
       ~env ~port:0 ~ot:svc_ot
       ~on_listen:(fun p -> Eio.Promise.resolve svc_port_r p)
-      ();
+      ()
+    |> Result.map_error Service.run_error_to_string
+    |> (function Ok () -> () | Error e -> failwith e);
     `Stop_daemon
   );
   let port = Eio.Promise.await svc_port_p in
