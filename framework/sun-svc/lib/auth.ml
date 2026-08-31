@@ -175,34 +175,17 @@ let jwks_ttl_s = 300.0 (* ponytail: fixed rotation window; make configurable if 
    over [env], and passes it into [validate] as the injected [fetch_jwks]
    capability — [validate] itself stays Eio-free. *)
 let fetch_jwks_over_https ~env url =
-  try
-    Eio.Time.with_timeout_exn env#clock 10.0 (fun () ->
-      Eio.Switch.run (fun sw ->
-        let uri = Uri.of_string url in
-        match Https_eio.https_for_uri uri with
-        | Error e -> Error (Https_eio.error_to_string e)
-        | Ok https ->
-          let client = Cohttp_eio.Client.make ~https env#net in
-          let headers = Http.Header.of_list
-            [("Accept", "application/json"); ("Connection", "close")] in
-          let resp, body = Cohttp_eio.Client.call client ~sw ~headers `GET uri in
-          let status = Http.Status.to_int (Http.Response.status resp) in
-          if status <> 200 then
-            Error (Printf.sprintf "JWKS fetch failed: HTTP %d" status)
-          else
-            let body_str =
-              Eio.Buf_read.(parse_exn take_all) body ~max_size:(1 * 1024 * 1024)
-            in
-            (try Ok (Jose.Jwks.of_string body_str)
-             with
-             | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-             | Eio.Cancel.Cancelled _ as exn -> raise exn
-             | exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))))
+  match
+    Https_eio.request ~net:env#net ~clock:env#clock ~timeout:10.0 ~meth:`GET ~url
+      ~headers:[ ("Accept", "application/json") ] ()
   with
-  | Eio.Time.Timeout -> Error "JWKS fetch timed out after 10s"
-  | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-  | exn -> Error (Printexc.to_string exn)
+  | Error e -> Error (Https_eio.request_error_to_string e)
+  | Ok (status, _) when status <> 200 -> Error (Printf.sprintf "JWKS fetch failed: HTTP %d" status)
+  | Ok (_, body) -> (
+    try Ok (Jose.Jwks.of_string body) with
+    | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+    | Eio.Cancel.Cancelled _ as exn -> raise exn
+    | exn -> Error ("JWKS parse failed: " ^ Printexc.to_string exn))
 
 let get_jwks ~fetch_jwks url =
   let fresh entry = entry.url = url && Unix.gettimeofday () -. entry.fetched_at < jwks_ttl_s in
