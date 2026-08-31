@@ -15,7 +15,7 @@ let find_route routes meth path =
     | [] ->
       if !path_matched then Method_not_allowed else Not_found
     | r :: rest ->
-      (match Route.match_path r.Route.pattern path with
+      (match Route_internal.match_path r.Route.pattern path with
        | None -> loop rest
        | Some params ->
          path_matched := true;
@@ -75,7 +75,7 @@ let body_result headers body max_bytes =
   | Some s -> Ok s
 
 let dispatch ?read_api_key ?fetch_jwks ~routes ~metrics_renderer ~metrics_auth ~max_body_bytes ?route_observer req body =
-  let meth_opt = Route.method_of_http (Http.Request.meth req) in
+  let meth_opt = Route_internal.method_of_http (Http.Request.meth req) in
   match meth_opt with
   | None -> { Response.status = 405; headers = []; body = "" }
   | Some meth ->

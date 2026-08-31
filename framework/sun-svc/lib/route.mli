@@ -17,10 +17,6 @@ type t =
   ; handler  : handler
   }
 
-(** Internal — called by [Service.Make]. Not intended for direct use. *)
-val match_path         : pattern -> string -> (string * string) list option
-val method_of_http     : Http.Method.t -> Request.method_ option
-
 val parse_pattern      : string -> (pattern, string) result
 val pattern            : string -> pattern
 val pattern_to_string  : pattern -> string
