@@ -1,5 +1,16 @@
 type trigger = Cron of string | Lambda
 
+type run_error =
+  [ `Config of string
+  | `Run of string
+  | `Signalled
+  ]
+
+let run_error_to_string = function
+  | `Config msg -> "sun-fn: config error: " ^ msg
+  | `Run msg -> "sun-fn: run failed: " ^ msg
+  | `Signalled -> "sun-fn: interrupted by signal"
+
 module type FN = sig
   val trigger : trigger
   val run : unit -> (unit, string) result
@@ -78,6 +89,12 @@ module Make (F : FN) = struct
        | `Signalled           -> invocations ~labels:[("status","cancelled")] 1);
       Option.iter push_metrics pushgateway_url
     in
+    let run_body () =
+      try F.run () with
+      | Eio.Cancel.Cancelled _ as exn -> raise exn
+      | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+      | exn -> Error (Printexc.to_string exn)
+    in
     match F.trigger with
     | Cron _ ->
       let stop, stop_r = Eio.Promise.create () in
@@ -86,43 +103,42 @@ module Make (F : FN) = struct
         Eio.Switch.run (fun sw ->
           install_signal_handler ~sw stop_r;
           Eio.Fiber.first
-            (fun () -> `Completed (F.run ()))
+            (fun () -> `Completed (run_body ()))
             (fun () -> Eio.Promise.await stop; `Signalled))
       in
       record_and_push ~t0 outcome;
       (match outcome with
-       | `Completed (Ok ())     -> ()
-       | `Completed (Error msg) -> raise (Failure msg)
-       | `Signalled             -> exit 130)
+       | `Completed (Ok ()) -> Ok ()
+       | `Completed (Error msg) -> Error (`Run msg)
+       | `Signalled -> Error `Signalled)
     | Lambda -> (
       match Lambda_runtime.runtime_api_base () with
-      | Error msg -> raise (Failure ("sun-fn: " ^ msg))
+      | Error msg -> Error (`Config msg)
       | Ok base ->
         let stop, stop_r = Eio.Promise.create () in
-        Eio.Switch.run (fun sw ->
-          install_signal_handler ~sw stop_r;
-          let runtime = Lambda_runtime.create ~net:env#net ~base in
-          Eio.Fiber.first
-            (fun () ->
-              Lambda_runtime.run_loop runtime ~clock:env#clock
-                ~on_error:(fun msg ->
-                  Obs_eio.log_standalone ot Obs_eio.Error ~fields:[("error", msg)]
-                    "sun-fn: lambda-eio runtime loop error")
-                ~handler:(fun (_ : Lambda_runtime.invocation) ->
-                  let t0 = Eio.Time.now env#clock in
-                  let result =
-                    try F.run () with
-                    | Eio.Cancel.Cancelled _ as exn -> raise exn
-                    | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-                    | exn -> Error (Printexc.to_string exn)
-                  in
-                  record_and_push ~t0 (`Completed result);
-                  match result with
-                  | Ok ()     -> Ok {|{"status":"ok"}|}
-                  | Error msg -> Error msg) ())
-            (fun () -> Eio.Promise.await stop))
+        let result =
+          Eio.Switch.run (fun sw ->
+            install_signal_handler ~sw stop_r;
+            let runtime = Lambda_runtime.create ~net:env#net ~base in
+            Eio.Fiber.first
+              (fun () ->
+                 Lambda_runtime.run_loop runtime ~clock:env#clock
+                   ~on_error:(fun msg ->
+                     Obs_eio.log_standalone ot Obs_eio.Error ~fields:[("error", msg)]
+                       "sun-fn: lambda-eio runtime loop error")
+                   ~handler:(fun (_ : Lambda_runtime.invocation) ->
+                     let t0 = Eio.Time.now env#clock in
+                     let result = run_body () in
+                     record_and_push ~t0 (`Completed result);
+                     match result with
+                     | Ok ()     -> Ok {|{"status":"ok"}|}
+                     | Error msg -> Error msg) ();
+                 Ok ())
+              (fun () -> Eio.Promise.await stop; Ok ()))
+        in
         (* Fiber.first discards the losing fiber's Cancelled internally, so when
            stop resolves first this Switch.run completes normally — it ends the
-           loop, not the process. *))
+           loop, not the process. *)
+        result)
 
 end

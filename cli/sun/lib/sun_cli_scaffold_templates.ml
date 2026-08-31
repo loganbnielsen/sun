@@ -934,7 +934,10 @@ let fn_lib_dune = {tpl|(library
 (* Generic fn: bin/main.ml *)
 let fn_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
   let module F = Fn.Make({{Mod}}) in
-  F.run ~env ()
+  match F.run ~env () with
+  | Ok () -> ()
+  | Error `Signalled -> exit 130
+  | Error e -> failwith (Fn.run_error_to_string e)
 |tpl}
 
 (* Generic fn: bin/dune *)
