@@ -204,7 +204,7 @@ module Make (H : HANDLER) = struct
 
   let run ~(env : < net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >)
       ?(port=8080) ?metrics_renderer ?(metrics_auth=`Public) ?ot
-      ?(max_body_bytes=10_485_760) ?(drain_timeout_s=30.0) ?on_listen () =
+      ?(max_body_bytes=10_485_760) ?(drain_timeout_s=30.0) ?stop ?on_listen () =
     let port =
       match Sys.getenv_opt "PORT" with
       | Some s -> (try int_of_string (String.trim s) with _ -> port)
@@ -227,9 +227,17 @@ module Make (H : HANDLER) = struct
     in
     let fetch_jwks = Auth.fetch_jwks_over_https ~env in
     let* read_api_key = api_key_reader ~env ~required:(api_key_required H.routes metrics_auth) in
-    let stop, stop_r = Eio.Promise.create () in
+    let signal_stop, signal_stop_r = Eio.Promise.create () in
+    let await_stop () =
+      match stop with
+      | None -> Eio.Promise.await signal_stop
+      | Some external_stop ->
+        Eio.Fiber.first
+          (fun () -> Eio.Promise.await signal_stop)
+          (fun () -> Eio.Promise.await external_stop)
+    in
     Ok (try Eio.Switch.run (fun sw ->
-      install_signal_handler ~sw stop_r;
+      install_signal_handler ~sw signal_stop_r;
       let socket =
         Eio.Net.listen ~sw ~reuse_addr:true ~backlog:128
           env#net (`Tcp (Eio.Net.Ipaddr.V4.any, port))
@@ -281,12 +289,12 @@ module Make (H : HANDLER) = struct
          after drain_timeout_s and raises Drain_timeout to force cancellation. *)
       Eio.Fiber.first
         (fun () ->
-          Cohttp_eio.Server.run ~stop
+          Cohttp_eio.Server.run ~stop:signal_stop
             ~on_error:(fun e ->
               Printf.eprintf "sun-svc: %s\n%!" (Printexc.to_string e))
             socket server)
         (fun () ->
-          Eio.Promise.await stop;
+          await_stop ();
           Eio.Time.sleep env#clock drain_timeout_s;
           raise Drain_timeout)
     ) with Drain_timeout ->

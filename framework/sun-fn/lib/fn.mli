@@ -37,6 +37,10 @@ module Make (F : FN) : sig
     (** Override the default [Obs_prometheus.create ()] backend+renderer pair.
         Useful for composing with additional backends (e.g. [Obs_eio.compose]) or
         for inspecting rendered metrics in tests. *)
+    -> ?stop:unit Eio.Promise.t
+    (** External stop signal. [Cron] returns [`Signalled] without starting a new
+        run if it is already resolved; [Lambda] leaves the runtime loop after
+        the current invocation. *)
     -> unit
     -> (unit, run_error) result
   (** [Cron _]: run [F.run ()] once, record metrics, push to Pushgateway if

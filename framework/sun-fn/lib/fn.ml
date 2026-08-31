@@ -48,7 +48,7 @@ module Make (F : FN) = struct
     | Lambda -> "lambda"
 
   let run ~(env : (_, _, _, _) Sun_env.timed)
-      ?pushgateway_url ?job ?backend () =
+      ?pushgateway_url ?job ?backend ?stop () =
     let job = Option.value job ~default:(default_job F.trigger) in
     let backend, renderer =
       match backend with
@@ -74,8 +74,9 @@ module Make (F : FN) = struct
       match Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
       | Ok ()   -> ()
       | Error e ->
-        Printf.eprintf "sun-fn: push failed (swallowed): %s\n%!"
-          (Obs_prometheus.push_error_to_string e)
+        Obs_eio.log_standalone ot Obs_eio.Warn
+          ~fields:[("error", Obs_prometheus.push_error_to_string e)]
+          "sun-fn: push failed; continuing"
     in
     let record_and_push ~t0 outcome =
       let dt = Eio.Time.now env#clock -. t0 in
@@ -94,14 +95,25 @@ module Make (F : FN) = struct
     in
     match F.trigger with
     | Cron _ ->
-      let stop, stop_r = Eio.Promise.create () in
+      let signal_stop, signal_stop_r = Eio.Promise.create () in
+      let await_stop () =
+        match stop with
+        | None -> Eio.Promise.await signal_stop
+        | Some external_stop ->
+          Eio.Fiber.first
+            (fun () -> Eio.Promise.await signal_stop)
+            (fun () -> Eio.Promise.await external_stop)
+      in
       let t0 = Eio.Time.now env#clock in
       let outcome =
-        Eio.Switch.run (fun sw ->
-          install_signal_handler ~sw stop_r;
-          Eio.Fiber.first
-            (fun () -> `Completed (run_body ()))
-            (fun () -> Eio.Promise.await stop; `Signalled))
+        match stop with
+        | Some external_stop when Eio.Promise.is_resolved external_stop -> `Signalled
+        | _ ->
+          Eio.Switch.run (fun sw ->
+            install_signal_handler ~sw signal_stop_r;
+            Eio.Fiber.first
+              (fun () -> `Completed (run_body ()))
+              (fun () -> await_stop (); `Signalled))
       in
       record_and_push ~t0 outcome;
       (match outcome with
@@ -112,10 +124,18 @@ module Make (F : FN) = struct
       match Lambda_runtime.runtime_api_base () with
       | Error err -> Error (`Config (Lambda_runtime.error_to_string err))
       | Ok base ->
-        let stop, stop_r = Eio.Promise.create () in
+        let signal_stop, signal_stop_r = Eio.Promise.create () in
+        let await_stop () =
+          match stop with
+          | None -> Eio.Promise.await signal_stop
+          | Some external_stop ->
+            Eio.Fiber.first
+              (fun () -> Eio.Promise.await signal_stop)
+              (fun () -> Eio.Promise.await external_stop)
+        in
         let result =
           Eio.Switch.run (fun sw ->
-            install_signal_handler ~sw stop_r;
+            install_signal_handler ~sw signal_stop_r;
             let runtime = Lambda_runtime.create ~net:env#net ~base in
             Eio.Fiber.first
               (fun () ->
@@ -131,7 +151,7 @@ module Make (F : FN) = struct
                      | Ok ()     -> Ok {|{"status":"ok"}|}
                      | Error msg -> Error msg) ();
                  Ok ())
-              (fun () -> Eio.Promise.await stop; Ok ()))
+              (fun () -> await_stop (); Ok ()))
         in
         (* Fiber.first discards the losing fiber's Cancelled internally, so when
            stop resolves first this Switch.run completes normally — it ends the

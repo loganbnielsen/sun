@@ -51,30 +51,33 @@ end
 
 let with_server env ~sw f =
   let port_p, port_r = Promise.create () in
-  Fiber.fork_daemon ~sw (fun () ->
+  let stop, stop_r = Promise.create () in
+  Fiber.fork ~sw (fun () ->
     let module S = Service.Make(H) in
-    S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ()
+    S.run ~env ~port:0 ~stop ~drain_timeout_s:0.1
+      ~on_listen:(fun p -> Promise.resolve port_r p) ()
     |> Result.map_error Service.run_error_to_string
-    |> (function Ok () -> () | Error e -> failwith e);
-    `Stop_daemon
+    |> (function Ok () -> () | Error e -> failwith e)
   );
   let port = Promise.await port_p in
-  f port
+  Fun.protect (fun () -> f port)
+    ~finally:(fun () -> try Promise.resolve stop_r () with _ -> ())
 
 let with_server_obs env ~sw f =
   let port_p, port_r = Promise.create () in
+  let stop, stop_r = Promise.create () in
   let backend, render = Obs_prometheus.create () in
   let ot = Obs_eio.create ~service:"test-svc" ~mono_clock:env#mono_clock ~backend () in
-  Fiber.fork_daemon ~sw (fun () ->
+  Fiber.fork ~sw (fun () ->
     let module S = Service.Make(H) in
-    S.run ~env ~port:0 ~ot ~metrics_renderer:render
+    S.run ~env ~port:0 ~ot ~metrics_renderer:render ~stop ~drain_timeout_s:0.1
       ~on_listen:(fun p -> Promise.resolve port_r p) ()
     |> Result.map_error Service.run_error_to_string
-    |> (function Ok () -> () | Error e -> failwith e);
-    `Stop_daemon
+    |> (function Ok () -> () | Error e -> failwith e)
   );
   let port = Promise.await port_p in
-  f port render
+  Fun.protect (fun () -> f port render)
+    ~finally:(fun () -> try Promise.resolve stop_r () with _ -> ())
 
 (* Make an HTTP request and return (status_code, body_string). *)
 let http_call env ~sw ~port ~meth ~path ?(headers=[]) ?(body="") () =
@@ -172,19 +175,30 @@ let test_handler_exception env () =
     ]
   end in
   let port_p, port_r = Promise.create () in
+  let stop, stop_r = Promise.create () in
   Switch.run (fun sw ->
-    Fiber.fork_daemon ~sw (fun () ->
+    Fiber.fork ~sw (fun () ->
       let module S = Service.Make(Hx) in
-      S.run ~env ~port:0 ~on_listen:(fun p -> Promise.resolve port_r p) ()
+      S.run ~env ~port:0 ~stop ~drain_timeout_s:0.1
+        ~on_listen:(fun p -> Promise.resolve port_r p) ()
       |> Result.map_error Service.run_error_to_string
-      |> (function Ok () -> () | Error e -> failwith e);
-      `Stop_daemon
+      |> (function Ok () -> () | Error e -> failwith e)
     );
     let port = Promise.await port_p in
     let (s1, _) = http_call env ~sw ~port ~meth:`GET ~path:"/boom" () in
     Alcotest.(check int) "500 on exception" 500 s1;
     let (s2, _) = http_call env ~sw ~port ~meth:`GET ~path:"/ok" () in
-    Alcotest.(check int) "server still up" 200 s2)
+    Alcotest.(check int) "server still up" 200 s2;
+    Promise.resolve stop_r ())
+
+let test_external_stop_on_listen env () =
+  Switch.run (fun _sw ->
+    let module S = Service.Make(H) in
+    let stop, stop_r = Promise.create () in
+    match S.run ~env ~port:0 ~stop ~drain_timeout_s:0.1
+            ~on_listen:(fun _ -> Promise.resolve stop_r ()) () with
+    | Ok () -> ()
+    | Error e -> Alcotest.fail (Service.run_error_to_string e))
 
 let test_metrics_counter env () =
   Switch.run (fun sw ->
@@ -254,16 +268,17 @@ let test_api_key_file_error_is_startup_error env () =
 
 let with_small_body_server env ~sw ?(max_body_bytes = 50) f =
   let port_p, port_r = Promise.create () in
-  Fiber.fork_daemon ~sw (fun () ->
+  let stop, stop_r = Promise.create () in
+  Fiber.fork ~sw (fun () ->
     let module S = Service.Make(Hauth) in
-    S.run ~env ~port:0 ~max_body_bytes
+    S.run ~env ~port:0 ~max_body_bytes ~stop ~drain_timeout_s:0.1
       ~on_listen:(fun p -> Promise.resolve port_r p) ()
     |> Result.map_error Service.run_error_to_string
-    |> (function Ok () -> () | Error e -> failwith e);
-    `Stop_daemon
+    |> (function Ok () -> () | Error e -> failwith e)
   );
   let port = Promise.await port_p in
-  f port
+  Fun.protect (fun () -> f port)
+    ~finally:(fun () -> try Promise.resolve stop_r () with _ -> ())
 
 let test_unauth_large_body_gets_401 env () =
   (* Without valid auth, a large body should be rejected as 401 before reading. *)
@@ -317,6 +332,8 @@ let () =
       "resilience", [
         Alcotest.test_case "handler exception → 500, server survives"
           `Quick (test_handler_exception env);
+        Alcotest.test_case "external stop on listen"
+          `Quick (test_external_stop_on_listen env);
       ];
       "metrics", [
         Alcotest.test_case "requests counter with route label" `Quick (test_metrics_counter env);
