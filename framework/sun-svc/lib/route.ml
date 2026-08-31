@@ -89,32 +89,3 @@ let post   p ~auth h = make `POST   p ~auth h
 let put    p ~auth h = make `PUT    p ~auth h
 let patch  p ~auth h = make `PATCH  p ~auth h
 let delete p ~auth h = make `DELETE p ~auth h
-
-(* Matches a URL pattern (":"-prefixed segments are named params) against a
-   request path; Some percent-decoded params on a full match, else None. *)
-let match_path pattern request_path =
-  match parse_request_path request_path with
-  | None -> None
-  | Some (req_segs, req_ts) ->
-    if pattern.trailing_slash <> req_ts then None
-    else
-      let rec go pats reqs acc =
-        match pats, reqs with
-        | [], []       -> Some (List.rev acc)
-        | Param key :: ps, r :: rs ->
-          go ps rs ((key, Uri.pct_decode r) :: acc)
-        | Literal p :: ps, r :: rs ->
-          if p = r then go ps rs acc
-          else None
-        | _ -> None
-      in
-      go pattern.segments req_segs []
-
-(* Map Http.Method.t to our internal variant; None for unknown methods. *)
-let method_of_http : Http.Method.t -> Request.method_ option = function
-  | `GET    -> Some `GET
-  | `POST   -> Some `POST
-  | `PUT    -> Some `PUT
-  | `PATCH  -> Some `PATCH
-  | `DELETE -> Some `DELETE
-  | _       -> None
