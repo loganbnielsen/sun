@@ -2273,7 +2273,7 @@
         {
           "date": "2026-08-31",
           "commit": "112f4db",
-          "duration_s": 0.846
+          "duration_s": 0.891
         }
       ]
     },
@@ -3896,7 +3896,7 @@
         {
           "date": "2026-08-31",
           "commit": "112f4db",
-          "duration_s": 1.097
+          "duration_s": 1.089
         }
       ]
     },
