@@ -91,7 +91,7 @@ module Confluent_wire = Kafka_service_schema.Confluent_wire
 
 let encode_wire = Kafka_service_schema.encode_wire
 let config_of_env () =
-  Kafka_service_config.config_of_env ()
+  Kafka_service_config.of_env ()
   |> Result.map_error (fun msg -> Config msg)
 
 let create (cfg : config) ~sw =
