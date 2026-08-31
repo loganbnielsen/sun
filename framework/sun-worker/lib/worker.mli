@@ -57,10 +57,7 @@ val run_error_to_string : run_error -> string
 
 module Make (W : WORKER) : sig
   val run
-    :  env:< net       : _ Eio.Net.t
-           ; clock     : _ Eio.Time.clock
-           ; mono_clock: _ Eio.Time.Mono.t
-           ; .. >
+    :  env:(_, _, _, _) Sun_env.timed
     -> config:Kafka_service.config
     -> ?ot:Obs_eio.t
     (** Observability handle. When provided, [sun_worker_messages_total{status}]

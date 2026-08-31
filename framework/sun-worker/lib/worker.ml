@@ -67,10 +67,7 @@ let install_signal_handler ~sw resolver =
 
 module Make (W : WORKER) = struct
 
-  let run ~(env : < net       : _ Eio.Net.t
-                  ; clock     : _ Eio.Time.clock
-                  ; mono_clock: _ Eio.Time.Mono.t
-                  ; .. >)
+  let run ~(env : (_, _, _, _) Sun_env.timed)
       ~config ?ot ?on_ready ?stop ?max_messages
       ?(retry_strategy = Kafka_service.default_retry_strategy) ?test_consume_loop () =
     let msg_count, msg_duration =
