@@ -110,7 +110,7 @@ module Make (F : FN) = struct
        | `Signalled -> Error `Signalled)
     | Lambda -> (
       match Lambda_runtime.runtime_api_base () with
-      | Error msg -> Error (`Config msg)
+      | Error err -> Error (`Config (Lambda_runtime.error_to_string err))
       | Ok base ->
         let stop, stop_r = Eio.Promise.create () in
         let result =
