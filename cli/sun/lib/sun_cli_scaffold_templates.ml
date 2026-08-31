@@ -615,7 +615,11 @@ let ws_svc_lib_dune = {tpl|(library
 |tpl}
 
 (* app/payments/charge_svc/bin/main.ml *)
-let ws_svc_bin_ml = {tpl|let env_nonempty name =
+let ws_svc_bin_ml = {tpl|let fatal msg =
+  prerr_endline ("error: " ^ msg);
+  exit 1
+
+let env_nonempty name =
   match Sys.getenv_opt name with
   | Some value when value <> "" -> Some value
   | _ -> None
@@ -628,21 +632,21 @@ let optional_log_backend ~net ~clock = function
 
 let require_ok label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
+  | Error e  -> fatal (label ^ ": " ^ e)
 
 let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
+  | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let require_db_pool ~sw ~stdenv postgres_url =
   let url =
     match postgres_url with
     | Some url -> url
-    | None -> failwith "db pool: POSTGRES_URL is required"
+    | None -> fatal "db pool: POSTGRES_URL is required"
   in
   match Pg_db.create_pool ~url ~sw ~stdenv () with
   | Ok pool -> pool
-  | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
+  | Error e -> fatal ("db pool: " ^ Pg_error.to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
@@ -671,7 +675,7 @@ let () =
   in
   Service.run (Handler.routes pool ~publish_charged) ~env ~ot ~metrics_renderer:render ()
   |> Result.map_error Service.run_error_to_string
-  |> function Ok () -> () | Error e -> failwith e
+  |> function Ok () -> () | Error e -> fatal e
 |tpl}
 
 (* app/payments/charge_svc/bin/dune *)
@@ -725,7 +729,11 @@ let ws_worker_lib_dune = {tpl|(library
 |tpl}
 
 (* app/comms/notify_worker/bin/main.ml *)
-let ws_worker_bin_ml = {tpl|let env_nonempty name =
+let ws_worker_bin_ml = {tpl|let fatal msg =
+  prerr_endline ("error: " ^ msg);
+  exit 1
+
+let env_nonempty name =
   match Sys.getenv_opt name with
   | Some value when value <> "" -> Some value
   | _ -> None
@@ -740,19 +748,19 @@ let require_db_pool ~sw ~stdenv postgres_url =
   let url =
     match postgres_url with
     | Some url -> url
-    | None -> failwith "db pool: POSTGRES_URL is required"
+    | None -> fatal "db pool: POSTGRES_URL is required"
   in
   match Pg_db.create_pool ~url ~sw ~stdenv () with
   | Ok pool -> pool
-  | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
+  | Error e -> fatal ("db pool: " ^ Pg_error.to_string e)
 
 let require_ok label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
+  | Error e  -> fatal (label ^ ": " ^ e)
 
 let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
+  | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
@@ -776,7 +784,7 @@ let () =
   let module WR = Worker.Make(W) in
   WR.run ~env ~config:kafka_config ~ot ()
   |> Result.map_error Worker.run_error_to_string
-  |> function Ok () -> () | Error msg -> failwith msg
+  |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
 
 (* app/comms/notify_worker/bin/dune *)
@@ -853,10 +861,14 @@ let svc_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic svc: bin/main.ml *)
-let svc_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
+let svc_bin_ml = {tpl|let fatal msg =
+  prerr_endline ("error: " ^ msg);
+  exit 1
+
+let () = Eio_main.run @@ fun env ->
   Service.run Handler.routes ~env ()
   |> Result.map_error Service.run_error_to_string
-  |> function Ok () -> () | Error e -> failwith e
+  |> function Ok () -> () | Error e -> fatal e
 |tpl}
 
 (* Generic svc: bin/dune *)
@@ -906,16 +918,20 @@ let worker_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic worker: bin/main.ml *)
-let worker_bin_ml = {tpl|let require_kafka label = function
+let worker_bin_ml = {tpl|let fatal msg =
+  prerr_endline ("error: " ^ msg);
+  exit 1
+
+let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
+  | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let () = Eio_main.run @@ fun env ->
   let config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   let module W = Worker.Make({{Mod}}) in
   W.run ~env ~config ()
   |> Result.map_error Worker.run_error_to_string
-  |> function Ok () -> () | Error msg -> failwith msg
+  |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
 
 (* Generic worker: bin/dune *)
@@ -940,12 +956,16 @@ let fn_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic fn: bin/main.ml *)
-let fn_bin_ml = {tpl|let () = Eio_main.run @@ fun env ->
+let fn_bin_ml = {tpl|let fatal msg =
+  prerr_endline ("error: " ^ msg);
+  exit 1
+
+let () = Eio_main.run @@ fun env ->
   let module F = Fn.Make({{Mod}}) in
   match F.run ~env () with
   | Ok () -> ()
   | Error `Signalled -> exit 130
-  | Error e -> failwith (Fn.run_error_to_string e)
+  | Error e -> fatal (Fn.run_error_to_string e)
 |tpl}
 
 (* Generic fn: bin/dune *)

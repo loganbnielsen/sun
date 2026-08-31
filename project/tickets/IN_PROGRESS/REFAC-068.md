@@ -3,6 +3,7 @@ id: REFAC-068
 type: refactor
 severity: medium
 source: cross-cutting-design-review 2026-08-31
+branch: REFAC-068/scaffold-fatal-boundary
 ---
 
 Replace scaffolded app `failwith` sprawl with one entrypoint failure boundary
