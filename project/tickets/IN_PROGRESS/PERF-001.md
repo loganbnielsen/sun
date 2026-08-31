@@ -3,6 +3,7 @@ id: PERF-001
 type: performance
 severity: high
 source: cross-cutting-design-review 2026-08-31
+branch: PERF-001/hard-timeouts
 ---
 
 Make slow tests and stale local infra visible by default
