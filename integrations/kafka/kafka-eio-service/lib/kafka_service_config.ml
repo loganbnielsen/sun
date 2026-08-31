@@ -1,4 +1,4 @@
-let config_of_env () =
+let of_env () =
   let env_or name default =
     match Sys.getenv_opt name with
     | Some v when String.length v > 0 -> v
