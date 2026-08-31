@@ -20,6 +20,11 @@ module Lambda_fn = struct
   let run () = Ok ()
 end
 
+module Should_not_run_fn = struct
+  let trigger = Fn.Cron "* * * * *"
+  let run () = Alcotest.fail "stopped cron should not run"
+end
+
 let contains needle haystack =
   let nl = String.length needle and hl = String.length haystack in
   if nl = 0 then true
@@ -60,6 +65,14 @@ let test_run_exception () =
   match M.run ~env () with
   | Error (`Run msg) -> Alcotest.(check bool) "exception captured" true (contains "boom" msg)
   | _ -> Alcotest.fail "expected run error"
+
+let test_external_stop_before_cron_run () =
+  Eio_main.run @@ fun env ->
+  let module M = Fn.Make(Should_not_run_fn) in
+  let stop, stop_r = Eio.Promise.create () in
+  Eio.Promise.resolve stop_r ();
+  Alcotest.(check bool) "returns signalled" true
+    (M.run ~env ~stop () = Error `Signalled)
 
 (* ── Test: metrics_ok_counter ───────────────────────────────────────────── *)
 
@@ -136,6 +149,7 @@ let () =
       Alcotest.test_case "run_ok"             `Quick test_run_ok;
       Alcotest.test_case "run_error"          `Quick test_run_error;
       Alcotest.test_case "run_exception"      `Quick test_run_exception;
+      Alcotest.test_case "external stop before cron run" `Quick test_external_stop_before_cron_run;
     ];
     "metrics", [
       Alcotest.test_case "metrics_ok_counter"    `Quick test_metrics_ok_counter;

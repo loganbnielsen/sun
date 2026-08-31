@@ -6,6 +6,7 @@
 #   ./platform/local/scripts/run_tests.sh                    # full run
 #   ./platform/local/scripts/run_tests.sh --update-baseline  # run and record timings as new baseline
 #   ./platform/local/scripts/run_tests.sh --no-infra         # skip infra setup (already running)
+#   ./platform/local/scripts/run_tests.sh --reset-infra      # recreate Sun-owned local infra first
 #   ./platform/local/scripts/run_tests.sh unit kafka         # run specific suites only
 #
 # Exit codes:
@@ -48,12 +49,14 @@ declare -A FAIL_RATIOS=(
 # ── Flags ────────────────────────────────────────────────────────────────────
 UPDATE_BASELINE=0
 SKIP_INFRA=0
+RESET_INFRA=0
 REQUESTED_SUITES=()
 
 for arg in "$@"; do
   case "$arg" in
     --update-baseline) UPDATE_BASELINE=1 ;;
     --no-infra)        SKIP_INFRA=1 ;;
+    --reset-infra)     RESET_INFRA=1 ;;
     unit|kafka|e2e) REQUESTED_SUITES+=("$arg") ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
@@ -149,6 +152,20 @@ ensure_infra() {
   if [ $needs_postgres -eq 1 ]; then info "PostgreSQL";        bash "$SCRIPT_DIR/ensure-postgres.sh"; fi
 }
 
+reset_infra() {
+  header "Reset infrastructure"
+  for container in redpanda sun-postgres loki prometheus pushgateway sun-registry; do
+    if docker ps -a --format '{{.Names}}' | grep -q "^${container}$"; then
+      info "Removing container: ${container}"
+      docker rm -f "${container}" >/dev/null
+    fi
+  done
+  if command -v k3d >/dev/null 2>&1 && k3d cluster list 2>/dev/null | awk 'NR > 1 {print $1}' | grep -q '^sun-local$'; then
+    info "Deleting k3d cluster: sun-local"
+    k3d cluster delete sun-local >/dev/null
+  fi
+}
+
 # ── Result tracking ───────────────────────────────────────────────────────────
 declare -A RESULTS   # suite → pass|fail|timeout
 declare -A TIMINGS   # suite → elapsed seconds
@@ -220,6 +237,9 @@ fi
 if [ ${#INFRA_SUITES[@]} -gt 0 ] && [ $SKIP_INFRA -eq 0 ]; then
   # Temporarily set SUITES to only infra suites for ensure_infra's needs check.
   SUITES=("${INFRA_SUITES[@]}")
+  if [ $RESET_INFRA -eq 1 ]; then
+    reset_infra
+  fi
   ensure_infra
   SUITES=("${REQUESTED_SUITES[@]:-${ALL_SUITES[@]}}")
 fi

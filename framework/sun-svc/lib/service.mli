@@ -20,6 +20,9 @@ module Make (H : HANDLER) : sig
         [sun_svc_request_duration_seconds] are emitted automatically. *)
     -> ?max_body_bytes:int
     -> ?drain_timeout_s:float
+    -> ?stop:unit Eio.Promise.t
+    (** External stop signal. Resolve to request graceful shutdown; in-flight
+        requests get up to [drain_timeout_s] before forced cancellation. *)
     -> ?on_listen:(int -> unit)
     -> unit
     -> (unit, run_error) result
@@ -34,6 +37,7 @@ val run
   -> ?ot:Obs_eio.t
   -> ?max_body_bytes:int
   -> ?drain_timeout_s:float
+  -> ?stop:unit Eio.Promise.t
   -> ?on_listen:(int -> unit)
   -> unit
   -> (unit, run_error) result
