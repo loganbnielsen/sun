@@ -3,6 +3,7 @@ id: REFAC-070
 type: refactor
 severity: medium
 source: cross-cutting-design-review 2026-08-31
+branch: REFAC-070/worker-test-seam
 ---
 
 Remove worker test injection from the public runner signature
