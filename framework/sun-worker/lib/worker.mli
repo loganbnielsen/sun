@@ -73,8 +73,9 @@ module Make (W : WORKER) : sig
         transient hiccup — logged at [Error] in that case. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
-    -> ?stop:bool Atomic.t
-    (** External stop flag. Set to [true] for graceful shutdown. *)
+    -> ?stop:unit Eio.Promise.t
+    (** External stop signal. Resolve to request graceful shutdown; checked
+        alongside the worker's own SIGTERM/SIGINT handling, not in place of it. *)
     -> ?max_messages:int
     (** Stop cleanly after this many successfully processed messages. *)
     -> ?retry_strategy:retry_strategy
