@@ -184,7 +184,7 @@ val default_retry_strategy : retry_strategy
 (** [In_memory Kafka.Consumer.default_retry] — in-process exponential backoff,
     indefinite retries.  Suitable for transient failures in low-traffic topics. *)
 
-type consume_partitioned_error = Kafka_service_intf.consume_partitioned_error =
+type consume_partitioned_error =
   | Consumer_error of Kafka.Error.t
       (** The consumer never started (create failed) or [consume_partitioned]
           rejected its own arguments before consuming began — not tied to any
