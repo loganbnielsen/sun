@@ -45,7 +45,7 @@ let postgres_url    = env_nonempty "POSTGRES_URL"
 
 let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
+  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let kafka_config : Kafka_service.config =
   { (Kafka_service.config_of_env () |> require_kafka "kafka config") with linger_ms = 5 }
@@ -89,7 +89,7 @@ let optional_db_pool ~sw ~stdenv ~fs = function
     Some pool
 
 let create_registered_topic ~sw ~net ~clock () =
-  say "registering topic %S ..." Charged.topic_name;
+  say "registering topic %S ..." (Kafka_service.topic_name_to_string Charged.topic_name);
   let svc = Kafka_service.create kafka_config ~sw |> require_kafka "kafka create" in
   let topic =
     Kafka_service.register svc ~net ~clock (module Charged)

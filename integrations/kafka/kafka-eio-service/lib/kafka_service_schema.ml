@@ -42,7 +42,7 @@ let decode_registration_response resp_body =
 
 module Schema = struct
   let check ~net ~clock ~registry_url (module M : Kafka_service_intf.MESSAGE) =
-    let topic_name = M.topic_name in
+    let topic_name = Kafka_service_intf.topic_name_to_string M.topic_name in
     let subject = topic_name ^ "-value" in
     let body = Yojson.Safe.to_string (`Assoc [
       ("schemaType", `String "JSON");

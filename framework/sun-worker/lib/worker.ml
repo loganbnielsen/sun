@@ -15,8 +15,8 @@ type retry_strategy = Kafka_service.retry_strategy =
   | Retry_topics of { max_attempts : int }
 
 type run_error =
-  [ `Create   of string
-  | `Register of string
+  [ `Create   of Kafka_service.error
+  | `Register of Kafka_service.error
   | `Consume  of Kafka_service.consume_partitioned_error
   ]
 
@@ -29,8 +29,8 @@ let consume_error_to_string = function
     |> String.concat "; "
 
 let run_error_to_string = function
-  | `Create msg   -> "sun-worker: create failed: " ^ msg
-  | `Register msg -> "sun-worker: register failed: " ^ msg
+  | `Create e   -> "sun-worker: create failed: " ^ Kafka_service.error_to_string e
+  | `Register e -> "sun-worker: register failed: " ^ Kafka_service.error_to_string e
   | `Consume e ->
     match e with
     | Kafka_service.Consumer_error _ ->

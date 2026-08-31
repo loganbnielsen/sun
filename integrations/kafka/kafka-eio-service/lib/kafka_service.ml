@@ -2,8 +2,46 @@ module type MESSAGE = Kafka_service_intf.MESSAGE
 
 type topic_name = Kafka_service_intf.topic_name
 
-let topic_name = Kafka_service_intf.topic_name
-let topic_name_exn = Kafka_service_intf.topic_name_exn
+type error =
+  | Invalid_topic_name of string * string
+  | Config of string
+  | Create of Kafka.Error.t
+  | Topic_metadata of topic_name * string
+  | Partition_count_reduction of { topic_name : topic_name; current : int; requested : int }
+  | Provision_topic of topic_name * Kafka.Error.t
+  | Schema_registry of topic_name * string
+
+let topic_name_to_string = Kafka_service_intf.topic_name_to_string
+
+let error_to_string = function
+  | Invalid_topic_name (name, msg) ->
+    Printf.sprintf "invalid topic name %S: %s" name msg
+  | Config msg -> "config: " ^ msg
+  | Create e -> "producer: " ^ Kafka.Error.to_string e
+  | Topic_metadata (topic, msg) ->
+    Printf.sprintf "could not query topic '%s' metadata: %s"
+      (topic_name_to_string topic)
+      msg
+  | Partition_count_reduction { topic_name; current; requested } ->
+    Printf.sprintf
+      "partition count for topic '%s' cannot be reduced from %d to %d; \
+       delete the topic first if this change is intentional"
+      (topic_name_to_string topic_name) current requested
+  | Provision_topic (topic, e) ->
+    Printf.sprintf "could not provision topic %s: %s"
+      (topic_name_to_string topic) (Kafka.Error.to_string e)
+  | Schema_registry (topic, msg) ->
+    Printf.sprintf "schema registry for topic %s: %s"
+      (topic_name_to_string topic) msg
+
+let topic_name name =
+  Kafka_service_intf.topic_name name
+  |> Result.map_error (fun msg -> Invalid_topic_name (name, msg))
+
+let topic_name_exn name =
+  match topic_name name with
+  | Ok topic -> topic
+  | Error e -> invalid_arg (error_to_string e)
 
 type 'a topic = 'a Kafka_service_intf.topic = {
   name      : topic_name;
@@ -34,11 +72,27 @@ type consume_partitioned_error = Kafka_service_intf.consume_partitioned_error =
   | Consumer_error of Kafka.Error.t
   | Partition_errors of (int32 * Kafka.Error.t) list
 
-module Schema = Kafka_service_schema.Schema
+module Schema = struct
+  let check ~net ~clock ~registry_url (module M : MESSAGE) =
+    let topic = M.topic_name in
+    let message = (module M : MESSAGE) in
+    Kafka_service_schema.Schema.check ~net ~clock ~registry_url message
+    |> Result.map_error (fun msg -> Schema_registry (topic, msg))
+
+  let rec check_all ~net ~clock ~registry_url = function
+    | [] -> Ok ()
+    | (module M : MESSAGE) :: rest ->
+      let message = (module M : MESSAGE) in
+      match check ~net ~clock ~registry_url message with
+      | Ok () -> check_all ~net ~clock ~registry_url rest
+      | Error e -> Error e
+end
 module Confluent_wire = Kafka_service_schema.Confluent_wire
 
 let encode_wire = Kafka_service_schema.encode_wire
-let config_of_env = Kafka_service_config.config_of_env
+let config_of_env () =
+  Kafka_service_config.config_of_env ()
+  |> Result.map_error (fun msg -> Config msg)
 
 let create (cfg : config) ~sw =
   let producer_cfg : Kafka.Producer.config = {
@@ -49,7 +103,7 @@ let create (cfg : config) ~sw =
     properties    = [];
   } in
   match Kafka.Producer.create producer_cfg ~sw with
-  | Error e -> Error ("producer: " ^ Kafka.Error.to_string e)
+  | Error e -> Error (Create e)
   | Ok producer ->
     Ok {
       Kafka_service_intf.producer;
@@ -60,36 +114,37 @@ let create (cfg : config) ~sw =
       security            = cfg.security;
     }
 
-let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module MESSAGE with type t = a) -> (a topic, string) result =
+let register : type a. t -> net:_ Eio.Net.t -> clock:_ Eio.Time.clock -> (module MESSAGE with type t = a) -> (a topic, error) result =
   fun svc ~net ~clock (module M) ->
   let ( let* ) = Result.bind in
-  let raw_topic_name = M.topic_name in
+  let raw_topic_name = topic_name_to_string M.topic_name in
   let partition_guard () =
     match Kafka_service_intf.query_topic_partitions net ~clock
-            ~admin_url:svc.admin_url ~topic_name:M.topic_name with
+            ~admin_url:svc.admin_url ~topic_name:raw_topic_name with
     | Error e ->
-      Error (Printf.sprintf
-        "could not query topic '%s' metadata: %s"
-        raw_topic_name
-        (Kafka_service_intf.topic_partition_error_to_string e))
+      Error (Topic_metadata (M.topic_name, Kafka_service_intf.topic_partition_error_to_string e))
     | Ok Kafka_service_intf.Topic_not_found -> Ok ()
     | Ok (Kafka_service_intf.Topic_partitions current) when current <= svc.partitions -> Ok ()
     | Ok (Kafka_service_intf.Topic_partitions current) ->
-      Error (Printf.sprintf
-        "partition count for topic '%s' cannot be reduced from %d to %d; \
-         delete the topic first if this change is intentional"
-        raw_topic_name current svc.partitions)
+      Error (Partition_count_reduction {
+        topic_name = M.topic_name;
+        current;
+        requested = svc.partitions;
+      })
   in
   let* () = partition_guard () in
-  let* () = Kafka_service_intf.ensure_topic svc.producer ~topic_name:M.topic_name ~partitions:svc.partitions in
+  let* () =
+    Kafka_service_intf.ensure_topic svc.producer ~topic_name:raw_topic_name ~partitions:svc.partitions
+    |> Result.map_error (fun msg -> Provision_topic (M.topic_name, msg))
+  in
   let* schema_id =
     Kafka_service_schema.register_schema net ~clock
-      ~registry_url:svc.schema_registry_url
-      ~topic_name:M.topic_name ~schema:M.schema
+      ~registry_url:svc.schema_registry_url ~topic_name:raw_topic_name ~schema:M.schema
+    |> Result.map_error (fun msg -> Schema_registry (M.topic_name, msg))
   in
   (match Kafka_service_schema.set_subject_compatibility net ~clock
            ~registry_url:svc.schema_registry_url
-           ~topic_name:M.topic_name with
+           ~topic_name:raw_topic_name with
    | Error e ->
      Printf.eprintf "warn: could not set schema compatibility for %s: %s\n%!" raw_topic_name e
    | Ok () -> ());
@@ -103,7 +158,7 @@ let publish svc topic ?trace_ctx msg =
   let headers = List.map (fun (k, v) -> (k, Some v)) headers in
   let payload = encode_wire ~schema_id:topic.schema_id (topic.encode msg) in
   Kafka.Producer.produce_await svc.producer
-    ~topic:topic.name ~value:(Some payload) ~headers ()
+    ~topic:(topic_name_to_string topic.name) ~value:(Some payload) ~headers ()
 
 type retry_strategy =
   | In_memory    of Kafka.Consumer.retry_policy
@@ -122,12 +177,12 @@ let consume svc topic ~group_id ~sw
     ?ot
     ~handler () =
   let on_decode_error =
-    Kafka_service_intf.wrap_on_decode_error ~ot ~topic_name:topic.name on_decode_error
+    Kafka_service_intf.wrap_on_decode_error ~ot ~topic_name:(topic_name_to_string topic.name) on_decode_error
   in
   let consumer_cfg : Kafka.Consumer.config = {
     brokers      = svc.brokers;
     group_id;
-    topics       = [topic.name];
+    topics       = [topic_name_to_string topic.name];
     offset_reset = Kafka.Consumer.Earliest;
     auto_commit  = false;
     security     = svc.security;
@@ -153,14 +208,14 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
     ?ot
     ~handler () =
   let on_decode_error =
-    Kafka_service_intf.wrap_on_decode_error ~ot ~topic_name:topic.name on_decode_error
+    Kafka_service_intf.wrap_on_decode_error ~ot ~topic_name:(topic_name_to_string topic.name) on_decode_error
   in
   match retry_strategy with
   | In_memory retry ->
     let consumer_cfg : Kafka.Consumer.config = {
       brokers      = svc.brokers;
       group_id;
-      topics       = [topic.name];
+      topics       = [topic_name_to_string topic.name];
       offset_reset = Kafka.Consumer.Earliest;
       auto_commit  = false;
       security     = svc.security;

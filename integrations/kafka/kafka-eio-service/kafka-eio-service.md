@@ -113,7 +113,7 @@ val config_of_env : unit -> config
 val create
   :  config
   -> sw:Eio.Switch.t
-  -> (t, string) result
+  -> (t, error) result
 
 (** Provision M's topic via the Redpanda admin HTTP API and register its JSON schema
     with the schema registry. Returns a typed topic handle for use with publish and consume.
@@ -123,7 +123,7 @@ val register
   -> net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
   -> (module MESSAGE with type t = 'a)
-  -> ('a topic, string) result
+  -> ('a topic, error) result
 
 (** Encode msg in Confluent wire format and produce it to the broker.
     When trace_ctx is provided it is serialised as a W3C traceparent Kafka message header,
@@ -211,14 +211,14 @@ module Schema : sig
     -> clock:_ Eio.Time.clock
     -> registry_url:string
     -> (module MESSAGE)
-    -> (unit, string) result
+    -> (unit, error) result
 
   val check_all
     :  net:_ Eio.Net.t
     -> clock:_ Eio.Time.clock
     -> registry_url:string
     -> (module MESSAGE) list
-    -> (unit, string) result
+    -> (unit, error) result
 end
 ```
 
