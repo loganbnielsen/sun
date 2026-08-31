@@ -76,7 +76,7 @@ module FulfilledOrderSchema = struct
   let get_id r = r.order_id
 end
 
-module FulfilledOrders = Table.Make(FulfilledOrderSchema)
+module FulfilledOrders = Pg_table.Make(FulfilledOrderSchema)
 
 (* ── Golden path result ───────────────────────────────────────────────────── *)
 type result = {
@@ -122,7 +122,7 @@ let run_golden_path () =
   let db_pool = match postgres_url with
     | None     -> None
     | Some url ->
-      match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+      match Pg_db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
       | Error _ -> None
       | Ok pool ->
         (match Migration.apply pool ~dir:"examples/local-demo/migrations" ~fs:env#fs with

@@ -68,10 +68,10 @@ let log_backend ~net ~clock = function
 
 let require_storage label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
+  | Error e  -> failwith (label ^ ": " ^ Pg_error.to_string e)
 
 let create_db_pool ~sw ~stdenv url =
-  Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
+  Pg_db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
 
 let apply_venus_migrations ~fs pool =
   Migration.apply pool ~dir:"examples/venus/db/migrations"
@@ -282,7 +282,7 @@ let () =
      Printf.printf "%s\n" sep;
      (match Notification.list pool () with
       | Error e ->
-        Printf.eprintf "  db query error: %s\n%!" (Storage_error.to_string e)
+        Printf.eprintf "  db query error: %s\n%!" (Pg_error.to_string e)
       | Ok rows ->
         List.iter (fun (r : Notification.t) ->
           Printf.printf "  %-20s  %-10s  %5d %s\n"
@@ -302,7 +302,7 @@ let () =
      (match Obs_prometheus.push ~net:env#net ~clock:env#clock
               ~url ~job:"venus" render with
       | Ok ()   -> say "metrics pushed to %s" url
-      | Error e -> Printf.eprintf "[venus] push failed: %s\n%!" e));
+      | Error e -> Printf.eprintf "[venus] push failed: %s\n%!" (Obs_prometheus.push_error_to_string e)));
 
   Printf.printf "\n%s\n" sep;
   Printf.printf "  Done.\n";
