@@ -41,10 +41,11 @@ let run_error_to_string = function
 
 (* ── Signal handling ────────────────────────────────────────────────────── *)
 
-(* Self-pipe: signal handler writes one byte; an Eio fiber reads it and sets
-   the stop flag, which the consumer checks at each message boundary so the
-   in-flight message finishes before shutdown. *)
-let install_signal_handler ~sw stop_flag =
+(* Self-pipe: signal handler writes one byte; an Eio fiber reads it and
+   resolves the stop promise, which the consumer checks at each message
+   boundary so the in-flight message finishes before shutdown. Same shape as
+   sun-fn's install_signal_handler. *)
+let install_signal_handler ~sw resolver =
   let r, w = Unix.pipe ~cloexec:true () in
   Unix.set_nonblock w;
   let handle _ =
@@ -59,7 +60,7 @@ let install_signal_handler ~sw stop_flag =
         Eio_unix.await_readable r;
         let buf = Bytes.create 1 in
         (try ignore (Unix.read r buf 0 1) with _ -> ());
-        Atomic.set stop_flag true;
+        (try Eio.Promise.resolve resolver () with _ -> ());
         `Stop_daemon))
 
 (* ── Make functor ───────────────────────────────────────────────────────── *)
@@ -87,7 +88,11 @@ module Make (W : WORKER) = struct
         in
         (Some c, Some h)
     in
-    let stop_flag = match stop with Some f -> f | None -> Atomic.make false in
+    let signal_stop, signal_stop_r = Eio.Promise.create () in
+    let stop_requested () =
+      Eio.Promise.is_resolved signal_stop
+      || (match stop with Some p -> Eio.Promise.is_resolved p | None -> false)
+    in
     let remaining = match max_messages with Some n -> Some (ref n) | None -> None in
     let on_retry ~partition:_ ~attempt:_ ~delay_s:_ =
       match msg_count with
@@ -95,13 +100,13 @@ module Make (W : WORKER) = struct
       | None   -> ()
     in
     let result = Eio.Switch.run (fun sw ->
-        install_signal_handler ~sw stop_flag;
+        install_signal_handler ~sw signal_stop_r;
         let handler msg ~ack ~trace_ctx =
           let limit_reached = match remaining with
             | Some r -> !r <= 0
             | None   -> false
           in
-          if Atomic.get stop_flag || limit_reached then
+          if stop_requested () || limit_reached then
             Kafka.Consumer.Stop
           else begin
             let t0 = Eio.Time.now env#clock in

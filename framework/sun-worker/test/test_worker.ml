@@ -247,7 +247,7 @@ let test_ack_failure_fatal_escalates () =
 
 let test_external_stop_flag_skips_messages () =
   Eio_main.run (fun env ->
-    let stop = Atomic.make true in  (* pre-set: handler wrapper returns Stop immediately *)
+    let stop = Eio.Promise.create_resolved () in  (* pre-resolved: handler wrapper returns Stop immediately *)
     let processed = ref 0 in
     let module StopWorker = struct
       module Message = TestMsg
