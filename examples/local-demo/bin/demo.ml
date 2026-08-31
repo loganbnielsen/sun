@@ -179,8 +179,8 @@ let () =
     | None ->
       Printf.printf "\n  Note: POSTGRES_URL not set — skipping DB storage.\n%!";
       None
-    | Some url ->
-      (match Pg_db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+    | Some _url ->
+      (match Pg_db.of_env ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
        | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
        | Ok pool ->
          (match Migration.apply pool ~dir:"examples/local-demo/migrations" ~fs:env#fs with
