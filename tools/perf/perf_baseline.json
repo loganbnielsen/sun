@@ -2268,7 +2268,7 @@
         {
           "date": "2026-08-31",
           "commit": "49ce7aa",
-          "duration_s": 0.861
+          "duration_s": 0.890
         }
       ]
     },
@@ -3886,7 +3886,7 @@
         {
           "date": "2026-08-31",
           "commit": "49ce7aa",
-          "duration_s": 1.089
+          "duration_s": 1.093
         }
       ]
     },
@@ -5332,7 +5332,7 @@
         {
           "date": "2026-08-31",
           "commit": "49ce7aa",
-          "duration_s": 1.175
+          "duration_s": 1.174
         }
       ]
     }

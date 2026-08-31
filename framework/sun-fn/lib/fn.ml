@@ -47,10 +47,7 @@ module Make (F : FN) = struct
     | Cron sched -> sched
     | Lambda -> "lambda"
 
-  let run ~(env : < net       : _ Eio.Net.t
-                  ; clock     : _ Eio.Time.clock
-                  ; mono_clock: _ Eio.Time.Mono.t
-                  ; .. >)
+  let run ~(env : (_, _, _, _) Sun_env.timed)
       ?pushgateway_url ?job ?backend () =
     let job = Option.value job ~default:(default_job F.trigger) in
     let backend, renderer =
