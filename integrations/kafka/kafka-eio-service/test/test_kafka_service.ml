@@ -130,7 +130,7 @@ let raw_retry_msg ?(headers = []) () : Kafka.Consumer.message = {
 
 let test_retry_metadata_rejects_malformed_headers () =
   let check_error name headers =
-    match Kafka_service_retry_topics.parse_retry_metadata headers with
+    match Kafka_service.Retry_topics.parse_retry_metadata headers with
     | Ok _ -> Alcotest.failf "%s: expected retry metadata error" name
     | Error _ -> ()
   in
@@ -141,7 +141,7 @@ let test_retry_metadata_rejects_malformed_headers () =
   Alcotest.(check (result (pair int (float 0.0001)) string))
     "valid retry metadata"
     (Ok (2, 123.5))
-    (Kafka_service_retry_topics.parse_retry_metadata valid);
+    (Kafka_service.Retry_topics.parse_retry_metadata valid);
   check_error "missing attempt" [ "X-Sun-Retry-At", Some "123.5" ];
   check_error "zero attempt"
     [ "X-Sun-Attempt", Some "0"; "X-Sun-Retry-At", Some "123.5" ];
@@ -160,9 +160,9 @@ let test_retry_publish_then_ack_failure_is_error () =
     incr acked;
     Error Kafka.Error.Application
   in
-  let target = Kafka_service_intf.topic_name_exn "orders-retry" in
-  let action = Kafka_service_retry_topics.Forward_retry { target; delay_s = 1.0 } in
-  match Kafka_service_retry_topics.execute_action action
+  let target = Kafka_service.topic_name_exn "orders-retry" in
+  let action = Kafka_service.Retry_topics.Forward_retry { target; delay_s = 1.0 } in
+  match Kafka_service.Retry_topics.execute_action action
           ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
   | Error Kafka.Error.Application ->
     Alcotest.(check int) "ack attempted once" 1 !acked
@@ -177,9 +177,9 @@ let test_retry_publish_failure_does_not_ack () =
     acked := true;
     Ok ()
   in
-  let target = Kafka_service_intf.topic_name_exn "orders-dlq" in
-  let action = Kafka_service_retry_topics.Forward_dlq { target } in
-  match Kafka_service_retry_topics.execute_action action
+  let target = Kafka_service.topic_name_exn "orders-dlq" in
+  let action = Kafka_service.Retry_topics.Forward_dlq { target } in
+  match Kafka_service.Retry_topics.execute_action action
           ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
   | Error Kafka.Error.Transport ->
     Alcotest.(check bool) "ack skipped" false !acked
@@ -230,61 +230,61 @@ let result_error () = Alcotest.testable
   (=)
 
 let test_decode_compatibility_response () =
-  match Kafka_service_schema.decode_compatibility_response {|{"is_compatible":true}|} with
+  match Kafka_service.Schema.decode_compatibility_response {|{"is_compatible":true}|} with
   | Ok response ->
     Alcotest.(check bool) "is compatible" true
-      response.Kafka_service_schema.is_compatible
+      response.Kafka_service.Schema.is_compatible
   | Error e -> Alcotest.failf "decode failed: %s" e
 
 let test_decode_compatibility_response_errors () =
   Alcotest.(check (result_error ())) "missing field"
     (Error {|unexpected registry response: {"ok":true}|})
-    (Kafka_service_schema.decode_compatibility_response {|{"ok":true}|});
+    (Kafka_service.Schema.decode_compatibility_response {|{"ok":true}|});
   Alcotest.(check (result_error ())) "malformed json"
     (Error {|json parse error in registry response: {"is_compatible":|})
-    (Kafka_service_schema.decode_compatibility_response {|{"is_compatible":|})
+    (Kafka_service.Schema.decode_compatibility_response {|{"is_compatible":|})
 
 let test_decode_registration_response () =
-  match Kafka_service_schema.decode_registration_response {|{"id":42}|} with
+  match Kafka_service.Schema.decode_registration_response {|{"id":42}|} with
   | Ok response ->
     Alcotest.(check int) "schema id" 42
-      response.Kafka_service_schema.id
+      response.Kafka_service.Schema.id
   | Error e -> Alcotest.failf "decode failed: %s" e
 
 let test_decode_registration_response_errors () =
   Alcotest.(check (result_error ())) "missing id"
     (Error {|schema registry: missing 'id' in: {"schema":{}}|})
-    (Kafka_service_schema.decode_registration_response {|{"schema":{}}|});
+    (Kafka_service.Schema.decode_registration_response {|{"schema":{}}|});
   Alcotest.(check (result_error ())) "unexpected shape"
     (Error {|schema registry: unexpected response: []|})
-    (Kafka_service_schema.decode_registration_response {|[]|});
+    (Kafka_service.Schema.decode_registration_response {|[]|});
   Alcotest.(check (result_error ())) "malformed json"
     (Error {|schema registry: json parse error in: {"id":|})
-    (Kafka_service_schema.decode_registration_response {|{"id":|})
+    (Kafka_service.Schema.decode_registration_response {|{"id":|})
 
 (* ------------------------------------------------------------------ *)
 (* Redpanda admin topic metadata decoding                             *)
 (* ------------------------------------------------------------------ *)
 
 let test_decode_topic_partitions () =
-  match Kafka_service_intf.decode_topic_partitions
+  match Kafka_service.Admin.decode_topic_partitions
           {|{"partitions":[{"id":0},{"id":1},{"id":2}]}|} with
-  | Ok (Kafka_service_intf.Topic_partitions partitions) ->
+  | Ok (Kafka_service.Admin.Topic_partitions partitions) ->
     Alcotest.(check int) "partition count" 3 partitions
-  | Ok Kafka_service_intf.Topic_not_found ->
+  | Ok Kafka_service.Admin.Topic_not_found ->
     Alcotest.fail "decoder should not return Topic_not_found for HTTP 200"
   | Error e ->
     Alcotest.failf "decode failed: %s"
-      (Kafka_service_intf.topic_partition_error_to_string e)
+      (Kafka_service.Admin.topic_partition_error_to_string e)
 
 let test_decode_topic_partitions_errors () =
   let check_error name body =
-    match Kafka_service_intf.decode_topic_partitions body with
+    match Kafka_service.Admin.decode_topic_partitions body with
     | Ok _ -> Alcotest.failf "%s: expected malformed response" name
     | Error e ->
       Alcotest.(check string) name
         ("malformed admin API topic response: " ^ body)
-        (Kafka_service_intf.topic_partition_error_to_string e)
+        (Kafka_service.Admin.topic_partition_error_to_string e)
   in
   check_error "missing partitions" {|{"name":"orders"}|};
   check_error "partitions not list" {|{"partitions":3}|};

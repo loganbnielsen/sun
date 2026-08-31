@@ -61,6 +61,74 @@ module Schema : sig
     -> (module MESSAGE) list
     -> (unit, error) result
 
+  type compatibility_response = { is_compatible : bool }
+  type registration_response = { id : int }
+
+  val decode_compatibility_response : string -> (compatibility_response, string) result
+  (** Decode a schema-registry compatibility-check response body. Exposed so
+      tests can exercise the response codec directly instead of duplicating
+      it — same rationale as [Confluent_wire]. *)
+
+  val decode_registration_response : string -> (registration_response, string) result
+  (** Decode a schema-registry registration response body. Same rationale as
+      [decode_compatibility_response]. *)
+
+end
+
+(** Retry/DLQ routing decisions for [consume_partitioned]'s [Retry_topics]
+    strategy (see [retry_strategy] below). Exposed so tests can exercise the
+    routing decision and header codec directly, the same rationale as
+    [Schema]'s decode functions. Only [consume_partitioned] itself calls into
+    the side-effecting parts of this during normal operation. *)
+module Retry_topics : sig
+
+  (** Typed outcome for a single retry-routing decision. *)
+  type retry_action =
+    | Ack
+    | Forward_retry of { target : topic_name; delay_s : float }
+    | Forward_dlq   of { target : topic_name }
+
+  val parse_retry_metadata
+    :  (string * string option) list
+    -> (int * float, string) result
+  (** Read and validate the [X-Sun-Attempt]/[X-Sun-Retry-At] headers off a
+      message forwarded to a retry topic. *)
+
+  val execute_action
+    :  retry_action
+    -> raw_msg:Kafka.Consumer.message
+    -> attempt:int
+    -> publish_raw:(target_topic:topic_name -> attempt:int -> raw_bytes:bytes option -> headers:(string * string option) list -> delay_s:float -> partition:int32 -> (unit, Kafka.Error.t) result)
+    -> ack:(unit -> (unit, Kafka.Error.t) result)
+    -> (unit, Kafka.Error.t) result
+  (** Execute the side-effecting part of a retry decision: publish to the
+      target topic (for [Forward_retry]/[Forward_dlq]) then [ack]. [Ack]
+      skips straight to acking. *)
+
+end
+
+(** Redpanda admin API topic-metadata parsing, backing [register]'s
+    partition-count guard. Exposed so tests can exercise the response codec
+    directly, the same rationale as [Schema]'s decode functions. *)
+module Admin : sig
+
+  (** Partition count for an existing topic, or [Topic_not_found] (HTTP 404). *)
+  type topic_partition_metadata =
+    | Topic_not_found
+    | Topic_partitions of int
+
+  (** Opaque — every case is a distinct admin-API failure shape; callers only
+      ever need [topic_partition_error_to_string], never to match a specific
+      case. *)
+  type topic_partition_error
+
+  val topic_partition_error_to_string : topic_partition_error -> string
+
+  val decode_topic_partitions
+    :  string
+    -> (topic_partition_metadata, topic_partition_error) result
+  (** Parse a Redpanda admin API topic-metadata response body. *)
+
 end
 
 (** Opaque handle to a provisioned, schema-registered topic.
