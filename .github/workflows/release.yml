@@ -30,6 +30,11 @@ jobs:
           # pins once these settle and cut real releases (re-running a past
           # sun release build later can then pull in different dependency
           # code than what originally shipped — accepted tradeoff for now).
+          # https-eio first: obs-loki-eio/obs-prometheus-eio/aws-eio all
+          # depend on it, and each -y pin below installs immediately --
+          # pinning it after them let their own install step pull in the
+          # published opam-repository https-eio before this pin ever ran.
+          opam pin add https-eio https://github.com/loganbnielsen/https-eio.git#main -y
           opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#main -y
           opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#main -y
           opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#main -y
@@ -39,7 +44,6 @@ jobs:
           opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y
           opam pin add dynamodb-eio https://github.com/loganbnielsen/dynamodb-eio.git#main -y
           opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
-          opam pin add https-eio https://github.com/loganbnielsen/https-eio.git#main -y
 
       - name: Install OCaml dependencies
         run: opam install . --deps-only -y
