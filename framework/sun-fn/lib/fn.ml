@@ -101,7 +101,7 @@ module Make (F : FN) = struct
         let stop, stop_r = Eio.Promise.create () in
         Eio.Switch.run (fun sw ->
           install_signal_handler ~sw stop_r;
-          let runtime = Lambda_runtime.create ~net:env#net ~sw ~base in
+          let runtime = Lambda_runtime.create ~net:env#net ~base in
           Eio.Fiber.first
             (fun () ->
               Lambda_runtime.run_loop runtime ~clock:env#clock
