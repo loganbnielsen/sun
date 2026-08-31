@@ -63,6 +63,10 @@ let validate_api_key ~read_api_key headers =
     match read_api_key () with
     | None ->
       Error (`Server_error "API key not configured (set SUN_API_KEY or SUN_API_KEY_FILE)")
+    | Some "" ->
+      Error (`Server_error "API key is empty (set SUN_API_KEY or SUN_API_KEY_FILE)")
+    | Some _ when provided = "" ->
+      Error (`Unauthorized "Invalid API key")
     | Some expected ->
       if constant_time_equal provided expected then
         let key_id = String.sub provided 0 (min 8 (String.length provided)) in
@@ -240,7 +244,11 @@ let verify_with_key_source ?fetch_jwks ~kid parsed key_source =
   in
   match key_source with
   | Hs256_secret secret -> with_jwk (Jose.Jwk.make_oct secret)
-  | Jwks_static doc -> jwks_lookup (Jose.Jwks.of_string doc)
+  | Jwks_static doc -> (
+    try jwks_lookup (Jose.Jwks.of_string doc) with
+    | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+    | Eio.Cancel.Cancelled _ as exn -> raise exn
+    | exn -> Error (`Server_error ("JWKS parse failed: " ^ Printexc.to_string exn)))
   | Jwks_url url ->
     match fetch_jwks with
     | None -> Error (`Server_error "Jwks_url configured but no JWKS fetcher was provided")
