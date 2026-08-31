@@ -26,10 +26,7 @@ val run_error_to_string : run_error -> string
 
 module Make (F : FN) : sig
   val run
-    :  env:< net       : _ Eio.Net.t
-           ; clock     : _ Eio.Time.clock
-           ; mono_clock: _ Eio.Time.Mono.t
-           ; .. >
+    :  env:(_, _, _, _) Sun_env.timed
     -> ?pushgateway_url:string
     (** Pushgateway base URL, e.g. "http://pushgateway:9091".
         If absent, metrics are recorded in-process but not pushed. *)
