@@ -63,9 +63,9 @@ let install_signal_handler ~sw resolver =
         (try Eio.Promise.resolve resolver () with _ -> ());
         `Stop_daemon))
 
-(* ── Make functor ───────────────────────────────────────────────────────── *)
+(* ── Make functors ──────────────────────────────────────────────────────── *)
 
-module Make (W : WORKER) = struct
+module Make_with_test_seam (W : WORKER) = struct
 
   let run ~(env : (_, _, _, _) Sun_env.timed)
       ~config ?ot ?on_ready ?stop ?max_messages
@@ -182,4 +182,15 @@ module Make (W : WORKER) = struct
      | _ -> ());
     result
 
+end
+
+module Make (W : WORKER) = struct
+  module Impl = Make_with_test_seam(W)
+
+  let run ~env ~config ?ot ?on_ready ?stop ?max_messages ?retry_strategy () =
+    Impl.run ~env ~config ?ot ?on_ready ?stop ?max_messages ?retry_strategy ()
+end
+
+module For_testing = struct
+  module Make = Make_with_test_seam
 end
