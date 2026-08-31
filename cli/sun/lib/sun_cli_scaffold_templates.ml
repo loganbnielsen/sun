@@ -624,7 +624,7 @@ let optional_log_backend ~net ~clock = function
   | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label "team"] ()
+      ~label_names:[Obs_loki.stream_label_exn "team"] ()
 
 let require_ok label = function
   | Ok value -> value
@@ -734,7 +734,7 @@ let optional_log_backend ~net ~clock = function
   | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label "team"] ()
+      ~label_names:[Obs_loki.stream_label_exn "team"] ()
 
 let require_db_pool ~sw ~stdenv postgres_url =
   let url =
