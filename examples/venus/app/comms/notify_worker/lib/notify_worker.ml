@@ -4,7 +4,7 @@
     so the module itself has no mutable state. *)
 
 module Make (Config : sig
-  val pool : Db.pool option
+  val pool : Pg_db.pool option
   val ot   : Obs_eio.t
 end) = struct
   module Message = Charged
@@ -33,7 +33,7 @@ end) = struct
        (match Notification.insert pool row with
         | Ok ()   -> Ok ()
         | Error e ->
-          let msg = Storage_error.to_string e in
+          let msg = Pg_error.to_string e in
           Printf.eprintf "[notify-worker] db error: %s\n%!" msg;
           Error msg)
     in

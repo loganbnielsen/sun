@@ -41,7 +41,7 @@ let routes pool = [
          Response.json ~status:202
            (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
        | Error e ->
-         Response.internal_error ("db insert failed: " ^ Storage_error.to_string e))
+         Response.internal_error ("db insert failed: " ^ Pg_error.to_string e))
   );
   Route.get "/notifications" ~auth:`Public (fun _req ->
     match Notification.list_recent pool with

@@ -14,7 +14,7 @@ let list_q =
      ORDER BY created_at DESC LIMIT 20"
 
 let insert pool ~charge_id ~customer_id ~amount_cents ~currency =
-  Db.exec pool insert_q (charge_id, customer_id, amount_cents, currency)
+  Pg_db.exec pool insert_q (charge_id, customer_id, amount_cents, currency)
 
 let list_recent pool =
-  Db.collect pool list_q ()
+  Pg_db.collect pool list_q ()

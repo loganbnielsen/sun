@@ -11,14 +11,14 @@ let optional_log_backend ~net ~clock = function
 
 let require_storage label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ Storage_error.to_string e)
+  | Error e  -> failwith (label ^ ": " ^ Pg_error.to_string e)
 
 let require_kafka label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let create_db_pool ~sw ~stdenv url =
-  Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
+  Pg_db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
 
 let apply_optional_migrations ~fs pool = function
   | None     -> ()

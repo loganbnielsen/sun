@@ -28,4 +28,4 @@ end
 
 type t = Schema.t
 
-include Table.Make(Schema)
+include Pg_table.Make(Schema)
