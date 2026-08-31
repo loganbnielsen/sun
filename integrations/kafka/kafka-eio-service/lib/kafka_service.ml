@@ -86,8 +86,35 @@ module Schema = struct
       match check ~net ~clock ~registry_url message with
       | Ok () -> check_all ~net ~clock ~registry_url rest
       | Error e -> Error e
+
+  type compatibility_response = Kafka_service_schema.compatibility_response = {
+    is_compatible : bool;
+  }
+  type registration_response = Kafka_service_schema.registration_response = {
+    id : int;
+  }
+  let decode_compatibility_response = Kafka_service_schema.decode_compatibility_response
+  let decode_registration_response = Kafka_service_schema.decode_registration_response
 end
 module Confluent_wire = Kafka_service_schema.Confluent_wire
+
+module Retry_topics = struct
+  type retry_action = Kafka_service_retry_topics.retry_action =
+    | Ack
+    | Forward_retry of { target : topic_name; delay_s : float }
+    | Forward_dlq   of { target : topic_name }
+  let parse_retry_metadata = Kafka_service_retry_topics.parse_retry_metadata
+  let execute_action = Kafka_service_retry_topics.execute_action
+end
+
+module Admin = struct
+  type topic_partition_metadata = Kafka_service_intf.topic_partition_metadata =
+    | Topic_not_found
+    | Topic_partitions of int
+  type topic_partition_error = Kafka_service_intf.topic_partition_error
+  let topic_partition_error_to_string = Kafka_service_intf.topic_partition_error_to_string
+  let decode_topic_partitions = Kafka_service_intf.decode_topic_partitions
+end
 
 let encode_wire = Kafka_service_schema.encode_wire
 let config_of_env () =
