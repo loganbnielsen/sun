@@ -186,7 +186,7 @@ run_suite() {
 
   local start; start=$(now_ms)
   set +e
-  timeout "$timeout_s" bash -c "$(declare -f info pass fail header now_ms elapsed_s "run_${suite}"); run_${suite}" 2>&1 \
+  timeout -s KILL "$timeout_s" bash -c "$(declare -f info pass fail header now_ms elapsed_s "run_${suite}"); run_${suite}" 2>&1 \
     | sed 's/^/    /'
   local exit_code=${PIPESTATUS[0]}
   set -e
@@ -195,7 +195,7 @@ run_suite() {
   local elapsed; elapsed=$(elapsed_s "$start" "$end")
   TIMINGS[$suite]=$elapsed
 
-  if [ $exit_code -eq 124 ]; then
+  if [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; then
     fail "${suite}: timed out after ${timeout_s}s"
     RESULTS[$suite]=timeout
   elif [ $exit_code -ne 0 ]; then
