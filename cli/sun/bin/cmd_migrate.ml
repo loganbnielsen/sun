@@ -93,9 +93,9 @@ let get_postgres_url () =
 let with_pool url f =
   Eio_main.run (fun env ->
     Eio.Switch.run (fun sw ->
-      match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+      match Pg_db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
       | Error e ->
-        Printf.eprintf "error: cannot connect to database: %s\n" (Storage_error.to_string e);
+        Printf.eprintf "error: cannot connect to database: %s\n" (Pg_error.to_string e);
         exit 1
       | Ok pool -> f ~fs:env#fs pool
     )
@@ -139,7 +139,7 @@ let run_apply dir table dry_run =
       match Migration.apply ~table pool ~dir ~fs with
       | Ok () -> Printf.printf "Done.\n"
       | Error e ->
-        Printf.eprintf "error: %s\n" (Storage_error.to_string e);
+        Printf.eprintf "error: %s\n" (Pg_error.to_string e);
         exit 1
     )
   end
@@ -151,7 +151,7 @@ let run_status dir table () =
   with_pool url (fun ~fs pool ->
     match Migration.status ~table pool ~dir ~fs with
     | Error e ->
-      Printf.eprintf "error: %s\n" (Storage_error.to_string e);
+      Printf.eprintf "error: %s\n" (Pg_error.to_string e);
       exit 1
     | Ok rows ->
       Printf.printf "%-6s  %-30s  %s\n" "VER" "NAME" "APPLIED AT";
@@ -170,7 +170,7 @@ let run_rollback dir table () =
     match Migration.rollback ~table pool ~dir ~fs with
     | Ok () -> Printf.printf "Rolled back.\n"
     | Error e ->
-      Printf.eprintf "error: %s\n" (Storage_error.to_string e);
+      Printf.eprintf "error: %s\n" (Pg_error.to_string e);
       exit 1
   )
 
