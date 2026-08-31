@@ -42,29 +42,24 @@ let contains needle haystack =
 let test_run_ok () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Ok_fn) in
-  M.run ~env ()
+  Alcotest.(check bool) "returns Ok" true (M.run ~env () = Ok ())
 
 (* ── Test: run_error ────────────────────────────────────────────────────── *)
 
 let test_run_error () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Err_fn) in
-  let raised = ref false in
-  (try M.run ~env ()
-   with Failure msg ->
-     if msg = "something went wrong" then raised := true);
-  Alcotest.(check bool) "Failure raised" true !raised
+  Alcotest.(check bool) "returns run error" true
+    (M.run ~env () = Error (`Run "something went wrong"))
 
 (* ── Test: run_exception ────────────────────────────────────────────────── *)
 
 let test_run_exception () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Exn_fn) in
-  let raised = ref false in
-  (try M.run ~env ()
-   with Failure msg ->
-     if msg = "boom" then raised := true);
-  Alcotest.(check bool) "exception propagated" true !raised
+  match M.run ~env () with
+  | Error (`Run msg) -> Alcotest.(check bool) "exception captured" true (contains "boom" msg)
+  | _ -> Alcotest.fail "expected run error"
 
 (* ── Test: metrics_ok_counter ───────────────────────────────────────────── *)
 
@@ -73,7 +68,7 @@ let test_metrics_ok_counter () =
   let module M = Fn.Make(Ok_fn) in
   let pair = Obs_prometheus.create () in
   let _, renderer = pair in
-  M.run ~env ~backend:pair ();
+  Alcotest.(check bool) "returns Ok" true (M.run ~env ~backend:pair () = Ok ());
   let output = renderer () in
   Alcotest.(check bool) "counter family present"
     true (contains "sun_fn_invocations_total" output);
@@ -87,7 +82,7 @@ let test_metrics_error_counter () =
   let module M = Fn.Make(Err_fn) in
   let pair = Obs_prometheus.create () in
   let _, renderer = pair in
-  (try M.run ~env ~backend:pair () with Failure _ -> ());
+  ignore (M.run ~env ~backend:pair ());
   let output = renderer () in
   Alcotest.(check bool) "status=error label present"
     true (contains {|status="error"|} output)
@@ -99,7 +94,7 @@ let test_metrics_duration () =
   let module M = Fn.Make(Ok_fn) in
   let pair = Obs_prometheus.create () in
   let _, renderer = pair in
-  M.run ~env ~backend:pair ();
+  Alcotest.(check bool) "returns Ok" true (M.run ~env ~backend:pair () = Ok ());
   let output = renderer () in
   Alcotest.(check bool) "duration histogram present"
     true (contains "sun_fn_duration_seconds" output)
@@ -111,7 +106,8 @@ let test_metrics_duration () =
 let test_push_error_no_raise () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Ok_fn) in
-  M.run ~env ~pushgateway_url:"http://127.0.0.1:1" ()
+  Alcotest.(check bool) "returns Ok" true
+    (M.run ~env ~pushgateway_url:"http://127.0.0.1:1" () = Ok ())
 
 (* ── Test: lambda_trigger_requires_runtime_api ──────────────────────────── *)
 
@@ -126,10 +122,11 @@ let test_lambda_trigger_requires_runtime_api () =
   else
     Eio_main.run @@ fun env ->
     let module M = Fn.Make (Lambda_fn) in
-    Alcotest.check_raises "Lambda trigger without AWS_LAMBDA_RUNTIME_API set raises Failure"
-      (Failure "sun-fn: AWS_LAMBDA_RUNTIME_API is not set — not running in a Lambda execution environment (or a \
-                local Runtime Interface Emulator)")
-      (fun () -> M.run ~env ())
+    match M.run ~env () with
+    | Error (`Config msg) ->
+      Alcotest.(check bool) "reports missing runtime api" true
+        (contains "AWS_LAMBDA_RUNTIME_API is not set" msg)
+    | _ -> Alcotest.fail "expected config error"
 
 (* ── Runner ─────────────────────────────────────────────────────────────── *)
 

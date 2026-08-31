@@ -66,7 +66,7 @@ end
 4. `Switch.run`:  install signal handler (self-pipe); `Fiber.first` returning typed outcome
 5. Record duration + increment counter — **outside** Fiber.first, so never cancelled
 6. Push to Pushgateway if `~pushgateway_url` provided; all exceptions swallowed
-7. `Ok ()` → return; `Error msg` → `raise (Failure msg)`; `Signalled` → `exit 130`
+7. `Ok ()` → return; function failure → `Error (`Run msg)`; signal → `Error `Signalled`
 
 ## Signal handling
 
@@ -78,12 +78,12 @@ exist in the installed eio version; the self-pipe approach is async-signal-safe 
 ```ocaml
 (* app/payments/deposit-fn/bin/main.ml *)
 let () =
-  try Eio_main.run @@ fun env ->
+  Eio_main.run @@ fun env ->
     let module M = Sun_fn.Fn.Make(Deposit_fn) in
-    M.run ~env ~pushgateway_url:"http://pushgateway:9091" ()
-  with Failure msg ->
-    Printf.eprintf "sun-fn: %s\n%!" msg;
-    exit 1
+    match M.run ~env ~pushgateway_url:"http://pushgateway:9091" () with
+    | Ok () -> ()
+    | Error `Signalled -> exit 130
+    | Error e -> failwith (Sun_fn.Fn.run_error_to_string e)
 ```
 
 ## Exit codes
@@ -91,6 +91,6 @@ let () =
 | Condition | Exit code |
 |---|---|
 | `F.run ()` = `Ok ()` | 0 |
-| `F.run ()` = `Error _` | 1 (via `Failure`) |
-| Unhandled exception from `F.run ()` | 125 (OCaml default) |
+| `F.run ()` = `Error _` | caller policy, generated main exits non-zero |
+| Ordinary exception from `F.run ()` | caller policy, generated main exits non-zero |
 | SIGTERM / SIGINT | 130 |

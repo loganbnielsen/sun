@@ -16,6 +16,14 @@ module type FN = sig
   (** The function body. Called once per invocation; must return. *)
 end
 
+type run_error =
+  [ `Config of string
+  | `Run of string
+  | `Signalled
+  ]
+
+val run_error_to_string : run_error -> string
+
 module Make (F : FN) : sig
   val run
     :  env:< net       : _ Eio.Net.t
@@ -33,27 +41,24 @@ module Make (F : FN) : sig
         Useful for composing with additional backends (e.g. [Obs_eio.compose]) or
         for inspecting rendered metrics in tests. *)
     -> unit
-    -> unit
+    -> (unit, run_error) result
   (** [Cron _]: run [F.run ()] once, record metrics, push to Pushgateway if
-      configured, then exit — unchanged from v1. On [Error msg] raises
-      [Failure msg] (caller should [exit 1]). On SIGTERM/SIGINT exits with
-      code 130.
+      configured, then return. [F.run () = Error msg] becomes [Error (`Run msg)].
+      Ordinary exceptions from [F.run] become [Error (`Run ...)] while Eio
+      cancellation and fatal runtime exceptions continue to propagate. SIGTERM
+      or SIGINT returns [Error `Signalled].
 
       [Lambda]: loop forever via [Lambda_runtime.run_loop] ([lambda-eio]),
       calling [F.run ()] once per invocation and recording/pushing metrics
       per invocation — never exits on a successful invocation. A single
       invocation's [Error msg] is reported to the Runtime API via
-      [Lambda_runtime.respond_error] and the loop continues; it does not
-      raise [Failure] the way [Cron] does, since one bad invocation must
-      not end the whole (reused-across-invocations) Lambda execution
-      environment. On SIGTERM/SIGINT the loop stops after finishing
+      [Lambda_runtime.respond_error] and the loop continues. On SIGTERM/SIGINT
+      the loop stops after finishing
       whatever invocation is currently in flight (a Lambda execution
       environment being frozen/shut down sends SIGTERM — this is expected,
       routine shutdown, not the abnormal-exit signal [Cron]'s exit code 130
       represents), then this function returns normally instead of exiting
       the process — a Lambda runtime process should not call [exit] itself;
       the execution environment manages the process lifecycle. Requires
-      [AWS_LAMBDA_RUNTIME_API] to be set (raises [Failure] immediately if
-      not — this trigger only makes sense inside a real Lambda execution
-      environment or a local Runtime Interface Emulator). *)
+      [AWS_LAMBDA_RUNTIME_API] to be set, otherwise returns [Error (`Config ...)]. *)
 end
