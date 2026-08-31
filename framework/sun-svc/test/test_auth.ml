@@ -45,6 +45,13 @@ let test_api_key_uses_injected_reader () =
     Alcotest.(check string) "key_id truncated" "secretke" key_id
   | _ -> Alcotest.fail "expected Service principal"
 
+let test_api_key_empty_secret_fails_closed () =
+  let read_api_key () = Some "" in
+  match Auth.validate ~read_api_key `Api_key (api_key "") with
+  | Error (`Server_error _) -> ()
+  | Ok _ -> Alcotest.fail "empty API key must not authenticate"
+  | Error _ -> Alcotest.fail "expected Server_error for empty configured API key"
+
 (* ── JWT: Unverified_dev_only ──────────────────────────────────────────── *)
 
 (* Build a minimal (unverified) JWT payload: header.payload.sig
@@ -263,6 +270,21 @@ let test_jwt_verified_jwks_url_without_fetcher_fails_closed () =
   | Ok _ -> Alcotest.fail "must not fall back to unverified with no fetch_jwks configured"
   | Error _ -> Alcotest.fail "expected Server_error (fail closed)"
 
+let test_jwt_verified_malformed_static_jwks_fails_closed () =
+  let tok = sign_rs256 () in
+  let cfg =
+    `Jwt Auth.
+      { scopes = []
+      ; verification =
+          Verified_signature_required
+            { issuer; audience; algorithms = [`RS256]; key_source = Jwks_static "not json" }
+      }
+  in
+  match Auth.validate cfg (bearer tok) with
+  | Error (`Server_error _) -> ()
+  | Ok _ -> Alcotest.fail "malformed static JWKS must not authenticate"
+  | Error _ -> Alcotest.fail "expected Server_error for malformed static JWKS"
+
 let () =
   Alcotest.run "auth" [
     "public", [
@@ -274,6 +296,7 @@ let () =
       Alcotest.test_case "wrong key → 401"      `Quick test_api_key_wrong;
       Alcotest.test_case "missing header → 401" `Quick test_api_key_missing_header;
       Alcotest.test_case "no reader fails closed" `Quick test_api_key_without_reader_fails_closed;
+      Alcotest.test_case "empty secret fails closed" `Quick test_api_key_empty_secret_fails_closed;
     ];
     "jwt_unverified", [
       Alcotest.test_case "valid token"           `Quick test_jwt_valid;
@@ -299,5 +322,7 @@ let () =
         `Quick test_jwt_verified_jwks_fetch_failure_fails_closed;
       Alcotest.test_case "Jwks_url with no fetcher fails closed → 500"
         `Quick test_jwt_verified_jwks_url_without_fetcher_fails_closed;
+      Alcotest.test_case "malformed static JWKS fails closed → 500"
+        `Quick test_jwt_verified_malformed_static_jwks_fails_closed;
     ];
   ]
