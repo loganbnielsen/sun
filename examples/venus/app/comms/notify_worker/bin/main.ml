@@ -20,17 +20,17 @@ let require_ok label = function
 let create_db_pool ~sw ~stdenv url =
   Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
 
-let apply_optional_migrations pool = function
+let apply_optional_migrations ~fs pool = function
   | None     -> ()
   | Some dir ->
-    Migration.apply pool ~dir ~table:"venus_schema_migrations"
+    Migration.apply pool ~dir ~table:"venus_schema_migrations" ~fs
     |> require_storage "migrations"
 
-let optional_db_pool ~sw ~stdenv postgres_url migrations_dir =
+let optional_db_pool ~sw ~stdenv ~fs postgres_url migrations_dir =
   Option.map
     (fun url ->
        let pool = create_db_pool ~sw ~stdenv url in
-       apply_optional_migrations pool migrations_dir;
+       apply_optional_migrations ~fs pool migrations_dir;
        pool)
     postgres_url
 
@@ -54,7 +54,7 @@ let () =
   Eio.Switch.run @@ fun sw ->
 
   let db_pool =
-    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv)
+    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) ~fs:env#fs
       postgres_url migrations_dir
   in
 

@@ -97,7 +97,7 @@ let with_pool url f =
       | Error e ->
         Printf.eprintf "error: cannot connect to database: %s\n" (Storage_error.to_string e);
         exit 1
-      | Ok pool -> f pool
+      | Ok pool -> f ~fs:env#fs pool
     )
   )
 
@@ -134,9 +134,9 @@ let run_apply dir table dry_run =
     print_pending_sql dir
   else begin
     let url = get_postgres_url () in
-    with_pool url (fun pool ->
+    with_pool url (fun ~fs pool ->
       Printf.printf "Applying migrations from %s...\n%!" dir;
-      match Migration.apply ~table pool ~dir with
+      match Migration.apply ~table pool ~dir ~fs with
       | Ok () -> Printf.printf "Done.\n"
       | Error e ->
         Printf.eprintf "error: %s\n" (Storage_error.to_string e);
@@ -148,8 +148,8 @@ let run_apply dir table dry_run =
 
 let run_status dir table () =
   let url = get_postgres_url () in
-  with_pool url (fun pool ->
-    match Migration.status ~table pool ~dir with
+  with_pool url (fun ~fs pool ->
+    match Migration.status ~table pool ~dir ~fs with
     | Error e ->
       Printf.eprintf "error: %s\n" (Storage_error.to_string e);
       exit 1
@@ -166,8 +166,8 @@ let run_status dir table () =
 
 let run_rollback dir table () =
   let url = get_postgres_url () in
-  with_pool url (fun pool ->
-    match Migration.rollback ~table pool ~dir with
+  with_pool url (fun ~fs pool ->
+    match Migration.rollback ~table pool ~dir ~fs with
     | Ok () -> Printf.printf "Rolled back.\n"
     | Error e ->
       Printf.eprintf "error: %s\n" (Storage_error.to_string e);
