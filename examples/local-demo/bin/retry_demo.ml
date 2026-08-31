@@ -62,7 +62,7 @@ let kafka_config : Kafka_service.config =
   let config =
     match Kafka_service.config_of_env () with
     | Ok config -> config
-    | Error e   -> failwith ("kafka config: " ^ e)
+    | Error e   -> failwith ("kafka config: " ^ Kafka_service.error_to_string e)
   in
   { config with linger_ms = 5 }
 
@@ -109,15 +109,15 @@ let () =
   let svc =
     match Kafka_service.create kafka_config ~sw with
     | Ok s    -> s
-    | Error e -> failwith ("kafka_service.create: " ^ e)
+    | Error e -> failwith ("kafka_service.create: " ^ Kafka_service.error_to_string e)
   in
   let topic =
     match Kafka_service.register svc ~net:env#net ~clock:env#clock
             (module Job) with
     | Ok t    -> t
-    | Error e -> failwith ("kafka_service.register: " ^ e)
+    | Error e -> failwith ("kafka_service.register: " ^ Kafka_service.error_to_string e)
   in
-  say "topic %S registered." Job.topic_name;
+  say "topic %S registered." (Kafka_service.topic_name_to_string Job.topic_name);
 
   (* ── Worker ────────────────────────────────────────────────────────────── *)
   let worker_ready_p, worker_ready_r = Eio.Promise.create () in

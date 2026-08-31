@@ -630,6 +630,10 @@ let require_ok label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ e)
 
+let require_kafka label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
+
 let require_db_pool ~sw ~stdenv postgres_url =
   let url =
     match postgres_url with
@@ -643,7 +647,7 @@ let require_db_pool ~sw ~stdenv postgres_url =
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
   let loki_url     = env_nonempty "LOKI_URL" in
-  let kafka_config = Kafka_service.config_of_env () |> require_ok "kafka config" in
+  let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, render = Obs_prometheus.create () in
@@ -655,10 +659,10 @@ let () =
   in
   Eio.Switch.run @@ fun sw ->
   let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url in
-  let kafka = Kafka_service.create kafka_config ~sw |> require_ok "kafka create" in
+  let kafka = Kafka_service.create kafka_config ~sw |> require_kafka "kafka create" in
   let charged_topic =
     Kafka_service.register kafka ~net:env#net ~clock:env#clock (module Charged)
-    |> require_ok "kafka register"
+    |> require_kafka "kafka register"
   in
   let publish_charged event =
     match Eio.Promise.await (Kafka_service.publish kafka charged_topic event) with
@@ -746,10 +750,14 @@ let require_ok label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ e)
 
+let require_kafka label = function
+  | Ok value -> value
+  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
+
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
   let loki_url     = env_nonempty "LOKI_URL" in
-  let kafka_config = Kafka_service.config_of_env () |> require_ok "kafka config" in
+  let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, _render = Obs_prometheus.create () in
@@ -898,12 +906,12 @@ let worker_lib_dune = {tpl|(library
 |tpl}
 
 (* Generic worker: bin/main.ml *)
-let worker_bin_ml = {tpl|let require_ok label = function
+let worker_bin_ml = {tpl|let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
+  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let () = Eio_main.run @@ fun env ->
-  let config = Kafka_service.config_of_env () |> require_ok "kafka config" in
+  let config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   let module W = Worker.Make({{Mod}}) in
   W.run ~env ~config ()
   |> Result.map_error Worker.run_error_to_string

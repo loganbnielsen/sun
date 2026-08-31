@@ -5,10 +5,11 @@
     [Kafka_service] re-exports the public pieces of this module directly —
     see its [.mli] for the documented, stable API. *)
 
-type topic_name = string
+type topic_name
 
 val topic_name : string -> (topic_name, string) result
 val topic_name_exn : string -> topic_name
+val topic_name_to_string : topic_name -> string
 
 module type MESSAGE = sig
   type t
@@ -51,7 +52,7 @@ val ensure_topic
   :  Kafka.Producer.t
   -> topic_name:string
   -> partitions:int
-  -> (unit, string) result
+  -> (unit, Kafka.Error.t) result
 (** Provision [topic_name] via the producer's admin client if it doesn't
     already exist. *)
 

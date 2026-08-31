@@ -134,7 +134,7 @@ let test_schema_check_new_topic () =
       let decode _ = Ok ()
     end in
     match Kafka_service.Schema.check ~net:env#net ~clock:env#clock ~registry_url (module Fresh) with
-    | Error e -> Alcotest.failf "expected Ok for new topic, got Error: %s" e
+    | Error e -> Alcotest.failf "expected Ok for new topic, got Error: %s" (Kafka_service.error_to_string e)
     | Ok ()   -> ()
 
 (* After registering PaymentEvent, checking the same schema returns Ok. *)
@@ -142,14 +142,14 @@ let test_schema_check_compatible () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         (match Kafka_service.register svc ~net:env#net ~clock:env#clock (module PaymentEvent) with
-         | Error e -> Alcotest.failf "register failed: %s" e
+         | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
          | Ok _ ->
            match Kafka_service.Schema.check
                    ~net:env#net ~clock:env#clock ~registry_url (module PaymentEvent) with
-           | Error e -> Alcotest.failf "compatible schema returned Error: %s" e
+           | Error e -> Alcotest.failf "compatible schema returned Error: %s" (Kafka_service.error_to_string e)
            | Ok ()   -> ())
 
 (* After registering PaymentEvent, checking PaymentEventBreaking returns Error. *)
@@ -157,10 +157,10 @@ let test_schema_check_incompatible () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         (match Kafka_service.register svc ~net:env#net ~clock:env#clock (module PaymentEvent) with
-         | Error e -> Alcotest.failf "register failed: %s" e
+         | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
          | Ok _ ->
            match Kafka_service.Schema.check
                    ~net:env#net ~clock:env#clock ~registry_url (module PaymentEventBreaking) with
@@ -172,10 +172,10 @@ let test_schema_check_all_fails_fast () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         (match Kafka_service.register svc ~net:env#net ~clock:env#clock (module PaymentEvent) with
-         | Error e -> Alcotest.failf "register failed: %s" e
+         | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
          | Ok _ ->
            (* PaymentEvent is compatible, PaymentEventBreaking is not *)
            let result = Kafka_service.Schema.check_all ~net:env#net ~clock:env#clock ~registry_url [
@@ -194,10 +194,10 @@ let test_publish_consume_roundtrip () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         match Kafka_service.register svc ~net:env#net ~clock:env#clock (module PaymentEvent) with
-        | Error e -> Alcotest.failf "register failed: %s" e
+        | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
         | Ok topic ->
           let group_id = Printf.sprintf "sun-test-roundtrip-%d-%d"
             (Unix.getpid ()) (Random.int 9999) in
@@ -271,11 +271,11 @@ let test_consume_partitioned_reports_partition_error () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         match Kafka_service.register svc ~net:env#net ~clock:env#clock
                 (module PartitionFailEvent) with
-        | Error e -> Alcotest.failf "register failed: %s" e
+        | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
         | Ok topic ->
           (match Eio.Promise.await
                    (Kafka_service.publish svc topic PartitionFailEvent.{ n = 1 }) with
@@ -315,10 +315,10 @@ let test_decode_error_callback () =
   Eio_main.run @@ fun env ->
     Eio.Switch.run @@ fun sw ->
       match Kafka_service.create (make_config ()) ~sw with
-      | Error e -> Alcotest.failf "create failed: %s" e
+      | Error e -> Alcotest.failf "create failed: %s" (Kafka_service.error_to_string e)
       | Ok svc ->
         match Kafka_service.register svc ~net:env#net ~clock:env#clock (module RawTestEvent) with
-        | Error e -> Alcotest.failf "register failed: %s" e
+        | Error e -> Alcotest.failf "register failed: %s" (Kafka_service.error_to_string e)
         | Ok topic ->
           let group_id = Printf.sprintf "sun-test-decode-err-%d-%d"
             (Unix.getpid ()) (Random.int 9999) in
@@ -359,7 +359,7 @@ let test_decode_error_callback () =
              let raw = Bytes.of_string {|{"id":"raw-no-wire-format"}|} in
              (match Eio.Promise.await
                       (Kafka.Producer.produce_await producer
-                         ~topic:RawTestEvent.topic_name
+                         ~topic:(Kafka_service.topic_name_to_string RawTestEvent.topic_name)
                          ~value:(Some raw) ()) with
               | Error e ->
                 Alcotest.failf "raw publish failed: %s" (Kafka.Error.to_string e)

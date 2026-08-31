@@ -110,9 +110,9 @@ let test_config_of_env_rejects_unknown_security_protocol () =
   with_env "KAFKA_SECURITY_PROTOCOL" "scram" (fun () ->
     match Kafka_service.config_of_env () with
     | Ok _ -> Alcotest.fail "expected invalid security protocol to fail"
-    | Error msg ->
+    | Error e ->
       Alcotest.(check bool) "clear env protocol error" true
-        (contains msg "KAFKA_SECURITY_PROTOCOL"))
+        (contains (Kafka_service.error_to_string e) "KAFKA_SECURITY_PROTOCOL"))
 
 (* ------------------------------------------------------------------ *)
 (* Retry topic control flow                                            *)
@@ -160,7 +160,7 @@ let test_retry_publish_then_ack_failure_is_error () =
     incr acked;
     Error Kafka.Error.Application
   in
-  let target = Kafka_service.topic_name_exn "orders-retry" in
+  let target = Kafka_service_intf.topic_name_exn "orders-retry" in
   let action = Kafka_service_retry_topics.Forward_retry { target; delay_s = 1.0 } in
   match Kafka_service_retry_topics.execute_action action
           ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
@@ -177,7 +177,7 @@ let test_retry_publish_failure_does_not_ack () =
     acked := true;
     Ok ()
   in
-  let target = Kafka_service.topic_name_exn "orders-dlq" in
+  let target = Kafka_service_intf.topic_name_exn "orders-dlq" in
   let action = Kafka_service_retry_topics.Forward_dlq { target } in
   match Kafka_service_retry_topics.execute_action action
           ~raw_msg:(raw_retry_msg ()) ~attempt:1 ~publish_raw ~ack with
@@ -193,8 +193,8 @@ let test_topic_name_accepts_kafka_compatible_names () =
   let check name =
     match Kafka_service.topic_name name with
     | Ok topic ->
-      Alcotest.(check string) name name topic
-    | Error e -> Alcotest.failf "%s should be valid: %s" name e
+      Alcotest.(check string) name name (Kafka_service.topic_name_to_string topic)
+    | Error e -> Alcotest.failf "%s should be valid: %s" name (Kafka_service.error_to_string e)
   in
   List.iter check [
     "orders";

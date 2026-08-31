@@ -48,8 +48,8 @@ type retry_strategy = Kafka_service.retry_strategy =
   | Retry_topics of { max_attempts : int }
 
 type run_error =
-  [ `Create   of string
-  | `Register of string
+  [ `Create   of Kafka_service.error
+  | `Register of Kafka_service.error
   | `Consume  of Kafka_service.consume_partitioned_error
   ]
 

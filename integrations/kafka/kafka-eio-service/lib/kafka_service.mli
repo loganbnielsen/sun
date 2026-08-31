@@ -5,9 +5,22 @@
 
     Kafka-compatible names are 1-249 bytes, may contain ASCII letters, digits,
     [.], [_], and [-], and may not be [.] or [..]. *)
-type topic_name = string
+type topic_name
 
-val topic_name : string -> (topic_name, string) result
+type error =
+  | Invalid_topic_name of string * string
+  | Config of string
+  | Create of Kafka.Error.t
+  | Topic_metadata of topic_name * string
+  | Partition_count_reduction of { topic_name : topic_name; current : int; requested : int }
+  | Provision_topic of topic_name * Kafka.Error.t
+  | Schema_registry of topic_name * string
+
+val topic_name_to_string : topic_name -> string
+
+val error_to_string : error -> string
+
+val topic_name : string -> (topic_name, error) result
 (** Validate and construct a Kafka topic descriptor. *)
 
 val topic_name_exn : string -> topic_name
@@ -29,7 +42,7 @@ module Schema : sig
 
   (** Check whether a MESSAGE schema is compatible with the latest registered
       version for its topic. Returns [Ok ()] if compatible or if no version has
-      been registered yet (new topic). Returns [Error msg] if incompatible.
+      been registered yet (new topic). Returns [Error _] if incompatible.
 
       Does not register the schema — safe to call in CI without side effects. *)
   val check
@@ -37,7 +50,7 @@ module Schema : sig
     -> clock:_ Eio.Time.clock
     -> registry_url:string
     -> (module MESSAGE)
-    -> (unit, string) result
+    -> (unit, error) result
 
   (** Check a list of MESSAGE schemas, failing fast on the first incompatible one.
       Use in test_schemas.ml for each worker or service that owns topics. *)
@@ -46,7 +59,7 @@ module Schema : sig
     -> clock:_ Eio.Time.clock
     -> registry_url:string
     -> (module MESSAGE) list
-    -> (unit, string) result
+    -> (unit, error) result
 
 end
 
@@ -86,7 +99,7 @@ module Confluent_wire : sig
 end
 
 
-val config_of_env : unit -> (config, string) result
+val config_of_env : unit -> (config, error) result
 (** Build a [config] from environment variables with sensible local-dev defaults.
     - [KAFKA_BROKERS]           — comma-separated broker addresses (default: ["localhost:9092"])
     - [SCHEMA_REGISTRY_URL]     — schema registry HTTP URL (default: ["http://localhost:8081"])
@@ -95,7 +108,7 @@ val config_of_env : unit -> (config, string) result
     - [KAFKA_SSL_CA_LOCATION]   — path to CA cert bundle (optional)
     - [KAFKA_SASL_MECHANISM]    — e.g. ["SCRAM-SHA-256"] (optional)
     - [KAFKA_SASL_USERNAME] / [KAFKA_SASL_PASSWORD] — SASL credentials (optional)
-    Returns [Error msg] when a supplied Kafka security setting is malformed or
+    Returns [Error _] when a supplied Kafka security setting is malformed or
     incomplete.
     [linger_ms = 50], [partitions = 1]. *)
 
@@ -106,7 +119,7 @@ type t
 val create
   :  config
   -> sw:Eio.Switch.t
-  -> (t, string) result
+  -> (t, error) result
 
 (** [register svc ~net ~clock (module M)] provisions M's topic via the Redpanda
     admin HTTP API and registers its JSON schema with the schema registry.
@@ -116,7 +129,7 @@ val register
   -> net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
   -> (module MESSAGE with type t = 'a)
-  -> ('a topic, string) result
+  -> ('a topic, error) result
 
 (** [publish svc topic ?trace_ctx msg] encodes [msg] in Confluent wire format and
     produces it to the broker. When [trace_ctx] is provided it is serialised as a

@@ -19,14 +19,14 @@ let require_db_pool ~sw ~stdenv postgres_url =
   | Ok pool -> pool
   | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
 
-let require_ok label = function
+let require_kafka label = function
   | Ok value -> value
-  | Error e  -> failwith (label ^ ": " ^ e)
+  | Error e  -> failwith (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
   let loki_url     = env_nonempty "LOKI_URL" in
-  let kafka_config = Kafka_service.config_of_env () |> require_ok "kafka config" in
+  let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, _render = Obs_prometheus.create () in

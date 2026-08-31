@@ -96,7 +96,7 @@ let run_golden_path () =
     let config =
       match Kafka_service.config_of_env () with
       | Ok config -> config
-      | Error e   -> failwith ("kafka config: " ^ e)
+      | Error e   -> failwith ("kafka config: " ^ Kafka_service.error_to_string e)
     in
     { config with linger_ms = 5 }
   in
@@ -134,13 +134,13 @@ let run_golden_path () =
   let svc =
     match Kafka_service.create kafka_config ~sw with
     | Ok s    -> s
-    | Error e -> failwith ("Kafka create: " ^ e)
+    | Error e -> failwith ("Kafka create: " ^ Kafka_service.error_to_string e)
   in
   let topic =
     match Kafka_service.register svc ~net:env#net ~clock:env#clock
             (module Events.OrderPlaced) with
     | Ok t    -> t
-    | Error e -> failwith ("Kafka register: " ^ e)
+    | Error e -> failwith ("Kafka register: " ^ Kafka_service.error_to_string e)
   in
 
   (* Worker *)

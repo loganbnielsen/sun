@@ -106,9 +106,9 @@ Make(W).run ~env ~config ?ot ?retry_strategy ()
 ```
 
 After `run` returns:
-- If `W.handle` exhausted its retry budget → raises `Failure ("sun-worker: " ^ msg)`
-- If `Kafka_service.create` failed → raises `Failure ("sun-worker: create failed: ...")`
-- If `register` failed → raises `Failure ("sun-worker: register failed: ...")`
+- If `W.handle` exhausted its retry budget → returns `Error (`Consume ...)`
+- If `Kafka_service.create` failed → returns `Error (`Create ...)`
+- If `register` failed → returns `Error (`Register ...)`
 - On SIGTERM/SIGINT or `stop` flag → returns normally
 
 ## Signal handling
@@ -152,8 +152,12 @@ let () =
     let backend, _render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:BroadcastWorker.group_id
                ~mono_clock:env#mono_clock ~backend in
-    let config = Kafka_service.config_of_env () in
-    Worker.Make(BroadcastWorker).run ~env ~config ~ot ()
+    match Kafka_service.config_of_env () with
+    | Error e -> failwith (Kafka_service.error_to_string e)
+    | Ok config ->
+      Worker.Make(BroadcastWorker).run ~env ~config ~ot ()
+      |> Result.map_error Worker.run_error_to_string
+      |> function Ok () -> () | Error msg -> failwith msg
 ```
 
 ## ack semantics
@@ -168,10 +172,10 @@ A failed commit is **not** treated like a handler failure. The side effect in `W
 
 ## Error handling
 
-- `W.handle` returning `Error msg` triggers the retry strategy. After the retry budget is exhausted, the error is raised as `Failure` from `run`.
+- `W.handle` returning `Error msg` triggers the retry strategy. After the retry budget is exhausted, `run` returns `Error`.
 - `W.handle` returning `Ok ()` but the subsequent ack failing: see [ack semantics](#ack-semantics) above — handled separately from retry, via `ack_failed`.
 - Decode errors: default behavior from `Kafka_service.consume_partitioned` — logs to stderr, acks the message, continues. Override via `on_decode_error` by calling `Kafka_service.consume_partitioned` directly.
-- All lifecycle errors (`create`, `register`, Kafka error) are raised as `Failure`.
+- Lifecycle errors (`create`, `register`, Kafka error) are returned as `run_error` values.
 
 ## Test injection
 

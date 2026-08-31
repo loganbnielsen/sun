@@ -33,6 +33,7 @@ let topic_name_exn name =
   | Ok topic -> topic
   | Error e -> invalid_arg ("invalid Kafka topic name " ^ Printf.sprintf "%S" name ^ ": " ^ e)
 
+let topic_name_to_string topic = topic
 
 module type MESSAGE = sig
   type t
@@ -74,8 +75,7 @@ type consume_partitioned_error =
 let ensure_topic producer ~topic_name ~partitions =
   match Kafka.Producer.create_topic producer ~topic_name ~partitions ~replication_factor:1 with
   | Ok ()   -> Ok ()
-  | Error e ->
-    Error (Printf.sprintf "could not provision topic %s: %s" topic_name (Kafka.Error.to_string e))
+  | Error e -> Error e
 
 type topic_partition_metadata =
   | Topic_not_found
