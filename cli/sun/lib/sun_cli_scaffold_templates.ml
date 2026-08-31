@@ -522,10 +522,10 @@ let list_q =
      ORDER BY created_at DESC LIMIT 20"
 
 let insert pool ~charge_id ~customer_id ~amount_cents ~currency =
-  Db.exec pool insert_q (charge_id, customer_id, amount_cents, currency)
+  Pg_db.exec pool insert_q (charge_id, customer_id, amount_cents, currency)
 
 let list_recent pool =
-  Db.collect pool list_q ()
+  Pg_db.collect pool list_q ()
 |tpl}
 
 (* lib/dune — shared storage library *)
@@ -640,9 +640,9 @@ let require_db_pool ~sw ~stdenv postgres_url =
     | Some url -> url
     | None -> failwith "db pool: POSTGRES_URL is required"
   in
-  match Db.create_pool ~url ~sw ~stdenv () with
+  match Pg_db.create_pool ~url ~sw ~stdenv () with
   | Ok pool -> pool
-  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+  | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in
@@ -688,7 +688,7 @@ let ws_svc_bin_dune = {tpl|(executable
 let ws_worker_ml = {tpl|(* Inject pool and observability handle via functor so there's no mutable state.
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
-  val pool : Db.pool
+  val pool : Pg_db.pool
   val ot   : Obs_eio.t
 end) = struct
 
@@ -707,9 +707,9 @@ end) = struct
     | Ok ()   -> Ok ()
     | Error e ->
       Obs_eio.log_standalone Config.ot Obs_eio.Error
-        ~fields:[("error", Storage_error.to_string e)]
+        ~fields:[("error", Pg_error.to_string e)]
         "db insert failed";
-      Error (Storage_error.to_string e)
+      Error (Pg_error.to_string e)
 
 end
 |tpl}
@@ -742,9 +742,9 @@ let require_db_pool ~sw ~stdenv postgres_url =
     | Some url -> url
     | None -> failwith "db pool: POSTGRES_URL is required"
   in
-  match Db.create_pool ~url ~sw ~stdenv () with
+  match Pg_db.create_pool ~url ~sw ~stdenv () with
   | Ok pool -> pool
-  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+  | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
 
 let require_ok label = function
   | Ok value -> value

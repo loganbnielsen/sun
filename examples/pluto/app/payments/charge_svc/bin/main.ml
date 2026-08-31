@@ -15,9 +15,9 @@ let require_db_pool ~sw ~stdenv postgres_url =
     | Some url -> url
     | None -> failwith "db pool: POSTGRES_URL is required"
   in
-  match Db.create_pool ~url ~sw ~stdenv () with
+  match Pg_db.create_pool ~url ~sw ~stdenv () with
   | Ok pool -> pool
-  | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+  | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
 
 let () =
   let postgres_url = env_nonempty "POSTGRES_URL" in

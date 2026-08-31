@@ -117,7 +117,7 @@ let http_post env ~sw ~port ~path ?(headers=[]) ~body () =
   | _ :: code :: _ -> (try int_of_string (String.trim code) with _ -> 0)
   | _              -> 0
 
-(* ── Fulfilled order schema (pg-eio Table.Make) ────────────────────── *)
+(* ── Fulfilled order schema (pg-eio Pg_table.Make) ────────────────────── *)
 
 module FulfilledOrderSchema = struct
   let table     = "fulfilled_orders"
@@ -138,7 +138,7 @@ module FulfilledOrderSchema = struct
   let get_id r = r.order_id
 end
 
-module FulfilledOrders = Table.Make(FulfilledOrderSchema)
+module FulfilledOrders = Pg_table.Make(FulfilledOrderSchema)
 
 (* ── Main ───────────────────────────────────────────────────────────────── *)
 
@@ -180,11 +180,11 @@ let () =
       Printf.printf "\n  Note: POSTGRES_URL not set — skipping DB storage.\n%!";
       None
     | Some url ->
-      (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
-       | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
+      (match Pg_db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
+       | Error e -> failwith ("db pool: " ^ Pg_error.to_string e)
        | Ok pool ->
          (match Migration.apply pool ~dir:"examples/local-demo/migrations" ~fs:env#fs with
-          | Error e -> failwith ("migrations: " ^ Storage_error.to_string e)
+          | Error e -> failwith ("migrations: " ^ Pg_error.to_string e)
           | Ok ()   ->
             Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";
             Some pool))
@@ -234,7 +234,7 @@ let () =
          (match FulfilledOrders.insert pool row with
           | Ok ()   -> ()
           | Error e ->
-            Printf.eprintf "[worker] db error: %s\n%!" (Storage_error.to_string e)));
+            Printf.eprintf "[worker] db error: %s\n%!" (Pg_error.to_string e)));
       Printf.printf "[worker] fulfilled  order=%-12s item=%-22s\n%!"
         msg.Message.order_id msg.Message.item;
       Ok ()
@@ -348,7 +348,7 @@ let () =
      Printf.printf "%s\n" sep;
      (match FulfilledOrders.list pool () with
       | Error e ->
-        Printf.eprintf "  db query error: %s\n%!" (Storage_error.to_string e)
+        Printf.eprintf "  db query error: %s\n%!" (Pg_error.to_string e)
       | Ok rows ->
         List.iter (fun (r : FulfilledOrderSchema.t) ->
           Printf.printf "  %-12s  %-24s  qty=%-3d  corr=%s\n"
@@ -411,7 +411,7 @@ let () =
    | None -> ()
    | Some pool ->
      (match FulfilledOrders.list pool () with
-      | Error e -> check "PostgreSQL" false (Storage_error.to_string e)
+      | Error e -> check "PostgreSQL" false (Pg_error.to_string e)
       | Ok rows ->
         let n = List.length rows in
         check (Printf.sprintf "PostgreSQL: %d fulfilled orders stored" orders_count)

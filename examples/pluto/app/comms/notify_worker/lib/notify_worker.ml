@@ -1,7 +1,7 @@
 (* Inject pool and observability handle via functor so there's no mutable state.
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
-  val pool : Db.pool
+  val pool : Pg_db.pool
   val ot   : Obs_eio.t
 end) = struct
 
@@ -20,8 +20,8 @@ end) = struct
     | Ok ()   -> Ok ()
     | Error e ->
       Obs_eio.log_standalone Config.ot Obs_eio.Error
-        ~fields:[("error", Storage_error.to_string e)]
+        ~fields:[("error", Pg_error.to_string e)]
         "db insert failed";
-      Error (Storage_error.to_string e)
+      Error (Pg_error.to_string e)
 
 end
