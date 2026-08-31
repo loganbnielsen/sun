@@ -1,4 +1,11 @@
+; Exercise the private auth validator source without exporting it from Auth.mli.
+(rule
+ (target test_auth_internal.ml)
+ (deps ../lib/auth_internal.ml)
+ (action (copy %{deps} %{target})))
+
 (tests
  (names test_routing test_auth test_service)
+ (modules test_routing test_auth test_service test_auth_internal)
  (libraries sun_svc eio eio_main alcotest cohttp-eio http uri obs-eio obs-prometheus-eio
-            jose mirage-crypto-pk mirage-crypto-rng.unix))
+            jose base64 ptime https-eio mirage-crypto-pk mirage-crypto-rng.unix))

@@ -3,6 +3,7 @@ id: REFAC-069
 type: refactor
 severity: high
 source: cross-cutting-design-review 2026-08-31
+branch: REFAC-069/auth-internal-seams
 ---
 
 Hide `sun-svc` auth validation transport internals
