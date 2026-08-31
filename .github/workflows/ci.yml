@@ -35,6 +35,7 @@ jobs:
           opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y
           opam pin add dynamodb-eio https://github.com/loganbnielsen/dynamodb-eio.git#main -y
           opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
+          opam pin add https-eio https://github.com/loganbnielsen/https-eio.git#main -y
 
       - name: Install OCaml dependencies
         run: opam install . --deps-only --with-test -y
