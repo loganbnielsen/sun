@@ -302,7 +302,7 @@ let () =
      (match Obs_prometheus.push ~net:env#net ~clock:env#clock
               ~url ~job:"venus" render with
       | Ok ()   -> say "metrics pushed to %s" url
-      | Error e -> Printf.eprintf "[venus] push failed: %s\n%!" e));
+      | Error e -> Printf.eprintf "[venus] push failed: %s\n%!" (Obs_prometheus.push_error_to_string e)));
 
   Printf.printf "\n%s\n" sep;
   Printf.printf "  Done.\n";

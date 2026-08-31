@@ -68,14 +68,14 @@ module Make (F : FN) = struct
     (* Push errors are always swallowed — push never blocks exit (Cron) or
        the next loop iteration (Lambda). *)
     let push_metrics url =
-      match
-        (try Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
-         | Eio.Cancel.Cancelled _ as exn -> raise exn
-         | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-         | exn -> Error (Printexc.to_string exn))
-      with
-      | Ok ()     -> ()
-      | Error msg -> Printf.eprintf "sun-fn: push failed (swallowed): %s\n%!" msg
+      (* Obs_prometheus.push already re-raises Eio.Cancel.Cancelled and fatal
+         exceptions, and converts everything else to Error; no need to
+         duplicate that here. *)
+      match Obs_prometheus.push ~net:env#net ~clock:env#clock ~url ~job renderer with
+      | Ok ()   -> ()
+      | Error e ->
+        Printf.eprintf "sun-fn: push failed (swallowed): %s\n%!"
+          (Obs_prometheus.push_error_to_string e)
     in
     let record_and_push ~t0 outcome =
       let dt = Eio.Time.now env#clock -. t0 in
