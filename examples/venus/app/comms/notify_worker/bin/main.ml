@@ -7,7 +7,7 @@ let optional_log_backend ~net ~clock = function
   | None     -> Obs_eio.stdout
   | Some url ->
     Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label "team"] ()
+      ~label_names:[Obs_loki.stream_label_exn "team"] ()
 
 let require_storage label = function
   | Ok value -> value
