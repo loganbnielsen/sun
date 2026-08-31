@@ -183,7 +183,7 @@ let () =
       (match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
        | Error e -> failwith ("db pool: " ^ Storage_error.to_string e)
        | Ok pool ->
-         (match Migration.apply pool ~dir:"examples/local-demo/migrations" with
+         (match Migration.apply pool ~dir:"examples/local-demo/migrations" ~fs:env#fs with
           | Error e -> failwith ("migrations: " ^ Storage_error.to_string e)
           | Ok ()   ->
             Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";

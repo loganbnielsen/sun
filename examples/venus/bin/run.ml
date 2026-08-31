@@ -73,18 +73,18 @@ let require_storage label = function
 let create_db_pool ~sw ~stdenv url =
   Db.create_pool ~url ~sw ~stdenv () |> require_storage "db pool"
 
-let apply_venus_migrations pool =
+let apply_venus_migrations ~fs pool =
   Migration.apply pool ~dir:"examples/venus/db/migrations"
-    ~table:"venus_schema_migrations"
+    ~table:"venus_schema_migrations" ~fs
   |> require_storage "migrations"
 
-let optional_db_pool ~sw ~stdenv = function
+let optional_db_pool ~sw ~stdenv ~fs = function
   | None ->
     Printf.printf "\n  Note: POSTGRES_URL not set — notifications will not be persisted.\n%!";
     None
   | Some url ->
     let pool = create_db_pool ~sw ~stdenv url in
-    apply_venus_migrations pool;
+    apply_venus_migrations ~fs pool;
     Printf.printf "\n  DB -> Postgres  (migrations applied)\n%!";
     Some pool
 
@@ -150,7 +150,8 @@ let () =
 
   (* ── Storage (comms team) ───────────────────────────────────────────────── *)
   let db_pool =
-    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) postgres_url
+    optional_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) ~fs:env#fs
+      postgres_url
   in
 
   (* ── Kafka (shared infrastructure) ─────────────────────────────────────── *)

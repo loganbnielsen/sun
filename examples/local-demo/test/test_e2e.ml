@@ -125,7 +125,7 @@ let run_golden_path () =
       match Db.create_pool ~url ~sw ~stdenv:(env :> Caqti_eio.stdenv) () with
       | Error _ -> None
       | Ok pool ->
-        (match Migration.apply pool ~dir:"examples/local-demo/migrations" with
+        (match Migration.apply pool ~dir:"examples/local-demo/migrations" ~fs:env#fs with
          | Error _ -> None
          | Ok ()   -> Some pool)
   in
