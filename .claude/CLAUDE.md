@@ -22,10 +22,11 @@ project/tickets/
 ```
 
 **State machine:** `READY_FOR_ENGINEERING` → `IN_PROGRESS` → `REVIEW` → `READY_TO_MERGE` → `DONE`  
+`IN_PROGRESS` → `REVIEW` happens via `sundev pipeline submit <ticket-id>`, which pushes the ticket's branch and opens a real GitHub PR (recorded in the ticket's `pr:` field) — `REVIEW` means "a PR is open," not just "a worktree exists."  
 If `/review-worktree` finds issues: back to `READY_FOR_ENGINEERING` (with inline notes; `branch`/`worktree` fields preserved).  
-Human moves `READY_TO_MERGE` → `DONE` by merging the PR.
+`READY_TO_MERGE` → `DONE` happens via `sundev pipeline merge`, which merges the PR (`gh pr merge --squash --delete-branch`) — real GitHub branch protection and required checks gate the merge, not local logic.
 
-**Ticket frontmatter fields:** `id`, `type` (ux-finding | audit-finding | feature | bug), `severity`, `source`, `branch`, `worktree`.  
+**Ticket frontmatter fields:** `id`, `type` (ux-finding | audit-finding | feature | bug), `severity`, `source`, `branch`, `worktree`, `pr` (set by `sundev pipeline submit`, once a PR exists).  
 Do not add a `status:` field — the directory encodes status.
 
 **Human-judgment gates:** Tickets in `BACKLOG/` may contain `## Open Questions`, `## Decision Required`, or `## Blocked On` sections. Tickets in `READY_FOR_ENGINEERING/` are treated as actionable, so `/work` must stop before creating a worktree if any unresolved decision section or marker remains. Resolve the decision in the ticket body or keep the ticket in `BACKLOG/` until the Remediation is unambiguous.
@@ -33,7 +34,7 @@ Do not add a `status:` field — the directory encodes status.
 **Ticket dependencies:** Use a body line near the top of each ticket: `**Depends on:** None.` or `**Depends on:** FEAT-003, EXP-008.` `/work` must verify dependencies before creating a worktree. A `READY_FOR_ENGINEERING` ticket with dependencies not yet in `project/tickets/DONE/` stays blocked.
 
 **Skills that interact with tickets:**
-- `/work` — unified entry point; dispatches by state: creates worktrees for `READY_FOR_ENGINEERING`, resumes `IN_PROGRESS`, runs review agent on `REVIEW`
+- `/work` — unified entry point; dispatches by state: creates worktrees for `READY_FOR_ENGINEERING`, resumes `IN_PROGRESS`, runs review agent on `REVIEW`. Submits `IN_PROGRESS` → `REVIEW` via `sundev pipeline submit` (push + open PR)
 - `/review-worktree` — standalone review gate (called internally by `/work review`); subagents emit JSON, `sundev pipeline review` handles file moves
 - `/audit` and `/ux-audit` — materialise new findings into `READY_FOR_ENGINEERING/` (idempotent)
 

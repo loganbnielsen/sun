@@ -72,6 +72,31 @@ let starts_with ~prefix s =
   let lp = String.length prefix in
   String.length s >= lp && String.sub s 0 lp = prefix
 
+(* Add or overwrite a `key: value` line inside the frontmatter block, leaving
+   the rest of the ticket body untouched. Appends the field if not already
+   present. Returns [content] unchanged if it has no frontmatter block. *)
+let set_frontmatter_field content key value =
+  match String.split_on_char '\n' content with
+  | "---" :: rest ->
+    let rec split_fm acc = function
+      | "---" :: after -> Some (List.rev acc, after)
+      | line :: after -> split_fm (line :: acc) after
+      | [] -> None
+    in
+    (match split_fm [] rest with
+     | None -> content
+     | Some (fm_lines, body) ->
+       let prefix = key ^ ":" in
+       let is_field l = starts_with ~prefix l in
+       let new_line = Printf.sprintf "%s: %s" key value in
+       let fm_lines =
+         if List.exists is_field fm_lines then
+           List.map (fun l -> if is_field l then new_line else l) fm_lines
+         else fm_lines @ [ new_line ]
+       in
+       String.concat "\n" (("---" :: fm_lines) @ ("---" :: body)))
+  | _ -> content
+
 let contains_substring ~needle s =
   let ln = String.length needle in
   let ls = String.length s in

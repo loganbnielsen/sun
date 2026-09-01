@@ -16,93 +16,71 @@ let git_branch_exists branch =
   Sun_process.run_shell_rc ~echo:false
     (Printf.sprintf "git rev-parse --verify %s >/dev/null 2>&1" (Filename.quote branch)) = 0
 
-let commit_dirty_baseline () =
-  let dirty = Sundev_shell.run_cmd_lines
-    "git status --porcelain -- tools/perf/perf_baseline.json" in
-  if dirty <> [] then begin
-    ignore (Sundev_shell.run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
-    ignore (Sundev_shell.run_cmd ~echo:false
-      "git commit -m \"pipeline: checkpoint perf baseline\"")
-  end
+let gh_pr_url_for_branch branch =
+  match Sun_process.output_shell ~echo:false
+          (Printf.sprintf "gh pr view %s --json url -q .url" (Filename.quote branch)) with
+  | "" -> None
+  | url -> Some url
 
-let restore_baseline_to_head () =
-  ignore (Sundev_shell.run_cmd ~echo:false
-    "git checkout HEAD -- tools/perf/perf_baseline.json 2>/dev/null; true")
+(* ── pipeline submit ─────────────────────────────────────────────────────── *)
 
-let revert_merge_commit ticket_id reason =
-  restore_baseline_to_head ();
-  let rc = Sundev_shell.run_cmd ~echo:false
-    "SUN_SKIP_HOOKS=1 git revert -m 1 --no-edit HEAD >/dev/null 2>&1" in
-  if rc = 0 then begin
-    Printf.eprintf "  reverted merge commit for %s after %s; main code is unchanged\n%!"
-      ticket_id reason;
-    true
-  end else begin
-    Printf.eprintf
-      "  failed to revert merge commit for %s after %s — manual cleanup required\n%!"
-      ticket_id reason;
-    false
-  end
-
-(* Resolve all auto-resolvable merge conflicts.
-   Returns true when no unresolvable conflicts remain. *)
-let resolve_merge_conflicts () =
-  let all_unmerged = Sundev_shell.run_cmd_lines
-    "git ls-files --unmerged | awk '{print $4}' | sort -u" in
-  let content_conflicts = Sundev_shell.run_cmd_lines
-    "git diff --name-only --diff-filter=U" in
-  let ticket_prefix = "project/tickets/" in
-  let is_ticket_path f =
-    let n = String.length ticket_prefix in
-    String.length f >= n && String.sub f 0 n = ticket_prefix
+(* Push the ticket's branch and open a PR (or reuse an existing one for that
+   branch), then move the ticket IN_PROGRESS → REVIEW. Replaces "move to
+   REVIEW/, commit the move in main" as a manual step in the /work skill —
+   this is what makes REVIEW correspond to a real, reviewable PR instead of
+   just a local worktree. *)
+let run_submit ticket_id =
+  let src = Printf.sprintf "%s/%s.md" (ticket_dir Sundev_ticket.In_progress) ticket_id in
+  if not (Sys.file_exists src) then begin
+    Printf.eprintf "error: %s not found (expected an IN_PROGRESS ticket)\n" src; exit 1
+  end;
+  let content = read_file src in
+  let fields = Sundev_ticket.parse_frontmatter content in
+  let branch = match Sundev_ticket.fm_get fields "branch" with
+    | Some b -> b
+    | None -> Printf.eprintf "error: %s has no branch: in frontmatter\n" ticket_id; exit 1
   in
-  let ticket_unmerged = List.filter is_ticket_path all_unmerged in
-
-  if List.mem "tools/perf/perf_baseline.json" content_conflicts then begin
-    ignore (Sundev_shell.run_cmd ~echo:false
-      "git checkout --ours -- tools/perf/perf_baseline.json");
-    ignore (Sundev_shell.run_cmd ~echo:false "git add tools/perf/perf_baseline.json");
-    Printf.printf "  auto-resolved tools/perf/perf_baseline.json (kept main)\n%!"
+  if not (git_branch_exists branch) then begin
+    Printf.eprintf "error: branch %s not found locally\n" branch; exit 1
   end;
-
-  if ticket_unmerged <> [] then begin
-    ignore (Sundev_shell.run_cmd ~echo:false
-      "git status --porcelain -- project/tickets/ \
-       | awk '{print $2}' \
-       | xargs -r git rm -f --cached -- 2>/dev/null; true");
-    ignore (Sundev_shell.run_cmd ~echo:false
-      "git checkout HEAD -- project/tickets/ 2>/dev/null; true");
-    ignore (Sundev_shell.run_cmd ~echo:false "git add -- project/tickets/ 2>/dev/null; true");
-    Printf.printf "  auto-resolved %d project/tickets/ conflict(s) (restored main state)\n%!"
-      (List.length ticket_unmerged)
+  Printf.printf "[%s] pushing %s...\n%!" ticket_id branch;
+  if Sundev_shell.run_cmd (Printf.sprintf "git push -u origin %s" (Filename.quote branch)) <> 0 then begin
+    Printf.eprintf "error: git push failed for %s\n" branch; exit 1
   end;
-
-  List.iter (fun path ->
-    if Filename.basename path = "dune" then begin
-      ignore (Sundev_shell.run_cmd ~echo:false (Printf.sprintf
-        {|awk 'BEGIN{skip=0} /^<<<<<<< /{skip=1;next} /^=======$/{skip=0;next} /^>>>>>>> /{next} !seen[$0]++{print}' %s > %s.merged && mv %s.merged %s|}
-        (Filename.quote path) (Filename.quote path)
-        (Filename.quote path) (Filename.quote path)));
-      ignore (Sundev_shell.run_cmd ~echo:false
-        (Printf.sprintf "git add %s" (Filename.quote path)));
-      Printf.printf "  auto-resolved %s (union merge)\n%!" path
-    end
-  ) content_conflicts;
-
-  let remaining = Sundev_shell.run_cmd_lines
-    "git ls-files --unmerged | awk '{print $4}' | sort -u" in
-  let unresolvable = List.filter (fun f ->
-    f <> "tools/perf/perf_baseline.json"
-    && not (is_ticket_path f)
-    && Filename.basename f <> "dune"
-  ) remaining in
-  if unresolvable <> [] then begin
-    Printf.eprintf "  unresolved conflicts in: %s\n" (String.concat ", " unresolvable);
-    false
-  end else
-    true
+  let pr_url = match gh_pr_url_for_branch branch with
+    | Some url ->
+      Printf.printf "[%s] PR already exists: %s\n%!" ticket_id url; url
+    | None ->
+      Printf.printf "[%s] opening PR...\n%!" ticket_id;
+      let title = Printf.sprintf "%s: %s" ticket_id (Sundev_ticket.ticket_title content) in
+      let body = Printf.sprintf
+        "Ticket: `%s`\n\nSee `project/tickets/REVIEW/%s.md` for the full spec.\n" ticket_id ticket_id in
+      let r = Sun_process.run_shell ~echo:false (Printf.sprintf
+        "gh pr create --base main --head %s --title %s --body %s"
+        (Filename.quote branch) (Filename.quote title) (Filename.quote body)) in
+      if not (Sun_process.succeeded r) then begin
+        Printf.eprintf "error: gh pr create failed:\n%s\n" r.Sun_process.stderr; exit 1
+      end;
+      String.trim r.Sun_process.stdout
+  in
+  let updated = Sundev_ticket.set_frontmatter_field content "pr" pr_url in
+  let dst = Printf.sprintf "%s/%s.md" (ticket_dir Sundev_ticket.Review) ticket_id in
+  write_file src updated;
+  Sys.rename src dst;
+  ignore (Sundev_shell.run_cmd ~echo:false
+    (Printf.sprintf "git add project/tickets/ && git commit -m %s"
+      (Filename.quote (Printf.sprintf "pipeline: submit %s for review\n\nPR: %s" ticket_id pr_url))));
+  Printf.printf "[%s] → REVIEW  (%s)\n%!" ticket_id pr_url
 
 (* ── pipeline merge ──────────────────────────────────────────────────────── *)
+
+(* Merges via `gh pr merge` — GitHub branch protection and required checks
+   gate the actual merge, not local logic. Local main is then fast-forwarded/
+   merged to pick up the result, a post-merge perf run decides whether the
+   ticket lands in DONE or BLOCKED_BY_PERFORMANCE (per CLAUDE.md's performance
+   baseline policy), and — since a squash merge is a single ordinary commit,
+   not a merge commit — a regression reverts with a plain `git revert`, no
+   `-m 1` needed. *)
 
 let run_merge dry_run accept_performance_regression ticket_filter =
   let ready_dir = ticket_dir Sundev_ticket.Ready_to_merge in
@@ -142,79 +120,82 @@ let run_merge dry_run accept_performance_regression ticket_filter =
     | Some branch, Some worktree ->
       if not (git_branch_exists branch) then begin
         Printf.eprintf "  branch %s not found — skipping\n" branch; incr errors
-      end else if dry_run then begin
-        Printf.printf "  (dry-run) merge %s\n" branch;
-        Printf.printf "  (dry-run) remove worktree %s\n" worktree;
-        Printf.printf "  (dry-run) delete branch %s\n" branch;
-        Printf.printf "  (dry-run) → %s/%s\n" (ticket_dir Sundev_ticket.Done) filename
-      end else begin
-        commit_dirty_baseline ();
-        let merge_rc = Sundev_shell.run_cmd (Printf.sprintf
-          "git merge %s --no-ff --no-edit" (Filename.quote branch)) in
-        let merge_rc =
-          if merge_rc <> 0 then begin
-            if resolve_merge_conflicts () then
-              Sundev_shell.run_cmd ~echo:false "GIT_EDITOR=true git merge --continue"
-            else begin
-              ignore (Sundev_shell.run_cmd ~echo:false "git merge --abort");
-              ignore (Sundev_shell.run_cmd ~echo:false
-                "git checkout HEAD -- tools/perf/perf_baseline.json 2>/dev/null; true");
-              Printf.eprintf "  merge failed — aborting\n";
-              1
-            end
-          end else merge_rc
-        in
-        if merge_rc <> 0 then incr errors
-        else begin
-          let perf_rc = Sundev_shell.run_cmd "./platform/local/scripts/run_tests.sh" in
-          if perf_rc = 2 && accept_performance_regression then begin
-            Printf.eprintf "  perf regression explicitly accepted — recording new baseline\n%!";
-            ignore (Sundev_shell.run_cmd ~echo:false
-              "./platform/local/scripts/run_tests.sh --update-baseline");
-            ignore (Sundev_shell.run_cmd ~echo:false
-              (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
-                (Filename.quote
-                  (Printf.sprintf "pipeline: accept perf regression baseline after %s" id))));
-            if Sys.file_exists worktree then
-              ignore (Sundev_shell.run_cmd (Printf.sprintf
-                "git worktree remove %s --force" (Filename.quote worktree)))
-            else Printf.printf "  worktree %s already removed\n%!" worktree;
-            ignore (Sundev_shell.run_cmd ~echo:false
-              (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
-            Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
-            Printf.printf "  ✓  merged → DONE\n%!";
-            merged := id :: !merged
-          end else if perf_rc >= 1 then begin
-            let label = if perf_rc = 2 then "perf regression" else "test failure" in
-            let reverted = revert_merge_commit id label in
-            Printf.eprintf "  %s detected — moving to BLOCKED_BY_PERFORMANCE\n%!" label;
-            Sys.rename src
-              (Filename.concat (ticket_dir Sundev_ticket.Blocked_by_performance) filename);
-            ignore (Sundev_shell.run_cmd ~echo:false
-              (Printf.sprintf "git add project/tickets/ && git commit -m %s"
-                (Filename.quote (Printf.sprintf "pipeline: %s blocked %s" label id))));
-            if not reverted then
-              Printf.eprintf "  warning: %s remains merged because automatic revert failed\n%!" id;
-            incr errors
+      end else
+        match (match Sundev_ticket.fm_get fields "pr" with
+               | Some url -> Some url
+               | None -> gh_pr_url_for_branch branch) with
+        | None ->
+          Printf.eprintf "  no PR found for %s — run `sundev pipeline submit %s` first\n" branch id;
+          incr errors
+        | Some pr_url ->
+          if dry_run then begin
+            Printf.printf "  (dry-run) gh pr merge %s --squash --delete-branch\n" pr_url;
+            Printf.printf "  (dry-run) remove worktree %s\n" worktree;
+            Printf.printf "  (dry-run) → %s/%s\n" (ticket_dir Sundev_ticket.Done) filename
           end else begin
-            ignore (Sundev_shell.run_cmd ~echo:false
-              "./platform/local/scripts/run_tests.sh --update-baseline");
-            ignore (Sundev_shell.run_cmd ~echo:false
-              (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
-                (Filename.quote
-                  (Printf.sprintf "pipeline: update perf baseline after %s" id))));
+            (* Remove the worktree first: a branch checked out in a linked
+               worktree can't be deleted, and --delete-branch needs to. *)
             if Sys.file_exists worktree then
               ignore (Sundev_shell.run_cmd (Printf.sprintf
                 "git worktree remove %s --force" (Filename.quote worktree)))
             else Printf.printf "  worktree %s already removed\n%!" worktree;
-            ignore (Sundev_shell.run_cmd ~echo:false
-              (Printf.sprintf "git branch -d %s" (Filename.quote branch)));
-            Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
-            Printf.printf "  ✓  merged → DONE\n%!";
-            merged := id :: !merged
+            let merge_rc = Sundev_shell.run_cmd (Printf.sprintf
+              "gh pr merge %s --squash --delete-branch" (Filename.quote pr_url)) in
+            if merge_rc <> 0 then begin
+              Printf.eprintf
+                "  gh pr merge failed for %s (checks or review not satisfied?) — \
+                 leaving in READY_TO_MERGE, retry once green\n" pr_url;
+              incr errors
+            end else begin
+              ignore (Sundev_shell.run_cmd ~echo:false "git fetch origin main -q");
+              let sync_rc = Sundev_shell.run_cmd ~echo:false "git merge origin/main --no-edit -q" in
+              if sync_rc <> 0 then begin
+                Printf.eprintf
+                  "  merged on GitHub but failed to sync local main — resolve manually\n";
+                incr errors
+              end else begin
+                let merge_sha = Sun_process.output_shell ~echo:false "git rev-parse origin/main" in
+                let perf_rc = Sundev_shell.run_cmd "./platform/local/scripts/run_tests.sh" in
+                if perf_rc = 2 && accept_performance_regression then begin
+                  Printf.eprintf "  perf regression explicitly accepted — recording new baseline\n%!";
+                  ignore (Sundev_shell.run_cmd ~echo:false
+                    "./platform/local/scripts/run_tests.sh --update-baseline");
+                  ignore (Sundev_shell.run_cmd ~echo:false
+                    (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
+                      (Filename.quote
+                        (Printf.sprintf "pipeline: accept perf regression baseline after %s" id))));
+                  Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
+                  Printf.printf "  ✓  merged → DONE\n%!";
+                  merged := id :: !merged
+                end else if perf_rc >= 1 then begin
+                  let label = if perf_rc = 2 then "perf regression" else "test failure" in
+                  let revert_rc = Sundev_shell.run_cmd ~echo:false (Printf.sprintf
+                    "SUN_SKIP_HOOKS=1 git revert %s --no-edit" (Filename.quote merge_sha)) in
+                  let reverted = revert_rc = 0 in
+                  Printf.eprintf "  %s detected — moving to BLOCKED_BY_PERFORMANCE\n%!" label;
+                  Sys.rename src
+                    (Filename.concat (ticket_dir Sundev_ticket.Blocked_by_performance) filename);
+                  ignore (Sundev_shell.run_cmd ~echo:false
+                    (Printf.sprintf "git add project/tickets/ && git commit -m %s"
+                      (Filename.quote (Printf.sprintf "pipeline: %s blocked %s" label id))));
+                  if not reverted then
+                    Printf.eprintf
+                      "  warning: %s remains merged because automatic revert failed\n%!" id;
+                  incr errors
+                end else begin
+                  ignore (Sundev_shell.run_cmd ~echo:false
+                    "./platform/local/scripts/run_tests.sh --update-baseline");
+                  ignore (Sundev_shell.run_cmd ~echo:false
+                    (Printf.sprintf "git add tools/perf/perf_baseline.json && git commit -m %s"
+                      (Filename.quote
+                        (Printf.sprintf "pipeline: update perf baseline after %s" id))));
+                  Sys.rename src (Filename.concat (ticket_dir Sundev_ticket.Done) filename);
+                  Printf.printf "  ✓  merged → DONE\n%!";
+                  merged := id :: !merged
+                end
+              end
+            end
           end
-        end
-      end
   ) files;
   if (not dry_run) && !merged <> [] then begin
     let ids = String.concat "\n" (List.map (fun id -> "- " ^ id) (List.rev !merged)) in
@@ -225,6 +206,8 @@ let run_merge dry_run accept_performance_regression ticket_filter =
     if rc <> 0 then Printf.eprintf "warning: failed to commit ticket state changes\n"
   end;
   if !errors > 0 then Printf.eprintf "\n%d ticket(s) had errors.\n" !errors;
+  if (not dry_run) && !merged <> [] then
+    Printf.printf "\nLocal main has new commits — remember to `git push origin main`.\n";
   Printf.printf "\nDone. %d merged.\n" (List.length !merged)
 
 (* ── pipeline review ─────────────────────────────────────────────────────── *)

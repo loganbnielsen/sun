@@ -18,6 +18,7 @@ val all_states : ticket_state list
 
 val parse_frontmatter : string -> (string * string) list
 val fm_get : (string * string) list -> string -> string option
+val set_frontmatter_field : string -> string -> string -> string
 
 val parse_depends : string -> string list
 val has_human_decision_gate : string -> bool

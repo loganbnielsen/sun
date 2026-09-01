@@ -67,14 +67,18 @@ If it reports `blocked-for-human-decision`, `blocked-by-dependency`, `unknown ti
 3. Update ticket frontmatter with `branch:` and `worktree:`, move file to `IN_PROGRESS/`.
 4. Commit the ticket state change in the main checkout.
 5. Implement the ticket in the worktree — read the ticket's **Remediation** as the specification.
-6. When done: move ticket to `REVIEW/`, commit the move in main.
+6. When done, from the main checkout:
+   ```bash
+   sundev pipeline submit <ticket-id>
+   ```
+   Pushes the branch, opens a PR (or reuses an existing one for that branch), records the PR URL in the ticket's `pr:` frontmatter field, moves the ticket to `REVIEW/`, and commits the move. `REVIEW` now corresponds to a real, reviewable GitHub PR, not just a local worktree — do not push the branch or open the PR by hand.
 
 ### IN_PROGRESS → resume + implement
 
 1. Read `worktree:` from frontmatter. If the path exists — resume there. If gone — create a fresh worktree from main.
 2. Print `resuming <worktree-path>`.
 3. Implement the remaining work in the worktree.
-4. When done: move ticket to `REVIEW/`, commit the move in main.
+4. When done, from the main checkout: `sundev pipeline submit <ticket-id>` (see above).
 
 ### REVIEW → run review agent + process result
 
@@ -144,4 +148,4 @@ FEAT-001  READY_TO_MERGE  skipped (already past review)
 ```
 
 Human next steps for tickets that reached READY_TO_MERGE:
-- Run `sundev pipeline merge` to merge all passing branches into main.
+- Run `sundev pipeline merge` (optionally with a ticket ID, or `--dry-run` first). This merges each ticket's PR via `gh pr merge --squash --delete-branch` — real GitHub branch protection and required checks gate the merge, so a ticket with a red/pending check or missing approval is left in `READY_TO_MERGE` with an error, not force-merged. On success it fast-forwards local `main`, runs the perf suite, and moves the ticket to `DONE` (or `BLOCKED_BY_PERFORMANCE` on a regression, reverting the squash commit). It does **not** push `main` — push it yourself once you're happy with the resulting local commits.

@@ -10,6 +10,11 @@ let check_option_string msg expected actual =
 let check_bool msg expected actual =
   Alcotest.(check bool) msg expected actual
 
+let contains_substring ~needle haystack =
+  let nl = String.length needle and hl = String.length haystack in
+  let rec go i = i + nl <= hl && (String.sub haystack i nl = needle || go (i + 1)) in
+  nl = 0 || go 0
+
 let ticket_state =
   Alcotest.testable
     (fun fmt state -> Format.pp_print_string fmt (Sundev_ticket.state_to_dir state))
@@ -136,6 +141,26 @@ let test_review_status_unknown () =
   check_review_status_option "unknown" None
     (Sundev_ticket.review_status_of_string "maybe")
 
+(* ── set_frontmatter_field ───────────────────────────────────────────────── *)
+
+let test_set_field_appends_when_absent () =
+  let content = "---\nid: FEAT-001\ntype: feature\n---\n\nBody" in
+  let updated = Sundev_ticket.set_frontmatter_field content "pr" "https://github.com/x/y/pull/1" in
+  let fm = Sundev_ticket.parse_frontmatter updated in
+  check_option_string "pr added" (Some "https://github.com/x/y/pull/1") (Sundev_ticket.fm_get fm "pr");
+  check_option_string "id preserved" (Some "FEAT-001") (Sundev_ticket.fm_get fm "id");
+  check_bool "body preserved" true (contains_substring ~needle:"Body" updated)
+
+let test_set_field_overwrites_when_present () =
+  let content = "---\nid: FEAT-001\npr: https://old\n---\n\nBody" in
+  let updated = Sundev_ticket.set_frontmatter_field content "pr" "https://new" in
+  let fm = Sundev_ticket.parse_frontmatter updated in
+  check_option_string "pr overwritten" (Some "https://new") (Sundev_ticket.fm_get fm "pr")
+
+let test_set_field_no_frontmatter_is_noop () =
+  let content = "no frontmatter here" in
+  check_string "unchanged" content (Sundev_ticket.set_frontmatter_field content "pr" "https://x")
+
 let () =
   Alcotest.run "sundev_ticket" [
     "parse_frontmatter", [
@@ -172,5 +197,10 @@ let () =
     "review_status", [
       Alcotest.test_case "roundtrip"             `Quick test_review_status_roundtrip;
       Alcotest.test_case "unknown"               `Quick test_review_status_unknown;
+    ];
+    "set_frontmatter_field", [
+      Alcotest.test_case "appends when absent"   `Quick test_set_field_appends_when_absent;
+      Alcotest.test_case "overwrites when present" `Quick test_set_field_overwrites_when_present;
+      Alcotest.test_case "no frontmatter is noop" `Quick test_set_field_no_frontmatter_is_noop;
     ];
   ]
