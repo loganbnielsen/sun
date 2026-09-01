@@ -473,6 +473,7 @@ sun dev down                                      tear down the cluster
 sun dev status                                    show running infra endpoints
 sun dev run                                       run services as native processes (fast iteration)
 
+sun plan TARGET                                   print merged app/resource/service plan
 sun up [path] [--dry-run] [--tag]                 build images and deploy to local cluster
 sun deploy [--image-tag TAG] [--registry URL]     deploy pre-built images (CI mode)
 sun deploy --emit-to DIR [--image-tag TAG] ...    write YAML for Argo CD (GitOps mode)
@@ -489,7 +490,9 @@ sun secret set <KEY> --env <ENV> --value <VAL>    create or update a secret
 sun secret list --env <ENV>                       list secret keys (values never printed)
 sun secret delete <KEY> --env <ENV>               delete a secret
 
-sun cloud init --aws|--gcp [--var-file FILE] [--dry-run]   provision cloud infrastructure via Terraform
+sun cloud plan TARGET                             preview cloud infrastructure changes
+sun cloud apply TARGET                            apply cloud infrastructure changes
+sun cloud destroy TARGET [--plan|--apply]         destroy cloud infrastructure via Terraform
 ```
 
 ---
@@ -555,31 +558,39 @@ See `platform/infra/ci/` for complete GitHub Actions workflow examples for both 
 
 ### Provisioning a production cluster
 
-Use `sun cloud init` to provision production infrastructure. It runs `terraform init` and `terraform apply` against the Terraform modules bundled in `platform/infra/` and prints the provisioned endpoints on completion.
+Use `sun cloud plan` and `sun cloud apply` to provision production infrastructure. These commands run Terraform against the modules bundled in `platform/infra/` and print the provisioned endpoints on completion.
 
 **AWS (EKS, ECR, RDS, Route53):**
 
 ```bash
-sun cloud init --aws
+sun cloud plan prod/aws/us-east-1
+sun cloud apply prod/aws/us-east-1
 ```
 
 **GCP (GKE Autopilot, Artifact Registry, Cloud SQL):**
 
 ```bash
-sun cloud init --gcp
+sun cloud plan prod/gcp/us-central1
+sun cloud apply prod/gcp/us-central1
 ```
 
-**Dry-run (show terraform plan without creating resources):**
+**Plan (show terraform plan without creating resources):**
 
 ```bash
-sun cloud init --aws --dry-run
-sun cloud init --gcp --dry-run
+sun cloud plan prod/aws/us-east-1
+sun cloud plan prod/gcp/us-central1
 ```
 
 **Pass a Terraform variables file:**
 
 ```bash
-sun cloud init --aws --var-file prod.tfvars
+sun cloud apply prod/aws/us-east-1 --var-file prod.tfvars
+```
+
+**Pass one-off Terraform variables:**
+
+```bash
+sun cloud apply prod/aws/us-east-1 --var cluster_name=acme-prod --var db_password=...
 ```
 
 On success the command prints the key provisioned endpoints:
@@ -608,7 +619,7 @@ terraform apply \
 
 After `terraform apply`, the cluster is identical to `sun dev up` — same DNS names, same ConfigMap values, same Grafana dashboards.
 
-> **Advanced / manual override:** `sun cloud init` is a thin wrapper around `terraform init && terraform apply`. Engineers who need full Terraform control — custom variables, targeted applies, remote state configuration, or workspace management — can invoke Terraform directly against the same modules:
+> **Advanced / manual override:** `sun cloud plan/apply` is a thin wrapper around Terraform. Engineers who need full Terraform control — custom variables, targeted applies, remote state configuration, or workspace management — can invoke Terraform directly against the same modules:
 >
 > ```bash
 > # AWS example
@@ -639,4 +650,3 @@ kubectl apply -f platform/infra/argocd/application.yaml
 ```
 
 From this point, every `git push` to `main` in CI runs `sun deploy --emit-to`, commits the YAML to the GitOps repo, and Argo CD reconciles the cluster automatically.
-

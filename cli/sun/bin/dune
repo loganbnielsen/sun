@@ -12,6 +12,7 @@
  (modules
   main
   cmd_dev
+  cmd_plan
   cmd_up
   cmd_deploy
   cmd_status

@@ -9,6 +9,7 @@
   Sun_cli_workspace
   Sun_cli_manifest_yaml
   Sun_cli_manifest
+  Sun_cli_config
   Sun_cli_toml
   Sun_cli_plan_ids
   Sun_cli_workspace_scan

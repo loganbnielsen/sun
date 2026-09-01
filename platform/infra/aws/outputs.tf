@@ -25,13 +25,13 @@ output "ecr_login_command" {
 
 output "postgres_endpoint" {
   description = "RDS PostgreSQL endpoint"
-  value       = aws_db_instance.postgres.endpoint
+  value       = var.create_rds ? aws_db_instance.postgres[0].endpoint : null
   sensitive   = true
 }
 
 output "postgres_url" {
   description = "POSTGRES_URL for Sun services — set this in your CI secrets and sun.toml [infra.env]"
-  value       = "postgresql://postgres:${var.db_password}@${aws_db_instance.postgres.endpoint}/app"
+  value       = var.create_rds ? "postgresql://postgres:${var.db_password}@${aws_db_instance.postgres[0].endpoint}/app" : null
   sensitive   = true
 }
 

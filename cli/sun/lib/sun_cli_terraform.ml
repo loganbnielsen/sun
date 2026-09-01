@@ -7,15 +7,24 @@ let which_check () =
   | Error _ -> false
 
 let init ~chdir =
-  run ~echo:true (cmd ["terraform"; "init"; "-chdir=" ^ chdir])
+  run ~echo:true (cmd ["terraform"; "-chdir=" ^ chdir; "init"])
 
-let plan ~chdir ~var_files =
+let var_args ~var_files ~vars =
   let varfile_args = List.map (fun f -> "-var-file=" ^ f) var_files in
-  run ~echo:true (cmd (["terraform"; "plan"; "-chdir=" ^ chdir] @ varfile_args))
+  let var_args = List.map (fun v -> "-var=" ^ v) vars in
+  varfile_args @ var_args
 
-let apply ~chdir ~var_files =
-  let varfile_args = List.map (fun f -> "-var-file=" ^ f) var_files in
-  run ~echo:true (cmd (["terraform"; "apply"; "-auto-approve"; "-chdir=" ^ chdir] @ varfile_args))
+let plan ~chdir ~var_files ~vars =
+  run ~echo:true (cmd (["terraform"; "-chdir=" ^ chdir; "plan"] @ var_args ~var_files ~vars))
+
+let plan_destroy ~chdir ~var_files ~vars =
+  run ~echo:true (cmd (["terraform"; "-chdir=" ^ chdir; "plan"; "-destroy"] @ var_args ~var_files ~vars))
+
+let apply ~chdir ~var_files ~vars =
+  run ~echo:true (cmd (["terraform"; "-chdir=" ^ chdir; "apply"; "-auto-approve"] @ var_args ~var_files ~vars))
+
+let destroy ~chdir ~var_files ~vars =
+  run ~echo:true (cmd (["terraform"; "-chdir=" ^ chdir; "destroy"; "-auto-approve"] @ var_args ~var_files ~vars))
 
 let output_json ~chdir =
-  run (cmd ["terraform"; "output"; "-json"; "-chdir=" ^ chdir])
+  run (cmd ["terraform"; "-chdir=" ^ chdir; "output"; "-json"])
