@@ -102,27 +102,13 @@ let exit_code_of r = match r with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
-let fail_terraform label r =
+(* Full stdout/stderr already went to this run's phase log via
+   Sun_cli_run_log.run_phase, which also printed the compact status line and,
+   on failure, the log path and its tail. Nothing left to print here. *)
+let require_terraform_success r =
   match r with
-  | Ok r ->
-    Printf.eprintf "error: %s failed (exit %d).\n" label r.Sun_cli_process.exit_code;
-    if r.Sun_cli_process.stderr <> "" then
-      Printf.eprintf "%s\n%!" r.Sun_cli_process.stderr;
-    exit 1
-  | Error e ->
-    Printf.eprintf "error: %s failed: %s\n%!"
-      label (Sun_cli_process.error_to_string e);
-    exit 1
-
-let print_terraform_output (r : Sun_cli_process.result) =
-  if r.stdout <> "" then Printf.printf "%s\n%!" r.stdout;
-  if r.stderr <> "" then Printf.eprintf "%s\n%!" r.stderr
-
-let require_terraform_success label r =
-  match r with
-  | Ok r when r.Sun_cli_process.exit_code = 0 ->
-    print_terraform_output r
-  | r -> fail_terraform label r
+  | Ok r when r.Sun_cli_process.exit_code = 0 -> ()
+  | _ -> exit 1
 
 let normalize_var_file path =
   if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path else path
@@ -244,9 +230,10 @@ let verify_aws_destroy ~var_files ~vars =
     if not (eks_gone && rds_gone && ecr_gone) then exit 1;
     Printf.printf "  AWS verification passed: EKS/RDS/ECR not found.\n%!"
 
-let run_terraform_init infra_dir =
-  require_terraform_success "terraform init"
-    (Sun_cli_terraform.init ~chdir:infra_dir)
+let run_terraform_init run_log infra_dir =
+  require_terraform_success
+    (Sun_cli_run_log.run_phase run_log ~name:"terraform-init"
+       (fun () -> Sun_cli_terraform.init ~chdir:infra_dir))
 
 let config_vars target =
   match target with
@@ -273,10 +260,10 @@ let cloud_init ~target ~var_file ~vars ~action () =
   check_terraform ();
   let provider = provider_of_target_path target in
   let pname, infra_dir = infra_dir provider in
+  let run_log = Sun_cli_run_log.create ~prefix:"cloud-apply" () in
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
-  Printf.printf "\n[1/3] terraform init\n%!";
-  run_terraform_init infra_dir;
+  run_terraform_init run_log infra_dir;
 
   let config_vars, config_var_file = config_vars (Some target) in
   let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
@@ -284,17 +271,16 @@ let cloud_init ~target ~var_file ~vars ~action () =
   let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in
   match action with
   | Plan ->
-    Printf.printf "\n[2/3] terraform plan\n%!";
-    require_terraform_success "terraform plan"
-      (Sun_cli_terraform.plan ~chdir:infra_dir ~var_files ~vars);
-    Printf.printf "\n[3/3] (skipping apply in plan mode)\n%!";
+    require_terraform_success
+      (Sun_cli_run_log.run_phase run_log ~name:"terraform-plan"
+         (fun () -> Sun_cli_terraform.plan ~chdir:infra_dir ~var_files ~vars));
     Printf.printf "\nDone. Re-run with 'sun cloud apply' to change cloud resources.\n%!"
   | Apply ->
-    Printf.printf "\n[2/3] terraform apply\n%!";
-    require_terraform_success "terraform apply"
-      (Sun_cli_terraform.apply ~chdir:infra_dir ~var_files ~vars);
+    require_terraform_success
+      (Sun_cli_run_log.run_phase run_log ~name:"terraform-apply"
+         (fun () -> Sun_cli_terraform.apply ~chdir:infra_dir ~var_files ~vars));
 
-    Printf.printf "\n[3/3] Provisioned endpoints:\n%!";
+    Printf.printf "\nProvisioned endpoints:\n%!";
     print_outputs infra_dir;
     Printf.printf "\nDone.\n%!"
 
@@ -302,6 +288,7 @@ let cloud_destroy ~target ~var_file ~vars ~action () =
   check_terraform ();
   let provider = provider_of_target_path target in
   let pname, infra_dir = infra_dir provider in
+  let run_log = Sun_cli_run_log.create ~prefix:"cloud-destroy" () in
   let config_vars, config_var_file = config_vars (Some target) in
   let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
   let vars = config_vars @ vars in
@@ -309,21 +296,19 @@ let cloud_destroy ~target ~var_file ~vars ~action () =
 
   Printf.printf "\nDestroying cloud infrastructure (%s)...\n%!" pname;
 
-  Printf.printf "\n[1/3] terraform init\n%!";
-  run_terraform_init infra_dir;
+  run_terraform_init run_log infra_dir;
 
   match action with
   | Plan ->
-    Printf.printf "\n[2/3] terraform plan -destroy\n%!";
-    require_terraform_success "terraform plan -destroy"
-      (Sun_cli_terraform.plan_destroy ~chdir:infra_dir ~var_files ~vars);
-    Printf.printf "\n[3/3] (skipping destroy in plan mode)\n%!";
+    require_terraform_success
+      (Sun_cli_run_log.run_phase run_log ~name:"terraform-plan-destroy"
+         (fun () -> Sun_cli_terraform.plan_destroy ~chdir:infra_dir ~var_files ~vars));
     Printf.printf "\nDone. Re-run with --apply to destroy cloud resources.\n%!"
   | Apply ->
-    Printf.printf "\n[2/3] terraform destroy\n%!";
-    require_terraform_success "terraform destroy"
-      (Sun_cli_terraform.destroy ~chdir:infra_dir ~var_files ~vars);
-    Printf.printf "\n[3/3] Verifying teardown\n%!";
+    require_terraform_success
+      (Sun_cli_run_log.run_phase run_log ~name:"terraform-destroy"
+         (fun () -> Sun_cli_terraform.destroy ~chdir:infra_dir ~var_files ~vars));
+    Printf.printf "\nVerifying teardown...\n%!";
     (match provider with
      | Aws -> verify_aws_destroy ~var_files ~vars
      | Gcp -> Printf.printf "  (GCP destroy verification not implemented yet)\n%!");
