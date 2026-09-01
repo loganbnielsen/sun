@@ -1,6 +1,7 @@
 (tests
  (names
   test_deployment_plan
+  test_config
   test_env_target
   test_manifest_render
   test_executor

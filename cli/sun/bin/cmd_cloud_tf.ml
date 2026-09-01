@@ -1,5 +1,4 @@
-(* sun cloud init — provision cloud infrastructure via Terraform.
-   Wraps `terraform init && terraform apply` for AWS or GCP.
+(* sun cloud plan/apply/destroy — manage cloud infrastructure via Terraform.
    Requires: terraform binary in PATH, cloud credentials in environment. *)
 
 open Cmdliner
@@ -55,106 +54,333 @@ let print_outputs infra_dir =
     with _ ->
       Printf.printf "  (error parsing terraform outputs)\n%!")
 
-(* ── cloud init ─────────────────────────────────────────────────────────── *)
+(* ── cloud apply/plan ───────────────────────────────────────────────────── *)
 
 type provider = Aws | Gcp
 
 let provider_name = function Aws -> "aws" | Gcp -> "gcp"
 
-let cloud_init ~provider ~var_file ~dry_run () =
-  let pname = provider_name provider in
+let provider_of_target_path target =
+  match String.split_on_char '/' target with
+  | [_env; "aws"; _region] -> Aws
+  | [_env; "gcp"; _region] -> Gcp
+  | [_env; provider; _region] ->
+    Printf.eprintf "error: unsupported provider %S in target %S.\n" provider target;
+    exit 1
+  | _ ->
+    Printf.eprintf "error: target must look like <env>/<provider>/<region>.\n";
+    exit 1
 
+let check_terraform () =
   if not (Sun_cli_terraform.which_check ()) then begin
     Printf.eprintf "error: %S not found in PATH.\n" "terraform";
     Printf.eprintf "  Install: %s\n" "https://developer.hashicorp.com/terraform/install";
     exit 1
-  end;
+  end
 
+let infra_dir provider =
+  let pname = provider_name provider in
   let sun_home = resolve_sun_home () in
-  let infra_dir = Filename.concat sun_home
+  let dir = Filename.concat sun_home
     (Printf.sprintf "platform/infra/%s" pname) in
-  if not (Sys.file_exists infra_dir) then begin
-    Printf.eprintf "error: Terraform module not found: %s\n" infra_dir;
+  if not (Sys.file_exists dir) then begin
+    Printf.eprintf "error: Terraform module not found: %s\n" dir;
     exit 1
   end;
+  pname, dir
 
+type action = Plan | Apply
+
+let action_of_flags plan apply =
+  match plan, apply with
+  | true, false  -> `Ok Plan
+  | false, true  -> `Ok Apply
+  | false, false -> `Ok Plan
+  | true, true   -> `Error (false, "--plan and --apply are mutually exclusive")
+
+let exit_code_of r = match r with
+  | Ok r -> r.Sun_cli_process.exit_code
+  | Error _ -> 1
+
+let fail_terraform label r =
+  match r with
+  | Ok r ->
+    Printf.eprintf "error: %s failed (exit %d).\n" label r.Sun_cli_process.exit_code;
+    if r.Sun_cli_process.stderr <> "" then
+      Printf.eprintf "%s\n%!" r.Sun_cli_process.stderr;
+    exit 1
+  | Error e ->
+    Printf.eprintf "error: %s failed: %s\n%!"
+      label (Sun_cli_process.error_to_string e);
+    exit 1
+
+let print_terraform_output (r : Sun_cli_process.result) =
+  if r.stdout <> "" then Printf.printf "%s\n%!" r.stdout;
+  if r.stderr <> "" then Printf.eprintf "%s\n%!" r.stderr
+
+let require_terraform_success label r =
+  match r with
+  | Ok r when r.Sun_cli_process.exit_code = 0 ->
+    print_terraform_output r
+  | r -> fail_terraform label r
+
+let normalize_var_file path =
+  if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path else path
+
+let trim_quotes s =
+  let s = String.trim s in
+  let len = String.length s in
+  if len >= 2 && s.[0] = '"' && s.[len - 1] = '"' then
+    String.sub s 1 (len - 2)
+  else s
+
+let var_value key vars =
+  List.find_map (fun v ->
+    match String.index_opt v '=' with
+    | None -> None
+    | Some i ->
+      if String.sub v 0 i |> String.trim = key then
+        Some (String.sub v (i + 1) (String.length v - i - 1) |> trim_quotes)
+      else None
+  ) (List.rev vars)
+
+let var_file_value key path =
+  try
+    let ic = open_in path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+         let rec loop () =
+           match input_line ic with
+           | line ->
+             let line = String.trim line in
+             if line = "" || line.[0] = '#' then loop ()
+             else
+               (match String.index_opt line '=' with
+                | None -> loop ()
+                | Some i ->
+                  if String.sub line 0 i |> String.trim = key then
+                    Some (String.sub line (i + 1) (String.length line - i - 1) |> trim_quotes)
+                  else loop ())
+           | exception End_of_file -> None
+         in
+         loop ())
+  with _ -> None
+
+let resolved_var key ~var_files ~vars ~default =
+  match var_value key vars with
+  | Some _ as v -> v
+  | None ->
+    match List.find_map (var_file_value key) var_files with
+    | Some _ as v -> v
+    | None -> default
+
+let contains ~needle s =
+  let nlen = String.length needle in
+  let slen = String.length s in
+  let rec loop i =
+    i + nlen <= slen &&
+    (String.sub s i nlen = needle || loop (i + 1))
+  in
+  nlen = 0 || loop 0
+
+let aws_absent ~region ~kind ~missing_marker ~argv =
+  match Sun_cli_process.run (Sun_cli_process.cmd ("aws" :: argv @ ["--region"; region])) with
+  | Ok r when r.Sun_cli_process.exit_code = 0 ->
+    Printf.eprintf "error: AWS %s still exists after destroy.\n" kind;
+    false
+  | Ok r when contains ~needle:missing_marker r.Sun_cli_process.stderr -> true
+  | Ok r ->
+    Printf.eprintf "error: AWS %s verification failed: %s\n" kind r.Sun_cli_process.stderr;
+    false
+  | Error _ ->
+    Printf.eprintf "error: AWS %s verification failed: aws CLI unavailable.\n" kind;
+    false
+
+let aws_no_ecr_repositories ~region ~cluster_name =
+  let prefix = cluster_name ^ "/" in
+  let query =
+    Printf.sprintf "repositories[?starts_with(repositoryName, `%s`)].repositoryName" prefix
+  in
+  match Sun_cli_process.run
+          (Sun_cli_process.cmd
+             ["aws"; "ecr"; "describe-repositories"; "--query"; query;
+              "--output"; "text"; "--region"; region])
+  with
+  | Ok r when r.Sun_cli_process.exit_code = 0 && String.trim r.Sun_cli_process.stdout = "" -> true
+  | Ok r when r.Sun_cli_process.exit_code = 0 ->
+    Printf.eprintf "error: AWS ECR repositories still exist after destroy: %s\n"
+      r.Sun_cli_process.stdout;
+    false
+  | Ok r ->
+    Printf.eprintf "error: AWS ECR verification failed: %s\n" r.Sun_cli_process.stderr;
+    false
+  | Error _ ->
+    Printf.eprintf "error: AWS ECR verification failed: aws CLI unavailable.\n";
+    false
+
+let verify_aws_destroy ~var_files ~vars =
+  match resolved_var "cluster_name" ~var_files ~vars ~default:None with
+  | None ->
+    Printf.eprintf "error: cannot verify AWS destroy without cluster_name.\n";
+    Printf.eprintf "  Pass the same --var cluster_name=... or --var-file used for init.\n";
+    exit 1
+  | Some cluster_name ->
+    let region = Option.value
+      (resolved_var "region" ~var_files ~vars ~default:(Some "us-east-1"))
+      ~default:"us-east-1"
+    in
+    let eks_gone =
+      aws_absent ~region ~kind:"EKS cluster"
+        ~missing_marker:"ResourceNotFoundException"
+        ~argv:["eks"; "describe-cluster"; "--name"; cluster_name]
+    in
+    let rds_gone =
+      aws_absent ~region ~kind:"RDS instance"
+        ~missing_marker:"DBInstanceNotFound"
+        ~argv:["rds"; "describe-db-instances"; "--db-instance-identifier"; cluster_name ^ "-postgres"]
+    in
+    let ecr_gone = aws_no_ecr_repositories ~region ~cluster_name in
+    if not (eks_gone && rds_gone && ecr_gone) then exit 1;
+    Printf.printf "  AWS verification passed: EKS/RDS/ECR not found.\n%!"
+
+let run_terraform_init infra_dir =
+  require_terraform_success "terraform init"
+    (Sun_cli_terraform.init ~chdir:infra_dir)
+
+let config_vars target =
+  match target with
+  | None -> [], None
+  | Some target ->
+    match Sun_cli_config.load_for_target ~target with
+    | Error e ->
+      Printf.eprintf "error: %s\n" (Sun_cli_config.error_to_string e);
+      exit 1
+    | Ok cfg ->
+      match Sun_cli_config.terraform_vars cfg with
+      | Error msg ->
+        Printf.eprintf "error: %s\n" msg;
+        exit 1
+      | Ok vars ->
+        let var_file =
+          match Sun_cli_config.target cfg with
+          | None -> None
+          | Some target -> target.Sun_cli_config.terraform_var_file
+        in
+        vars, var_file
+
+let cloud_init ~target ~var_file ~vars ~action () =
+  check_terraform ();
+  let provider = provider_of_target_path target in
+  let pname, infra_dir = infra_dir provider in
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
-  let exit_code_of r = match r with
-    | Ok r -> r.Sun_cli_process.exit_code
-    | Error _ -> 1
-  in
-
   Printf.printf "\n[1/3] terraform init\n%!";
-  let rc = exit_code_of (Sun_cli_terraform.init ~chdir:infra_dir) in
-  if rc <> 0 then begin
-    Printf.eprintf "error: terraform init failed (exit %d).\n" rc;
-    exit 1
-  end;
+  run_terraform_init infra_dir;
 
-  if dry_run then begin
-    Printf.printf "\n[2/3] terraform plan  (--dry-run)\n%!";
-    let var_files = match var_file with None -> [] | Some f -> [f] in
-    let rc = exit_code_of (Sun_cli_terraform.plan ~chdir:infra_dir ~var_files) in
-    if rc <> 0 then begin
-      Printf.eprintf "error: terraform plan failed (exit %d).\n" rc;
-      exit 1
-    end;
-    Printf.printf "\n[3/3] (skipping apply in --dry-run mode)\n%!";
-  end else begin
+  let config_vars, config_var_file = config_vars (Some target) in
+  let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
+  let vars = config_vars @ vars in
+  let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in
+  match action with
+  | Plan ->
+    Printf.printf "\n[2/3] terraform plan\n%!";
+    require_terraform_success "terraform plan"
+      (Sun_cli_terraform.plan ~chdir:infra_dir ~var_files ~vars);
+    Printf.printf "\n[3/3] (skipping apply in plan mode)\n%!";
+    Printf.printf "\nDone. Re-run with 'sun cloud apply' to change cloud resources.\n%!"
+  | Apply ->
     Printf.printf "\n[2/3] terraform apply\n%!";
-    let var_files = match var_file with None -> [] | Some f -> [f] in
-    let rc = exit_code_of (Sun_cli_terraform.apply ~chdir:infra_dir ~var_files) in
-    if rc <> 0 then begin
-      Printf.eprintf "error: terraform apply failed (exit %d).\n" rc;
-      exit 1
-    end;
+    require_terraform_success "terraform apply"
+      (Sun_cli_terraform.apply ~chdir:infra_dir ~var_files ~vars);
 
     Printf.printf "\n[3/3] Provisioned endpoints:\n%!";
     print_outputs infra_dir;
-  end;
+    Printf.printf "\nDone.\n%!"
 
-  Printf.printf "\nDone.\n%!"
+let cloud_destroy ~target ~var_file ~vars ~action () =
+  check_terraform ();
+  let provider = provider_of_target_path target in
+  let pname, infra_dir = infra_dir provider in
+  let config_vars, config_var_file = config_vars (Some target) in
+  let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
+  let vars = config_vars @ vars in
+  let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in
+
+  Printf.printf "\nDestroying cloud infrastructure (%s)...\n%!" pname;
+
+  Printf.printf "\n[1/3] terraform init\n%!";
+  run_terraform_init infra_dir;
+
+  match action with
+  | Plan ->
+    Printf.printf "\n[2/3] terraform plan -destroy\n%!";
+    require_terraform_success "terraform plan -destroy"
+      (Sun_cli_terraform.plan_destroy ~chdir:infra_dir ~var_files ~vars);
+    Printf.printf "\n[3/3] (skipping destroy in plan mode)\n%!";
+    Printf.printf "\nDone. Re-run with --apply to destroy cloud resources.\n%!"
+  | Apply ->
+    Printf.printf "\n[2/3] terraform destroy\n%!";
+    require_terraform_success "terraform destroy"
+      (Sun_cli_terraform.destroy ~chdir:infra_dir ~var_files ~vars);
+    Printf.printf "\n[3/3] Verifying teardown\n%!";
+    (match provider with
+     | Aws -> verify_aws_destroy ~var_files ~vars
+     | Gcp -> Printf.printf "  (GCP destroy verification not implemented yet)\n%!");
+    Printf.printf "\nDone.\n%!"
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
-
-let aws_flag =
-  Arg.(value & flag &
-       info ["aws"]
-         ~doc:"Provision AWS infrastructure (EKS, ECR, RDS, Route53)")
-
-let gcp_flag =
-  Arg.(value & flag &
-       info ["gcp"]
-         ~doc:"Provision GCP infrastructure (GKE, Artifact Registry, Cloud SQL)")
 
 let var_file_arg =
   Arg.(value & opt (some string) None &
        info ["var-file"] ~docv:"PATH"
          ~doc:"Path to a Terraform .tfvars file. Passed as -var-file to \
-               terraform plan/apply.")
+               terraform.")
 
-let dry_run_flag =
+let target_arg =
+  Arg.(required & pos 0 (some string) None &
+       info [] ~docv:"TARGET"
+         ~doc:"Deployment target path: <env>/<provider>/<region>.")
+
+let var_arg =
+  Arg.(value & opt_all string [] &
+       info ["var"] ~docv:"KEY=VALUE"
+         ~doc:"Terraform variable. Can be passed multiple times.")
+
+let plan_flag =
   Arg.(value & flag &
-       info ["dry-run"]
-         ~doc:"Run terraform plan instead of terraform apply. \
-               No infrastructure is created.")
+       info ["plan"]
+         ~doc:"Run terraform plan only. No infrastructure is changed. This is the default.")
 
-let provider_term =
-  let combine aws gcp = match aws, gcp with
-    | true,  false -> `Ok Aws
-    | false, true  -> `Ok Gcp
-    | true,  true  -> `Error (false, "--aws and --gcp are mutually exclusive")
-    | false, false -> `Error (false, "specify --aws or --gcp")
-  in
-  Term.(ret (const combine $ aws_flag $ gcp_flag))
+let apply_flag =
+  Arg.(value & flag &
+       info ["apply"]
+         ~doc:"Run terraform apply/destroy and change billable cloud resources.")
 
-let init_cmd =
+let action_term =
+  Term.(ret (const action_of_flags $ plan_flag $ apply_flag))
+
+let plan_cmd =
   Cmd.v
-    (Cmd.info "init"
-       ~doc:"Provision cloud infrastructure via Terraform. \
-             Requires the terraform binary in PATH and cloud credentials \
-             in the environment (AWS_* or GOOGLE_* variables).")
-    Term.(const (fun provider var_file dry_run ->
-        cloud_init ~provider ~var_file ~dry_run ())
-      $ provider_term $ var_file_arg $ dry_run_flag)
+    (Cmd.info "plan"
+       ~doc:"Preview cloud infrastructure changes for a target.")
+    Term.(const (fun target var_file vars ->
+        cloud_init ~target ~var_file ~vars ~action:Plan ())
+      $ target_arg $ var_file_arg $ var_arg)
+
+let apply_cmd =
+  Cmd.v
+    (Cmd.info "apply"
+       ~doc:"Apply cloud infrastructure changes for a target.")
+    Term.(const (fun target var_file vars ->
+        cloud_init ~target ~var_file ~vars ~action:Apply ())
+      $ target_arg $ var_file_arg $ var_arg)
+
+let destroy_cmd =
+  Cmd.v
+    (Cmd.info "destroy"
+       ~doc:"Destroy cloud infrastructure via Terraform. \
+             Requires the same target/provider used with apply.")
+    Term.(const (fun target var_file vars action ->
+        cloud_destroy ~target ~var_file ~vars ~action ())
+      $ target_arg $ var_file_arg $ var_arg $ action_term)

@@ -63,6 +63,12 @@ variable "ecr_repositories" {
 }
 
 # RDS
+variable "create_rds" {
+  description = "Create an RDS PostgreSQL instance. Disable for low-cost substrate smoke tests."
+  type        = bool
+  default     = true
+}
+
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
@@ -79,6 +85,7 @@ variable "db_password" {
   description = "PostgreSQL admin password"
   type        = string
   sensitive   = true
+  default     = ""
 }
 
 variable "rds_deletion_protection" {

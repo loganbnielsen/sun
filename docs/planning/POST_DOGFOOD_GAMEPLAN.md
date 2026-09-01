@@ -1,5 +1,9 @@
 # Post-Dogfood Gameplan
 
+> Status: historical June 2026 plan. Several items below have since shipped or
+> changed shape. Current live/dev deploy planning is in
+> `docs/planning/LIVE_DEV_DEPLOY_ROADMAP.md`.
+
 Dogfood Alpha proved the open-source factory loop end to end: install,
 scaffold, local substrate, local deploy, migration, status, logs, rollback,
 customer-cloud manifest export, and the first release binary.

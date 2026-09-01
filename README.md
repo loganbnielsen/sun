@@ -150,7 +150,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Sun CLI — secrets (`sun secret set/list/delete`) | Complete |
 | Production deployment pipeline (`sun deploy`, Terraform, Argo CD) | Complete |
 | Progressive delivery (`[infra.rollout]`, Argo Rollouts) | Complete |
-| Cloud infrastructure (`sun cloud init`) | Provisions AWS EKS+ECR or GCP GKE+Artifact Registry via Terraform — experimental, not yet tested against live cloud accounts |
+| Cloud infrastructure (`sun cloud plan/apply/destroy`) | Provisions AWS EKS+ECR or GCP GKE+Artifact Registry via Terraform — experimental, live plan tested against AWS |
 | AWS application-level integration (`aws-eio`: credentials + SigV4 + HTTP transport) | Complete — proven against a live AWS endpoint (see `aws-audit.md`) |
 | AWS S3 client (`s3-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/s3-eio) — v1 scope (put/get/delete/head_object) built, local tests passing; live smoke test written, not yet run against a real bucket |
 | AWS DynamoDB client (`dynamodb-eio`) | Extracted to a [standalone package](https://github.com/loganbnielsen/dynamodb-eio) — v1 scope (Client + typed Index/Entity layer) built, local tests passing; live smoke test written, not yet run against a real table |
@@ -455,9 +455,9 @@ four-level escape-hatch hierarchy.
 
 ---
 
-## Cloud Infrastructure — `sun cloud init`
+## Cloud Infrastructure — `sun cloud plan/apply/destroy`
 
-`sun cloud init` provisions production-grade infrastructure in **your own** AWS or GCP account using the Terraform modules in `platform/infra/`. Sun never owns your infrastructure — the provisioned cluster, registry, database, and network all live in your cloud account.
+`sun cloud plan` previews production-grade infrastructure in **your own** AWS or GCP account using the Terraform modules in `platform/infra/`. `sun cloud apply` provisions it after review. Sun never owns your infrastructure — the provisioned cluster, registry, database, and network all live in your cloud account.
 
 ### Prerequisites
 
@@ -470,17 +470,21 @@ four-level escape-hatch hierarchy.
 ### Usage
 
 ```bash
-# Provision AWS infrastructure (EKS, ECR, RDS, Route53)
-sun cloud init --aws
+# Inspect the merged app/resource/service plan
+sun plan prod/aws/us-east-1
+
+# Preview AWS infrastructure changes (EKS, ECR, RDS, Route53)
+sun cloud plan prod/aws/us-east-1
+
+# Provision AWS infrastructure after reviewing the plan
+sun cloud apply prod/aws/us-east-1
 
 # Provision GCP infrastructure (GKE, Artifact Registry, Cloud SQL)
-sun cloud init --gcp
+sun cloud apply prod/gcp/us-central1
 
-# Dry-run: show terraform plan without creating resources
-sun cloud init --aws --dry-run
-
-# Pass a Terraform variables file
-sun cloud init --aws --var-file prod.tfvars
+# Preview teardown, then destroy the same stack
+sun cloud destroy prod/aws/us-east-1 --plan
+sun cloud destroy prod/aws/us-east-1 --apply
 ```
 
 On success the command prints the key provisioned endpoints:
@@ -495,7 +499,9 @@ On success the command prints the key provisioned endpoints:
 
 Sensitive outputs (database passwords, connection strings) are never printed; retrieve them with `terraform output -raw <name>` if needed.
 
-Once infrastructure is provisioned, use `sun deploy` to deploy your services into it.
+`sun cloud plan` is read-only. `sun cloud apply` and `sun cloud destroy --apply`
+create or remove billable cloud resources. Once infrastructure is provisioned,
+use `sun deploy` to deploy your services into it.
 
 ---
 

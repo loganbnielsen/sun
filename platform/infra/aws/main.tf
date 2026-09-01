@@ -62,9 +62,9 @@ module "vpc" {
   private_subnets = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i)]
   public_subnets  = [for i, az in local.azs : cidrsubnet(var.vpc_cidr, 4, i + 4)]
 
-  enable_nat_gateway     = true
-  single_nat_gateway     = !var.ha_nat_gateway
-  enable_dns_hostnames   = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = !var.ha_nat_gateway
+  enable_dns_hostnames = true
 
   # Tags required by EKS for subnet auto-discovery
   public_subnet_tags = {
@@ -158,19 +158,21 @@ resource "aws_ecr_lifecycle_policy" "services" {
 # ── RDS PostgreSQL ────────────────────────────────────────────────────────── #
 
 resource "aws_db_subnet_group" "main" {
+  count      = var.create_rds ? 1 : 0
   name       = "${var.cluster_name}-postgres"
   subnet_ids = module.vpc.private_subnets
   tags       = var.tags
 }
 
 resource "aws_security_group" "rds" {
+  count  = var.create_rds ? 1 : 0
   name   = "${var.cluster_name}-rds"
   vpc_id = module.vpc.vpc_id
 
   ingress {
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
+    from_port = 5432
+    to_port   = 5432
+    protocol  = "tcp"
     # Allow traffic from the EKS node security group
     security_groups = [module.eks.node_security_group_id]
   }
@@ -179,6 +181,7 @@ resource "aws_security_group" "rds" {
 }
 
 resource "aws_db_instance" "postgres" {
+  count             = var.create_rds ? 1 : 0
   identifier        = "${var.cluster_name}-postgres"
   engine            = "postgres"
   engine_version    = "16.2"
@@ -190,8 +193,8 @@ resource "aws_db_instance" "postgres" {
   username = "postgres"
   password = var.db_password
 
-  db_subnet_group_name   = aws_db_subnet_group.main.name
-  vpc_security_group_ids = [aws_security_group.rds.id]
+  db_subnet_group_name   = aws_db_subnet_group.main[0].name
+  vpc_security_group_ids = [aws_security_group.rds[0].id]
 
   backup_retention_period = 7
   deletion_protection     = var.rds_deletion_protection

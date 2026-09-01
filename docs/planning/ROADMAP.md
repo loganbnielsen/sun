@@ -1,5 +1,9 @@
 # Sun — Roadmap
 
+> Current planning focus: the live/dev deploy path is tracked in
+> `docs/planning/LIVE_DEV_DEPLOY_ROADMAP.md`. This file keeps the broader
+> historical roadmap and product direction.
+
 ## Vision
 
 Sun is not a web framework, a Kafka wrapper, a Kubernetes deployment tool, or a

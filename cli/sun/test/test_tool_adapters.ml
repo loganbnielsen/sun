@@ -153,29 +153,45 @@ let test_helm_set_flags_str () =
 (* ── Sun_cli_terraform ────────────────────────────────────────────────────── *)
 
 let test_terraform_init_argv () =
-  let c = Sun_cli_process.cmd ["terraform"; "init"; "-chdir=/some/dir"] in
+  let c = Sun_cli_process.cmd ["terraform"; "-chdir=/some/dir"; "init"] in
   check_str "argv[0]" "terraform" (List.nth c.Sun_cli_process.argv 0);
-  check_str "argv[1]" "init"      (List.nth c.Sun_cli_process.argv 1);
-  check_str "chdir"   "-chdir=/some/dir" (List.nth c.Sun_cli_process.argv 2)
+  check_str "chdir"   "-chdir=/some/dir" (List.nth c.Sun_cli_process.argv 1);
+  check_str "argv[2]" "init"      (List.nth c.Sun_cli_process.argv 2)
 
 let test_terraform_plan_argv () =
   let c = Sun_cli_process.cmd
-    ["terraform"; "plan"; "-chdir=/some/dir"; "-var-file=prod.tfvars"] in
-  check_str "argv[1]" "plan" (List.nth c.Sun_cli_process.argv 1);
+    ["terraform"; "-chdir=/some/dir"; "plan"; "-var-file=prod.tfvars"; "-var=cluster_name=sun-smoke"] in
+  check_str "argv[2]" "plan" (List.nth c.Sun_cli_process.argv 2);
   check_bool "has var-file"
-    true (List.mem "-var-file=prod.tfvars" c.Sun_cli_process.argv)
+    true (List.mem "-var-file=prod.tfvars" c.Sun_cli_process.argv);
+  check_bool "has var"
+    true (List.mem "-var=cluster_name=sun-smoke" c.Sun_cli_process.argv)
+
+let test_terraform_plan_destroy_argv () =
+  let c = Sun_cli_process.cmd
+    ["terraform"; "-chdir=/some/dir"; "plan"; "-destroy"] in
+  check_str "argv[2]" "plan" (List.nth c.Sun_cli_process.argv 2);
+  check_bool "has -destroy"
+    true (List.mem "-destroy" c.Sun_cli_process.argv)
 
 let test_terraform_apply_argv () =
   let c = Sun_cli_process.cmd
-    ["terraform"; "apply"; "-auto-approve"; "-chdir=/some/dir"] in
-  check_str "argv[1]" "apply"        (List.nth c.Sun_cli_process.argv 1);
+    ["terraform"; "-chdir=/some/dir"; "apply"; "-auto-approve"] in
+  check_str "argv[2]" "apply"        (List.nth c.Sun_cli_process.argv 2);
+  check_bool "has -auto-approve"
+    true (List.mem "-auto-approve" c.Sun_cli_process.argv)
+
+let test_terraform_destroy_argv () =
+  let c = Sun_cli_process.cmd
+    ["terraform"; "-chdir=/some/dir"; "destroy"; "-auto-approve"] in
+  check_str "argv[2]" "destroy"      (List.nth c.Sun_cli_process.argv 2);
   check_bool "has -auto-approve"
     true (List.mem "-auto-approve" c.Sun_cli_process.argv)
 
 let test_terraform_output_json_argv () =
-  let c = Sun_cli_process.cmd ["terraform"; "output"; "-json"; "-chdir=/d"] in
-  check_str "argv[1]" "output"  (List.nth c.Sun_cli_process.argv 1);
-  check_str "argv[2]" "-json"   (List.nth c.Sun_cli_process.argv 2)
+  let c = Sun_cli_process.cmd ["terraform"; "-chdir=/d"; "output"; "-json"] in
+  check_str "argv[2]" "output"  (List.nth c.Sun_cli_process.argv 2);
+  check_str "argv[3]" "-json"   (List.nth c.Sun_cli_process.argv 3)
 
 let test_terraform_which_check_returns_bool () =
   let result = Sun_cli_terraform.which_check () in
@@ -219,7 +235,9 @@ let () =
       "terraform_argv", [
         Alcotest.test_case "init argv"                `Quick test_terraform_init_argv;
         Alcotest.test_case "plan argv"                `Quick test_terraform_plan_argv;
+        Alcotest.test_case "plan destroy argv"        `Quick test_terraform_plan_destroy_argv;
         Alcotest.test_case "apply argv"               `Quick test_terraform_apply_argv;
+        Alcotest.test_case "destroy argv"             `Quick test_terraform_destroy_argv;
         Alcotest.test_case "output json argv"         `Quick test_terraform_output_json_argv;
         Alcotest.test_case "which_check returns bool" `Quick test_terraform_which_check_returns_bool;
       ];

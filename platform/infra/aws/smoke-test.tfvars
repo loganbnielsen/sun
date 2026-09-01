@@ -4,11 +4,13 @@
 # regardless of node sizing.
 #
 # Usage:
-#   sun cloud init --aws --var-file platform/infra/aws/smoke-test.tfvars \
-#     -var="cluster_name=sun-smoke-<you>" -var="db_password=..."
+#   sun cloud apply dev/aws/us-east-1 \
+#     --var cluster_name=sun-smoke-<you>
 #
-# cluster_name and db_password are deliberately not set here — pick a unique
-# cluster_name per run and never commit a real db_password to a tracked file.
+# cluster_name is deliberately not set here — pick a unique cluster_name per
+# run. When using `sun cloud plan dev/aws/us-east-1`, Sun derives
+# create_rds=false from the merged Sun config because that target omits the
+# Postgres resource.
 
 # Required by variables.tf but unused: create_route53_zone is false below, so
 # this value is never read. Placeholder only — no real domain needed.
