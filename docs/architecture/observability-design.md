@@ -47,6 +47,19 @@ must carry the same ownership identity:
 | `primitive` | `svc`, `worker`, or `fn` |
 | `release` | Deployed image/release identity when known |
 
+> **Status:** `workspace`/`domain`/`service`/`primitive`/`release` are
+> emitted today (OBS-008). `env` is not yet emitted — `sun up`/`sun deploy`
+> have no target-resolution concept at all (no `--target`, nothing threaded
+> through `Sun_cli_deployment_plan`), so there's nothing to source a value
+> from without inventing a second, disconnected notion of "target" (e.g. a
+> standalone `--env` flag) that would immediately diverge from `sun.yml`'s
+> target config. The fix, when it happens, is wiring real `--target`
+> resolution into `sun up`/`sun deploy` — the same path `sun plan`/
+> `sun cloud tf` already use (`Sun_cli_config.load_for_target`) and
+> `sun status`/`sun logs`/`sun open` now use for `observability_backend`/
+> `base_domain` (OBS-015) — with `env = target.env`. Not a standalone
+> `--env` flag.
+
 These labels are the API. Kubernetes namespaces, pod names, Helm release
 names, bucket names, and cloud resource names are implementation details.
 

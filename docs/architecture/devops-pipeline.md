@@ -390,8 +390,8 @@ and the `artifact_invariants` test suite.
 | No privilege escalation | `containers[].securityContext.allowPrivilegeEscalation: false` | Enforced | Container-level; all primitives |
 | Read-only root filesystem | `containers[].securityContext.readOnlyRootFilesystem: true` | Enforced | Container-level; all primitives |
 | GitOps secret redaction | `Secret.stringData` values are empty strings | Enforced | `Kubernetes_placeholder` mode only |
-| Workspace label | `metadata.labels["sun.dev/workspace"]` | Planned | Not yet emitted; implementation reverted (CODEX_STYLE_AUDIT-072), back to backlog |
-| Domain label | `metadata.labels["sun.dev/domain"]` | Planned | Not yet emitted; implementation reverted (CODEX_STYLE_AUDIT-072), back to backlog |
+| Taxonomy labels | `metadata.labels["workspace"\|"domain"\|"service"\|"primitive"\|"release"]` | Enforced | Pod-template labels, unprefixed (not `sun.dev/*` — see `docs/architecture/observability-design.md`); shipped in OBS-008 |
+| `env` taxonomy label | `metadata.labels["env"]` | Planned | Not yet emitted — `sun up`/`sun deploy` have no target-resolution concept yet; see `observability-design.md`'s Identity section for the planned fix |
 
 ### What is covered by `assert_k8s_invariants`
 
