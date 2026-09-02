@@ -202,6 +202,72 @@ resource "helm_release" "postgresql" {
 
 # ── Loki + Grafana ────────────────────────────────────────────────────────── #
 
+locals {
+  # "external": promtail ships straight to the user-supplied Loki endpoint;
+  # no local Loki/Grafana needed. "local"/"self_managed_durable": promtail
+  # ships to the in-cluster Loki, which self_managed_durable then backs with
+  # S3 instead of local disk.
+  loki_install_local = var.observability_backend != "external"
+
+  loki_promtail_clients = var.observability_backend == "external" ? [
+    merge(
+      { url = var.external_loki_url },
+      var.external_loki_username != "" ? {
+        basic_auth = { username = var.external_loki_username, password = var.external_loki_password }
+      } : {}
+    )
+    ] : [
+    { url = "http://loki:3100/loki/api/v1/push" }
+  ]
+
+  # Grafana's documented object-storage-backed architecture: chunks + the
+  # boltdb-shipper index both in S3. loki_s3_bucket/aws_region come from
+  # platform/infra/aws's loki_s3_bucket/loki_irsa_arn outputs (OBS-006) --
+  # NOT LIVE-VERIFIED against this exact chart version's values schema; check
+  # against a real deploy before trusting this in production.
+  #
+  # Always computed (not a `cond ? {...} : {}` ternary) and gated instead via
+  # a list-level `concat()` in helm_release.loki's `values` below --
+  # Terraform's conditional expressions require both branches to unify to
+  # the same type, which breaks for two object literals with different
+  # attribute sets. A list of yamlencode() strings has no such problem since
+  # every branch is just `list(string)`.
+  loki_object_storage_config = {
+    loki = {
+      config = {
+        storage_config = {
+          aws = {
+            s3               = "s3://${var.aws_region}/${var.loki_s3_bucket}"
+            s3forcepathstyle = false
+          }
+          boltdb_shipper = {
+            active_index_directory = "/data/loki/boltdb-shipper-active"
+            cache_location          = "/data/loki/boltdb-shipper-cache"
+            shared_store            = "s3"
+          }
+        }
+        schema_config = {
+          configs = [{
+            from         = "2024-01-01"
+            store        = "boltdb-shipper"
+            object_store = "s3"
+            schema       = "v11"
+            index = {
+              prefix = "index_"
+              period = "24h"
+            }
+          }]
+        }
+      }
+      serviceAccount = {
+        annotations = {
+          "eks.amazonaws.com/role-arn" = var.loki_irsa_role_arn
+        }
+      }
+    }
+  }
+}
+
 # promtail.enabled defaults to true in loki-stack (it scrapes every pod's
 # stdout/stderr cluster-wide via a DaemonSet, relabeling namespace/pod/
 # container/app from Kubernetes metadata). Sun depends on this for the
@@ -218,11 +284,15 @@ resource "helm_release" "loki" {
 
   set {
     name  = "grafana.enabled"
-    value = "true"
+    value = tostring(local.loki_install_local)
   }
   set {
     name  = "grafana.adminPassword"
     value = var.grafana_admin_password
+  }
+  set {
+    name  = "loki.enabled"
+    value = tostring(local.loki_install_local)
   }
   set {
     name  = "loki.persistence.enabled"
@@ -232,10 +302,18 @@ resource "helm_release" "loki" {
     name  = "promtail.enabled"
     value = "true"
   }
+
+  values = concat(
+    [yamlencode({ promtail = { config = { clients = local.loki_promtail_clients } } })],
+    var.observability_backend == "self_managed_durable" ? [yamlencode(local.loki_object_storage_config)] : []
+  )
 }
 
-# Grafana Ingress
+# Grafana Ingress — no local Grafana to expose when shipping to an external
+# backend.
 resource "kubernetes_ingress_v1" "grafana" {
+  count = local.loki_install_local ? 1 : 0
+
   metadata {
     name      = "grafana"
     namespace = kubernetes_namespace.monitoring.metadata[0].name
@@ -275,6 +353,94 @@ resource "kubernetes_ingress_v1" "grafana" {
 
 # ── Prometheus + Pushgateway ──────────────────────────────────────────────── #
 
+locals {
+  prometheus_thanos_enabled = var.observability_backend == "self_managed_durable"
+
+  prometheus_remote_write = var.observability_backend == "external" ? [
+    merge(
+      { url = var.external_prometheus_remote_write_url },
+      var.external_prometheus_username != "" ? {
+        basic_auth = { username = var.external_prometheus_username, password = var.external_prometheus_password }
+      } : {}
+    )
+  ] : []
+
+  # Thanos sidecar shares the prometheus-server pod's own "storage-volume"
+  # (verified via `helm template`, not a live deploy) and uploads TSDB blocks
+  # to S3 for long-term storage/query via a separate Thanos Querier. Chosen
+  # over Mimir for OBS-007: bolts onto the existing Prometheus rather than
+  # replacing it, and this exact chart version already has first-class
+  # support for it (server.sidecarContainers, server.service.gRPC).
+  #
+  # Always computed and gated via `concat()` in the values list below, same
+  # reasoning as loki_object_storage_config above: a `cond ? {...} : {}`
+  # ternary between object literals with different attribute sets fails
+  # Terraform's type unification, but list(string) branches never do.
+  prometheus_thanos_server_fields = {
+    server = {
+      serviceAccount = {
+        annotations = {
+          "eks.amazonaws.com/role-arn" = var.thanos_irsa_role_arn
+        }
+      }
+      service = {
+        gRPC = { enabled = true, servicePort = 10901 }
+      }
+      extraSecretMounts = [{
+        name       = "thanos-objstore-config"
+        mountPath  = "/etc/thanos"
+        subPath    = ""
+        secretName = "thanos-objstore-config"
+        readOnly   = true
+      }]
+      sidecarContainers = {
+        thanos-sidecar = {
+          image = "thanosio/thanos:v0.35.1"
+          args = [
+            "sidecar",
+            "--tsdb.path=/data",
+            "--prometheus.url=http://127.0.0.1:9090",
+            "--objstore.config-file=/etc/thanos/objstore.yml",
+            "--http-address=0.0.0.0:10902",
+            "--grpc-address=0.0.0.0:10901",
+          ]
+          volumeMounts = [
+            { name = "storage-volume", mountPath = "/data" },
+            { name = "thanos-objstore-config", mountPath = "/etc/thanos", readOnly = true }
+          ]
+          ports = [
+            { containerPort = 10902, name = "http-sidecar" },
+            { containerPort = 10901, name = "grpc" }
+          ]
+        }
+      }
+    }
+  }
+}
+
+# Thanos's object-store config file, mounted into the sidecar via
+# extraSecretMounts above. IRSA on the prometheus-server service account
+# supplies credentials -- no access/secret keys in this config.
+resource "kubernetes_secret" "thanos_objstore_config" {
+  count = local.prometheus_thanos_enabled ? 1 : 0
+
+  metadata {
+    name      = "thanos-objstore-config"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+  }
+
+  data = {
+    "objstore.yml" = yamlencode({
+      type = "S3"
+      config = {
+        bucket   = var.thanos_s3_bucket
+        endpoint = "s3.${var.aws_region}.amazonaws.com"
+        region   = var.aws_region
+      }
+    })
+  }
+}
+
 resource "helm_release" "prometheus" {
   name       = "prometheus"
   repository = "https://prometheus-community.github.io/helm-charts"
@@ -284,7 +450,13 @@ resource "helm_release" "prometheus" {
 
   set {
     name  = "server.persistentVolume.enabled"
-    value = tostring(var.prometheus_persistent_storage)
+    value = tostring(var.observability_backend == "external" ? false : var.prometheus_persistent_storage)
+  }
+  set {
+    name  = "server.retention"
+    # "external": local storage is just a remote_write buffer, not the
+    # durable store, so a short retention is enough.
+    value = var.observability_backend == "external" ? "2h" : "15d"
   }
   set {
     name  = "pushgateway.enabled"
@@ -294,4 +466,66 @@ resource "helm_release" "prometheus" {
     name  = "alertmanager.enabled"
     value = "false"
   }
+
+  values = concat(
+    [yamlencode({ server = { remoteWrite = local.prometheus_remote_write } })],
+    local.prometheus_thanos_enabled ? [yamlencode(local.prometheus_thanos_server_fields)] : []
+  )
+
+  depends_on = [kubernetes_secret.thanos_objstore_config]
+}
+
+# Thanos Query: the read path for durable metrics — queries the sidecar's
+# StoreAPI (recent, still-local blocks) for "current" data. Historical data
+# older than Prometheus's own local retention requires a Thanos storegateway
+# pointed at the same S3 bucket, which this ticket deliberately does not add
+# (documented follow-up, not required by OBS-007's acceptance criteria as
+# written) — start with query-only rather than the full Thanos component set
+# (storegateway, compactor, receive, ruler) sight-unseen. NOT LIVE-VERIFIED.
+resource "helm_release" "thanos_query" {
+  count      = local.prometheus_thanos_enabled ? 1 : 0
+  name       = "thanos"
+  repository = "https://charts.bitnami.com/bitnami"
+  chart      = "thanos"
+  version    = "17.3.1"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  set {
+    name  = "query.enabled"
+    value = "true"
+  }
+  set {
+    name  = "query.dnsDiscovery.enabled"
+    value = "false"
+  }
+  set {
+    name  = "query.stores[0]"
+    value = "prometheus-server.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local:10901"
+  }
+  set {
+    name  = "storegateway.enabled"
+    value = "false"
+  }
+  set {
+    name  = "compactor.enabled"
+    value = "false"
+  }
+  set {
+    name  = "receive.enabled"
+    value = "false"
+  }
+  set {
+    name  = "ruler.enabled"
+    value = "false"
+  }
+  set {
+    name  = "bucketweb.enabled"
+    value = "false"
+  }
+  set {
+    name  = "queryFrontend.enabled"
+    value = "false"
+  }
+
+  depends_on = [helm_release.prometheus]
 }

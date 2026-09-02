@@ -50,4 +50,24 @@ output "cert_manager_irsa_arn" {
   value       = module.cert_manager_irsa.iam_role_arn
 }
 
+output "loki_s3_bucket" {
+  description = "S3 bucket for durable Loki storage — set in platform/infra/base as loki_s3_bucket"
+  value       = var.enable_durable_observability ? aws_s3_bucket.loki[0].bucket : null
+}
+
+output "loki_irsa_arn" {
+  description = "IAM role ARN for Loki's S3 access — set in platform/infra/base as loki_irsa_role_arn"
+  value       = var.enable_durable_observability ? module.loki_irsa[0].iam_role_arn : null
+}
+
+output "thanos_s3_bucket" {
+  description = "S3 bucket for durable Prometheus/Thanos storage — set in platform/infra/base as thanos_s3_bucket"
+  value       = var.enable_durable_observability ? aws_s3_bucket.thanos[0].bucket : null
+}
+
+output "thanos_irsa_arn" {
+  description = "IAM role ARN for the Thanos sidecar's S3 access — set in platform/infra/base as thanos_irsa_role_arn"
+  value       = var.enable_durable_observability ? module.thanos_irsa[0].iam_role_arn : null
+}
+
 data "aws_caller_identity" "current" {}
