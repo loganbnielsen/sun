@@ -71,6 +71,20 @@ let test_reachability_to_string () =
   check_bool "Unreachable label" true (S.reachability_to_string S.Unreachable = "unreachable");
   check_bool "Not_checked label" true (S.reachability_to_string S.Not_checked = "not checked")
 
+(* ── service_is_declared (OBS-022/024) ──────────────────────────────────── *)
+
+let test_service_is_declared_true_for_declared_name () =
+  check_bool "declared service -> true" true
+    (S.service_is_declared ~k8s_name:"charge-svc" ["charge-svc"; "refund-svc"])
+
+let test_service_is_declared_false_for_undeclared_name () =
+  check_bool "undeclared service -> false" false
+    (S.service_is_declared ~k8s_name:"bogus-svc" ["charge-svc"; "refund-svc"])
+
+let test_service_is_declared_false_for_empty_domain () =
+  check_bool "no declared services at all -> false" false
+    (S.service_is_declared ~k8s_name:"charge-svc" [])
+
 let () =
   Alcotest.run "status" [
     "rollup_domain_status", [
@@ -91,5 +105,10 @@ let () =
       Alcotest.test_case "reachable -> Healthy" `Quick test_reachability_of_probe_healthy;
       Alcotest.test_case "unreachable -> Unreachable" `Quick test_reachability_of_probe_unreachable;
       Alcotest.test_case "reachability_to_string labels" `Quick test_reachability_to_string;
+    ];
+    "service_is_declared", [
+      Alcotest.test_case "declared name -> true"      `Quick test_service_is_declared_true_for_declared_name;
+      Alcotest.test_case "undeclared name -> false"   `Quick test_service_is_declared_false_for_undeclared_name;
+      Alcotest.test_case "empty domain -> false"      `Quick test_service_is_declared_false_for_empty_domain;
     ];
   ]
