@@ -1103,27 +1103,27 @@ let test_shape_rollout_background_worker_no_ports () =
 
 let test_taxonomy_labels_svc () =
   let (_, workload) = render_spec_ok svc_spec in
-  assert_contains "workspace label" workload "workspace: myapp";
-  assert_contains "domain label"    workload "domain: payments";
-  assert_contains "service label"   workload "service: charge-svc";
-  assert_contains "primitive label" workload "primitive: svc";
-  assert_contains "release label"   workload "release: abc123"
+  assert_contains "workspace label" workload {|workspace: "myapp"|};
+  assert_contains "domain label"    workload {|domain: "payments"|};
+  assert_contains "service label"   workload {|service: "charge-svc"|};
+  assert_contains "primitive label" workload {|primitive: "svc"|};
+  assert_contains "release label"   workload {|release: "abc123"|}
 
 let test_taxonomy_labels_worker () =
   let (_, workload) = render_spec_ok worker_spec in
-  assert_contains "workspace label" workload "workspace: myapp";
-  assert_contains "domain label"    workload "domain: comms";
-  assert_contains "service label"   workload "service: notify-worker";
-  assert_contains "primitive label" workload "primitive: worker";
-  assert_contains "release label"   workload "release: abc123"
+  assert_contains "workspace label" workload {|workspace: "myapp"|};
+  assert_contains "domain label"    workload {|domain: "comms"|};
+  assert_contains "service label"   workload {|service: "notify-worker"|};
+  assert_contains "primitive label" workload {|primitive: "worker"|};
+  assert_contains "release label"   workload {|release: "abc123"|}
 
 let test_taxonomy_labels_fn () =
   let (_, workload) = render_spec_ok fn_spec in
-  assert_contains "workspace label" workload "workspace: myapp";
-  assert_contains "domain label"    workload "domain: billing";
-  assert_contains "service label"   workload "service: invoice-fn";
-  assert_contains "primitive label" workload "primitive: fn";
-  assert_contains "release label"   workload "release: abc123"
+  assert_contains "workspace label" workload {|workspace: "myapp"|};
+  assert_contains "domain label"    workload {|domain: "billing"|};
+  assert_contains "service label"   workload {|service: "invoice-fn"|};
+  assert_contains "primitive label" workload {|primitive: "fn"|};
+  assert_contains "release label"   workload {|release: "abc123"|}
 
 (* matchLabels/selector must stay app-only -- changing selector labels would
    orphan running pods on the next rollout. The taxonomy labels only belong
@@ -1136,7 +1136,34 @@ let test_taxonomy_labels_not_in_selector () =
 let test_release_of_image_malformed () =
   let spec = { svc_spec with image = "no-tag-image" } in
   let (_, workload) = render_spec_ok spec in
-  assert_contains "release falls back to unknown" workload "release: unknown"
+  assert_contains "release falls back to unknown" workload {|release: "unknown"|}
+
+let test_release_of_image_oversized_tag_truncated () =
+  let long_tag = String.make 90 'a' in
+  let spec = { svc_spec with image = "sun-registry:5000/myapp/charge-svc:" ^ long_tag } in
+  let (_, workload) = render_spec_ok spec in
+  (* the image: field legitimately still carries the full tag -- only the
+     release label value itself must be bounded to 63 chars. *)
+  assert_contains "release truncated to 63 chars"
+    workload (Printf.sprintf {|release: "%s"|} (String.make 63 'a'));
+  assert_absent "release label is not the full 90-char tag"
+    workload (Printf.sprintf {|release: "%s"|} long_tag)
+
+let test_release_of_image_trailing_non_alnum_after_truncation () =
+  (* 62 'a's + '.' lands right at the 63-char boundary with a non-alnum
+     trailing character once truncated -- must be fixed up, not left as an
+     invalid Kubernetes label value. *)
+  let tag = String.make 62 'a' ^ "." ^ String.make 5 'b' in
+  let spec = { svc_spec with image = "sun-registry:5000/myapp/charge-svc:" ^ tag } in
+  let (_, workload) = render_spec_ok spec in
+  assert_contains "trailing '.' replaced with a safe char"
+    workload (Printf.sprintf {|release: "%s0"|} (String.make 62 'a'))
+
+let test_release_of_image_numeric_tag_quoted () =
+  let spec = { svc_spec with image = "sun-registry:5000/myapp/charge-svc:123" } in
+  let (_, workload) = render_spec_ok spec in
+  assert_contains "numeric-looking release stays a quoted string"
+    workload {|release: "123"|}
 
 let () =
   Alcotest.run "manifest_render"
@@ -1257,5 +1284,8 @@ let () =
       ; Alcotest.test_case "fn"                        `Quick test_taxonomy_labels_fn
       ; Alcotest.test_case "not in selector"           `Quick test_taxonomy_labels_not_in_selector
       ; Alcotest.test_case "malformed image -> unknown" `Quick test_release_of_image_malformed
+      ; Alcotest.test_case "oversized tag truncated to 63 chars" `Quick test_release_of_image_oversized_tag_truncated
+      ; Alcotest.test_case "trailing non-alnum after truncation fixed up" `Quick test_release_of_image_trailing_non_alnum_after_truncation
+      ; Alcotest.test_case "numeric-looking tag stays quoted" `Quick test_release_of_image_numeric_tag_quoted
       ]
     ]

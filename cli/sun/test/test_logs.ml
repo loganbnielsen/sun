@@ -33,6 +33,31 @@ let test_encode_plain_chars () =
     "abcXYZ0123"
     (Sun_cli_logs.url_encode_logql "abcXYZ0123")
 
+let test_encode_percent () =
+  check_string "percent encoded (a raw % would look like a malformed escape to a URL parser)"
+    "50%25"
+    (Sun_cli_logs.url_encode_logql "50%")
+
+let test_encode_plus () =
+  check_string "plus encoded"
+    "a%2Bb"
+    (Sun_cli_logs.url_encode_logql "a+b")
+
+let test_encode_ampersand () =
+  check_string "ampersand encoded (unescaped would start a new query param)"
+    "a%26b"
+    (Sun_cli_logs.url_encode_logql "a&b")
+
+let test_encode_question_mark () =
+  check_string "question mark encoded"
+    "a%3Fb"
+    (Sun_cli_logs.url_encode_logql "a?b")
+
+let test_encode_hash () =
+  check_string "hash encoded (unescaped would start a URL fragment)"
+    "a%23b"
+    (Sun_cli_logs.url_encode_logql "a#b")
+
 (* ── grafana_explore_url ────────────────────────────────────────────────── *)
 
 let make_url ?(base_url = "http://localhost:3000") ?(ns = "myapp-payments")
@@ -104,6 +129,11 @@ let () =
       ; Alcotest.test_case "comma"        `Quick test_encode_comma
       ; Alcotest.test_case "space"        `Quick test_encode_space
       ; Alcotest.test_case "plain chars"  `Quick test_encode_plain_chars
+      ; Alcotest.test_case "percent"      `Quick test_encode_percent
+      ; Alcotest.test_case "plus"         `Quick test_encode_plus
+      ; Alcotest.test_case "ampersand"    `Quick test_encode_ampersand
+      ; Alcotest.test_case "question mark" `Quick test_encode_question_mark
+      ; Alcotest.test_case "hash"         `Quick test_encode_hash
       ]
     ; "grafana_explore_url", [
         Alcotest.test_case "contains base_url"         `Quick test_url_contains_base_url

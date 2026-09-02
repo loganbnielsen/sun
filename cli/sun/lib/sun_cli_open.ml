@@ -21,15 +21,28 @@ let parse_scope = function
    at workspace scope, the service template (with $domain/$service preset
    via query params) once scoped. 'metrics' and 'dashboard' share this
    target -- OBS-011 provisions one dashboard per scope covering both,
-   there's no separate metrics-only dashboard to link to. *)
+   there's no separate metrics-only dashboard to link to.
+
+   $domain/$service are matched against the actual domain/service label
+   values, which are always normalized (lowercase, underscores -> hyphens
+   -- see Sun_cli_kubernetes_name.normalize and k8s_name_result). A raw,
+   un-normalized scope argument here would preset a var-domain/var-service
+   value that never matches any metric's labels, so the dashboard opens
+   empty -- normalize the same way logs_url already does. *)
 let dashboard_url ~base_url scope =
   match scope with
-  | Workspace -> base_url ^ "/d/sun-workspace-overview"
+  | Workspace -> Ok (base_url ^ "/d/sun-workspace-overview")
   | Domain domain ->
-    Printf.sprintf "%s/d/sun-service-template?var-domain=%s" base_url domain
+    let domain = Sun_cli_kubernetes_name.normalize domain in
+    Ok (Printf.sprintf "%s/d/sun-service-template?var-domain=%s" base_url domain)
   | Service (domain, service) ->
-    Printf.sprintf "%s/d/sun-service-template?var-domain=%s&var-service=%s"
-      base_url domain service
+    let domain = Sun_cli_kubernetes_name.normalize domain in
+    (match Sun_cli_deployment_plan.k8s_name_result service with
+     | Error e -> Error (Sun_cli_deployment_plan.plan_error_to_string e)
+     | Ok k8s_name ->
+       let service = Sun_cli_deployment_plan.k8s_name_to_string k8s_name in
+       Ok (Printf.sprintf "%s/d/sun-service-template?var-domain=%s&var-service=%s"
+             base_url domain service))
 
 let logs_url ~base_url ~workspace scope =
   match scope with
@@ -54,4 +67,4 @@ let logs_url ~base_url ~workspace scope =
 let url ~base_url ~workspace ~kind scope =
   match kind with
   | Logs -> logs_url ~base_url ~workspace scope
-  | Metrics | Dashboard -> Ok (dashboard_url ~base_url scope)
+  | Metrics | Dashboard -> dashboard_url ~base_url scope
