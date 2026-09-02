@@ -256,7 +256,7 @@ module "cert_manager_irsa" {
 # ── Durable observability storage (OBS-006 logs, OBS-007 metrics) ─────────── #
 #
 # Bucket/role names are predictable (${cluster_name}-...) so
-# platform/infra/base's observability_backend = "self_managed_durable" can
+# platform/infra/base's observability_backend = "self_hosted_durable" can
 # reference them via plain -var flags. Same manual-wiring pattern as
 # cert_manager_irsa_role_arn above — these are separate Terraform states with
 # no automatic remote-state linking; see this module's outputs.
@@ -265,6 +265,10 @@ resource "aws_s3_bucket" "loki" {
   count  = var.enable_durable_observability ? 1 : 0
   bucket = "${var.cluster_name}-loki-logs"
   tags   = var.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "loki" {
@@ -322,6 +326,10 @@ resource "aws_s3_bucket" "thanos" {
   count  = var.enable_durable_observability ? 1 : 0
   bucket = "${var.cluster_name}-thanos-metrics"
   tags   = var.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "thanos" {
@@ -361,17 +369,16 @@ module "thanos_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.39"
 
-  role_name = "${var.cluster_name}-thanos-sidecar"
+  role_name = "${var.cluster_name}-thanos"
 
   oidc_providers = {
     main = {
       provider_arn = module.eks.oidc_provider_arn
-      # The Thanos sidecar runs inside the prometheus-server pod, so it uses
-      # that pod's service account -- prometheus-community/prometheus's
-      # default naming is "<release-name>-server"; Sun's release name is
-      # "prometheus", but this chart special-cases the server component to
-      # just "<release-name>-server" -> "prometheus-server".
-      namespace_service_accounts = ["monitoring:prometheus-server"]
+      namespace_service_accounts = [
+        "monitoring:prometheus-server",
+        "monitoring:thanos-storegateway",
+        "monitoring:thanos-compactor",
+      ]
     }
   }
 

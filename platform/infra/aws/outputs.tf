@@ -66,7 +66,7 @@ output "thanos_s3_bucket" {
 }
 
 output "thanos_irsa_arn" {
-  description = "IAM role ARN for the Thanos sidecar's S3 access — set in platform/infra/base as thanos_irsa_role_arn"
+  description = "IAM role ARN for Thanos S3 access — set in platform/infra/base as thanos_irsa_role_arn"
   value       = var.enable_durable_observability ? module.thanos_irsa[0].iam_role_arn : null
 }
 
