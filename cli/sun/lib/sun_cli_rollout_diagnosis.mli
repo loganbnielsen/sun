@@ -46,16 +46,26 @@ val format_pod_diagnosis : pod_status -> event list -> string
 
 (** [format_service_diagnosis ~service_name pods events] returns [None] when
     every pod is healthy, or a rendered "<service_name> rollout failed" block
-    covering every unhealthy pod otherwise. *)
+    otherwise -- covering every unhealthy pod, or, when [pods] is empty,
+    a "no pods found for this service" finding (OBS-024): an empty pod
+    list for a namespace that exists means the service never started,
+    which this diagnosis exists to catch. Only pass a confirmed pod list
+    here (see [fetch_pod_statuses]) -- an empty list always reads as
+    "confirmed zero pods," never "couldn't check." *)
 val format_service_diagnosis : service_name:string -> pod_status list -> event list -> string option
 
 (** [kubectl get events -n <ns> -o json], parsed. Empty list on any kubectl
     failure — diagnosis degrades gracefully rather than erroring. *)
 val fetch_namespace_events : ns:string -> event list
 
-(** [kubectl get pods -n <ns> -l app=<k8s_name> -o json], parsed. *)
-val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list
+(** [kubectl get pods -n <ns> -l app=<k8s_name> -o json], parsed. [None] if
+    the kubectl call itself failed (transient error, timeout, ...) --
+    distinct from [Some []], a confirmed zero pods. *)
+val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
 
 (** Live, I/O-performing version of [format_service_diagnosis]: fetches pods
-    and events for the given service and returns its diagnosis, if any. *)
+    and events for the given service and returns its diagnosis, if any.
+    [None] both when every pod is healthy and when the pod fetch itself
+    failed -- a transient kubectl failure stays silent rather than being
+    reported as "no pods found." *)
 val diagnose_service_live : ns:string -> service_name:string -> k8s_name:string -> string option
