@@ -8,6 +8,19 @@ type infra_requirements = {
 
 let read_file path = In_channel.with_open_text path In_channel.input_all
 
+let has_app_dir dir =
+  let app_dir = Filename.concat dir "app" in
+  Sys.file_exists app_dir && Sys.is_directory app_dir
+
+let find_root ~dir =
+  let rec go dir =
+    if has_app_dir dir then Some dir
+    else
+      let parent = Filename.dirname dir in
+      if parent = dir then None else go parent
+  in
+  go dir
+
 (** Count .sql files in [dir]/db/migrations.  Returns 0 if the directory does
     not exist.  Used by [sun up] to warn users about unapplied migrations. *)
 let pending_migration_count ~dir =
