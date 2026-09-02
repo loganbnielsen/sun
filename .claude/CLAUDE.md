@@ -1,5 +1,14 @@
 # Sun — Claude Context
 
+## Development phase: pre-alpha, no backwards compatibility
+
+Sun and every support library it pins (see `~/Code/CLAUDE.md`, one level
+up) are pre-alpha: no customers, no external users, nothing depending on
+current API shape. Backwards compatibility is not a constraint anywhere
+in this repo — don't add compat shims, deprecated aliases, or version
+gates; change public signatures freely when it makes the design correct,
+and update call sites in the same pass. Full policy: `~/Code/CLAUDE.md`.
+
 ## Current development focus
 
 **Phase 7 core deliverables complete.** `sun deploy` is implemented with `--image-tag`, `--registry`, `--emit-to` (GitOps), and `--dry-run` flags. YAML rendering is shared by `sun up` and `sun deploy`. Terraform modules live at `platform/infra/base/`, `platform/infra/aws/`, and `platform/infra/gcp/`. Remaining hosted-product work is tracked in `project/tickets/`. See `docs/planning/WORK_SUMMARY.md` for full details.
