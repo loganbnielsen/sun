@@ -282,9 +282,12 @@ let test_workspace_startup_helpers_are_flattened () =
   let svc_main = read_file "testapp/app/payments/charge_svc/bin/main.ml" in
   let worker_main = read_file "testapp/app/comms/notify_worker/bin/main.ml" in
   List.iter (fun (label, content) ->
+    assert_contains label content "let fatal msg";
     assert_contains label content "let env_nonempty name";
     assert_contains label content "let optional_log_backend";
     assert_contains label content "let require_db_pool";
+    check_bool (label ^ " avoids failwith") false
+      (contains content "failwith");
     check_bool (label ^ " avoids nested postgres_url match") false
       (contains content "let pool = match postgres_url");
     check_bool (label ^ " avoids nested loki_url match") false

@@ -8,7 +8,7 @@ let api_key k  = headers_of ["x-api-key", k]
 (* ── Public ─────────────────────────────────────────────────────────── *)
 
 let test_public () =
-  match Auth.validate `Public (headers_of []) with
+  match Test_auth_internal.validate `Public (headers_of []) with
   | Ok { principal = Auth.Public } -> ()
   | _ -> Alcotest.fail "expected Public principal"
 
@@ -16,38 +16,38 @@ let test_public () =
 
 let test_api_key_valid () =
   let read_api_key () = Some "secretkey123" in
-  match Auth.validate ~read_api_key `Api_key (api_key "secretkey123") with
+  match Test_auth_internal.validate ~read_api_key `Api_key (api_key "secretkey123") with
   | Ok { principal = Auth.Service { key_id } } ->
     Alcotest.(check string) "key_id truncated" "secretke" key_id
   | _ -> Alcotest.fail "expected Service principal"
 
 let test_api_key_wrong () =
   let read_api_key () = Some "secretkey123" in
-  match Auth.validate ~read_api_key `Api_key (api_key "wrongkey") with
+  match Test_auth_internal.validate ~read_api_key `Api_key (api_key "wrongkey") with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_api_key_missing_header () =
   let read_api_key () = Some "secretkey123" in
-  match Auth.validate ~read_api_key `Api_key (headers_of []) with
+  match Test_auth_internal.validate ~read_api_key `Api_key (headers_of []) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_api_key_without_reader_fails_closed () =
-  match Auth.validate `Api_key (api_key "secretkey123") with
+  match Test_auth_internal.validate `Api_key (api_key "secretkey123") with
   | Error (`Server_error _) -> ()
   | _ -> Alcotest.fail "expected Server_error"
 
 let test_api_key_uses_injected_reader () =
   let read_api_key () = Some "secretkey123" in
-  match Auth.validate ~read_api_key `Api_key (api_key "secretkey123") with
+  match Test_auth_internal.validate ~read_api_key `Api_key (api_key "secretkey123") with
   | Ok { principal = Auth.Service { key_id } } ->
     Alcotest.(check string) "key_id truncated" "secretke" key_id
   | _ -> Alcotest.fail "expected Service principal"
 
 let test_api_key_empty_secret_fails_closed () =
   let read_api_key () = Some "" in
-  match Auth.validate ~read_api_key `Api_key (api_key "") with
+  match Test_auth_internal.validate ~read_api_key `Api_key (api_key "") with
   | Error (`Server_error _) -> ()
   | Ok _ -> Alcotest.fail "empty API key must not authenticate"
   | Error _ -> Alcotest.fail "expected Server_error for empty configured API key"
@@ -77,7 +77,7 @@ let jwt_cfg scopes =
 
 let test_jwt_valid () =
   let tok = make_jwt ~scopes:["read";"write"] () in
-  match Auth.validate (jwt_cfg ["read";"write"]) (bearer tok) with
+  match Test_auth_internal.validate (jwt_cfg ["read";"write"]) (bearer tok) with
   | Ok { principal = Auth.User { sub; scopes; _ } } ->
     Alcotest.(check string) "sub"    "user1" sub;
     Alcotest.(check bool)   "scopes" true (List.mem "write" scopes)
@@ -86,13 +86,13 @@ let test_jwt_valid () =
 let test_jwt_superset_scopes () =
   (* Token has more scopes than required — should pass *)
   let tok = make_jwt ~scopes:["read";"write";"admin"] () in
-  match Auth.validate (jwt_cfg ["read"]) (bearer tok) with
+  match Test_auth_internal.validate (jwt_cfg ["read"]) (bearer tok) with
   | Ok { principal = Auth.User _ } -> ()
   | _ -> Alcotest.fail "expected User principal"
 
 let test_jwt_missing_scope () =
   let tok = make_jwt ~scopes:["read"] () in
-  match Auth.validate (jwt_cfg ["read";"write"]) (bearer tok) with
+  match Test_auth_internal.validate (jwt_cfg ["read";"write"]) (bearer tok) with
   | Error (`Forbidden msg) ->
     Alcotest.(check bool) "mentions missing scope" true
       (String.length msg > 0)
@@ -100,7 +100,7 @@ let test_jwt_missing_scope () =
 
 let test_jwt_expired () =
   let tok = make_jwt ~exp_offset:(-1.0) () in
-  match Auth.validate (jwt_cfg []) (bearer tok) with
+  match Test_auth_internal.validate (jwt_cfg []) (bearer tok) with
   | Error (`Unauthorized msg) ->
     Alcotest.(check bool) "expired message" true
       (let m = String.lowercase_ascii msg in
@@ -108,27 +108,27 @@ let test_jwt_expired () =
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_jwt_malformed () =
-  match Auth.validate (jwt_cfg []) (bearer "not.a.jwt.at.all.extra") with
+  match Test_auth_internal.validate (jwt_cfg []) (bearer "not.a.jwt.at.all.extra") with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_jwt_wrong_bearer_scheme () =
-  match Auth.validate (jwt_cfg []) (headers_of ["authorization", "Token abc"]) with
+  match Test_auth_internal.validate (jwt_cfg []) (headers_of ["authorization", "Token abc"]) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_jwt_payload_not_base64 () =
-  match Auth.validate (jwt_cfg []) (bearer "header.%.signature") with
+  match Test_auth_internal.validate (jwt_cfg []) (bearer "header.%.signature") with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_jwt_payload_not_json () =
-  match Auth.validate (jwt_cfg []) (bearer (make_jwt_with_payload "not json")) with
+  match Test_auth_internal.validate (jwt_cfg []) (bearer (make_jwt_with_payload "not json")) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
 let test_jwt_missing_header () =
-  match Auth.validate (jwt_cfg []) (headers_of []) with
+  match Test_auth_internal.validate (jwt_cfg []) (headers_of []) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized"
 
@@ -197,7 +197,7 @@ let tamper_signature token =
 
 let test_jwt_verified_hs256_valid () =
   let tok = sign_hs256 ~scopes:["read";"write"] () in
-  match Auth.validate (hs256_verified_cfg ~scopes:["read";"write"] ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ~scopes:["read";"write"] ()) (bearer tok) with
   | Ok { principal = Auth.User { sub; scopes; _ } } ->
     Alcotest.(check string) "sub"    "user1" sub;
     Alcotest.(check bool)   "scopes" true (List.mem "write" scopes)
@@ -205,45 +205,45 @@ let test_jwt_verified_hs256_valid () =
 
 let test_jwt_verified_rs256_valid () =
   let tok = sign_rs256 ~scopes:["read"] () in
-  match Auth.validate (rs256_verified_cfg ~scopes:["read"] ()) (bearer tok) with
+  match Test_auth_internal.validate (rs256_verified_cfg ~scopes:["read"] ()) (bearer tok) with
   | Ok { principal = Auth.User { sub; _ } } ->
     Alcotest.(check string) "sub" "user1" sub
   | _ -> Alcotest.fail "expected User principal"
 
 let test_jwt_verified_tampered_signature () =
   let tok = tamper_signature (sign_hs256 ()) in
-  match Auth.validate (hs256_verified_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ()) (bearer tok) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized (invalid signature)"
 
 let test_jwt_verified_wrong_alg_rejected () =
   (* Correctly-signed HS256 token, but the route only allows RS256. *)
   let tok = sign_hs256 () in
-  match Auth.validate (hs256_verified_cfg ~algorithms:[`RS256] ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ~algorithms:[`RS256] ()) (bearer tok) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized (alg not permitted)"
 
 let test_jwt_verified_wrong_issuer () =
   let tok = sign_hs256 ~iss:"https://someone-else.example.com" () in
-  match Auth.validate (hs256_verified_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ()) (bearer tok) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized (issuer mismatch)"
 
 let test_jwt_verified_wrong_audience () =
   let tok = sign_hs256 ~aud:"someone-else" () in
-  match Auth.validate (hs256_verified_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ()) (bearer tok) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized (audience mismatch)"
 
 let test_jwt_verified_expired () =
   let tok = sign_hs256 ~exp_offset:(-1.0) () in
-  match Auth.validate (hs256_verified_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ()) (bearer tok) with
   | Error (`Unauthorized _) -> ()
   | _ -> Alcotest.fail "expected Unauthorized (expired)"
 
 let test_jwt_verified_missing_scope () =
   let tok = sign_hs256 ~scopes:["read"] () in
-  match Auth.validate (hs256_verified_cfg ~scopes:["read";"write"] ()) (bearer tok) with
+  match Test_auth_internal.validate (hs256_verified_cfg ~scopes:["read";"write"] ()) (bearer tok) with
   | Error (`Forbidden _) -> ()
   | _ -> Alcotest.fail "expected Forbidden (missing scope)"
 
@@ -258,14 +258,14 @@ let jwks_url_cfg () =
 let test_jwt_verified_jwks_fetch_failure_fails_closed () =
   let tok = sign_rs256 () in
   let failing_fetch _url = Error "connection refused" in
-  match Auth.validate ~fetch_jwks:failing_fetch (jwks_url_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate ~fetch_jwks:failing_fetch (jwks_url_cfg ()) (bearer tok) with
   | Error (`Server_error _) -> ()
   | Ok _ -> Alcotest.fail "must not fall back to unverified on JWKS fetch failure"
   | Error _ -> Alcotest.fail "expected Server_error (fail closed)"
 
 let test_jwt_verified_jwks_url_without_fetcher_fails_closed () =
   let tok = sign_rs256 () in
-  match Auth.validate (jwks_url_cfg ()) (bearer tok) with
+  match Test_auth_internal.validate (jwks_url_cfg ()) (bearer tok) with
   | Error (`Server_error _) -> ()
   | Ok _ -> Alcotest.fail "must not fall back to unverified with no fetch_jwks configured"
   | Error _ -> Alcotest.fail "expected Server_error (fail closed)"
@@ -280,7 +280,7 @@ let test_jwt_verified_malformed_static_jwks_fails_closed () =
             { issuer; audience; algorithms = [`RS256]; key_source = Jwks_static "not json" }
       }
   in
-  match Auth.validate cfg (bearer tok) with
+  match Test_auth_internal.validate cfg (bearer tok) with
   | Error (`Server_error _) -> ()
   | Ok _ -> Alcotest.fail "malformed static JWKS must not authenticate"
   | Error _ -> Alcotest.fail "expected Server_error for malformed static JWKS"
