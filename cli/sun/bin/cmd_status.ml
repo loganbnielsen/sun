@@ -33,17 +33,22 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
-(* Services actually declared under a domain (source name + k8s name),
-   independent of any kubectl call -- used both to drive diagnosis below
-   and, at service scope, to reject a service that was never declared
-   (OBS-022) before reporting any health status for it. *)
-let declared_services ~domain : (string * string) list =
+(* Services actually declared under a domain (source name, k8s name,
+   primitive), independent of any kubectl call -- used both to drive
+   diagnosis below and, at service scope, to reject a service that was
+   never declared (OBS-022) before reporting any health status for it.
+   Keeps [primitive] (dropped by an earlier version of this function) so
+   diagnosis can tell a Deployment/Rollout-backed service (Svc/Worker,
+   expected to have a continuously running pod) from a CronJob-backed one
+   (Fn, idle between runs by design -- see service_diagnoses_named). *)
+let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) list =
   Sun_cli_manifest.discover_services ~filter_path:None
   |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)
   |> List.filter_map (fun (s : Sun_cli_manifest.service) ->
        match Sun_cli_deployment_plan.k8s_name_result s.name with
        | Error _ -> None
-       | Ok k8s_name -> Some (s.name, Sun_cli_deployment_plan.k8s_name_to_string k8s_name))
+       | Ok k8s_name ->
+         Some (s.name, Sun_cli_deployment_plan.k8s_name_to_string k8s_name, s.primitive))
 
 (* Kubernetes-derived rollout diagnosis: works even when the app never
    started and Loki has nothing, so it's used unconditionally, not as a
@@ -51,11 +56,16 @@ let declared_services ~domain : (string * string) list =
    domain ([None] = healthy, [Some diagnosis] = rollout failed); services
    whose name fails Sun's k8s-naming rules are skipped, same as before.
    Keyed by k8s (hyphenated) name -- the same form 'sun open'/'sun logs'
-   scope arguments use. *)
+   scope arguments use. An Fn has no pod between scheduled runs by
+   design, so a zero-pod Fn isn't degraded the way a zero-pod Svc/Worker
+   is (OBS-024 follow-up). *)
 let service_diagnoses_named ~ns ~domain : (string * string option) list =
   declared_services ~domain
-  |> List.map (fun (service_name, k8s_name) ->
-       (k8s_name, Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name ~k8s_name))
+  |> List.map (fun (service_name, k8s_name, primitive) ->
+       let expects_continuous_pods = primitive <> Sun_cli_manifest.Fn in
+       (k8s_name,
+        Sun_cli_rollout_diagnosis.diagnose_service_live
+          ~expects_continuous_pods ~ns ~service_name ~k8s_name ()))
 
 let service_diagnoses ~ns ~domain : string option list =
   service_diagnoses_named ~ns ~domain |> List.map snd
@@ -237,15 +247,21 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
      one -- reject it up front instead of reporting any status for something
      that was never scaffolded. The decision itself lives in Sun_cli_status
      so it's directly unit-tested. *)
-  let declared_k8s_names = List.map snd (declared_services ~domain) in
+  let declared = declared_services ~domain in
+  let declared_k8s_names = List.map (fun (_, k, _) -> k) declared in
   if not (Sun_cli_status.service_is_declared ~k8s_name declared_k8s_names) then begin
     Printf.eprintf "Service '%s' not found in domain '%s'.\n" service_name domain;
     exit 1
   end;
+  (* Fn has no pod between scheduled runs by design (OBS-024 follow-up) --
+     found above, so this List.find can't raise. *)
+  let (_, _, primitive) = List.find (fun (_, k, _) -> k = k8s_name) declared in
+  let expects_continuous_pods = primitive <> Sun_cli_manifest.Fn in
   let exists = ns_exists ns in
   let diagnosis =
     if exists then
-      Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name:k8s_name ~k8s_name
+      Sun_cli_rollout_diagnosis.diagnose_service_live
+        ~expects_continuous_pods ~ns ~service_name:k8s_name ~k8s_name ()
     else None
   in
   let status = Sun_cli_status.rollup_domain_status ~ns_exists:exists [diagnosis] in

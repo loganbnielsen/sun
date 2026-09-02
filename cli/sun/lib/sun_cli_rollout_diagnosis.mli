@@ -44,15 +44,24 @@ val is_healthy : pod_status -> bool
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [format_service_diagnosis ~service_name pods events] returns [None] when
-    every pod is healthy, or a rendered "<service_name> rollout failed" block
-    otherwise -- covering every unhealthy pod, or, when [pods] is empty,
-    a "no pods found for this service" finding (OBS-024): an empty pod
-    list for a namespace that exists means the service never started,
-    which this diagnosis exists to catch. Only pass a confirmed pod list
+(** [format_service_diagnosis ?expects_continuous_pods ~service_name pods
+    events] returns [None] when every pod is healthy, or a rendered
+    "<service_name> rollout failed" block otherwise -- covering every
+    unhealthy pod, or, when [pods] is empty *and* [expects_continuous_pods]
+    (default [true]), a "no pods found for this service" finding
+    (OBS-024): an empty pod list for a namespace that exists means the
+    service never started, which this diagnosis exists to catch.
+    [expects_continuous_pods:false] is for primitives that are normally
+    idle between runs (Fn/CronJob) -- an empty pod list there is the
+    expected resting state, not a failure. Only pass a confirmed pod list
     here (see [fetch_pod_statuses]) -- an empty list always reads as
     "confirmed zero pods," never "couldn't check." *)
-val format_service_diagnosis : service_name:string -> pod_status list -> event list -> string option
+val format_service_diagnosis
+  :  ?expects_continuous_pods:bool
+  -> service_name:string
+  -> pod_status list
+  -> event list
+  -> string option
 
 (** [kubectl get events -n <ns> -o json], parsed. Empty list on any kubectl
     failure — diagnosis degrades gracefully rather than erroring. *)
@@ -67,5 +76,12 @@ val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
     and events for the given service and returns its diagnosis, if any.
     [None] both when every pod is healthy and when the pod fetch itself
     failed -- a transient kubectl failure stays silent rather than being
-    reported as "no pods found." *)
-val diagnose_service_live : ns:string -> service_name:string -> k8s_name:string -> string option
+    reported as "no pods found." [?expects_continuous_pods] is forwarded
+    to [format_service_diagnosis]. *)
+val diagnose_service_live
+  :  ?expects_continuous_pods:bool
+  -> ns:string
+  -> service_name:string
+  -> k8s_name:string
+  -> unit
+  -> string option

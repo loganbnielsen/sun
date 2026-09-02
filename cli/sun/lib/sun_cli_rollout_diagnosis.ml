@@ -160,15 +160,26 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
-(* An empty pod list is itself a finding, not silence: it means "never
-   started" just as much as an unhealthy pod does (OBS-024) -- the whole
-   point of this diagnosis, per its call sites, is to catch that case.
+(* An empty pod list is itself a finding, not silence, for a primitive
+   that's expected to have a continuously running pod (Svc/Worker): it
+   means "never started" just as much as an unhealthy pod does (OBS-024)
+   -- the whole point of this diagnosis, per its call sites, is to catch
+   that case. It is NOT a finding for a primitive that's normally idle
+   between runs (Fn/CronJob) -- that has no pod at all except while a
+   scheduled invocation is actively executing, so "no pods" is its
+   expected resting state, not a failure (OBS-024 follow-up: this was
+   originally unconditional and falsely degraded every idle scheduled
+   function). Defaults to [true] since most callers (e.g. sun logs, which
+   doesn't look up the primitive) are checking a Svc/Worker.
    Only meaningful when [pods] reflects a *confirmed* kubectl result;
    callers must not pass an empty list for "couldn't check" (see
    fetch_pod_statuses/diagnose_service_live below). *)
-let format_service_diagnosis ~service_name (pods : pod_status list) (events : event list) : string option =
+let format_service_diagnosis ?(expects_continuous_pods = true) ~service_name
+    (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
-    Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
+    if expects_continuous_pods then
+      Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
+    else None
   else
     let unhealthy = List.filter (fun p -> not (is_healthy p)) pods in
     if unhealthy = [] then None
@@ -198,9 +209,9 @@ let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
-let diagnose_service_live ~ns ~service_name ~k8s_name : string option =
+let diagnose_service_live ?expects_continuous_pods ~ns ~service_name ~k8s_name () : string option =
   match fetch_pod_statuses ~ns ~k8s_name with
   | None -> None
   | Some pods ->
     let events = fetch_namespace_events ~ns in
-    format_service_diagnosis ~service_name pods events
+    format_service_diagnosis ?expects_continuous_pods ~service_name pods events

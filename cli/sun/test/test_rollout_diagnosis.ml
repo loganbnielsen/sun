@@ -150,6 +150,30 @@ let test_format_service_diagnosis_reports_empty_pod_list () =
       (try ignore (Str.search_forward (Str.regexp_string "No pods found") diagnosis 0); true
        with Not_found -> false)
 
+(* OBS-024 follow-up: an Fn (CronJob-backed) has no pod between scheduled
+   runs by design -- ~expects_continuous_pods:false must keep an empty
+   pod list looking healthy, unlike a Svc/Worker. *)
+let test_format_service_diagnosis_empty_pods_ok_when_not_continuous () =
+  check_bool "no diagnosis for an idle Fn with zero pods" true
+    (Option.is_none
+       (D.format_service_diagnosis ~expects_continuous_pods:false
+          ~service_name:"invoice-fn" [] []))
+
+let test_format_service_diagnosis_default_still_flags_empty_pods () =
+  check_bool "default (no ~expects_continuous_pods) still flags empty pods" true
+    (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" [] []))
+
+(* Even an idle-between-runs primitive should still be flagged while a
+   pod is actually present and unhealthy (e.g. a scheduled run stuck
+   crash-looping) -- ~expects_continuous_pods:false only changes the
+   empty-list case. *)
+let test_format_service_diagnosis_unhealthy_pods_still_flagged_when_not_continuous () =
+  let pods = D.parse_pods_json image_pull_backoff_json in
+  check_bool "unhealthy pod still flagged for a non-continuous primitive" true
+    (Option.is_some
+       (D.format_service_diagnosis ~expects_continuous_pods:false
+          ~service_name:"invoice-fn" pods []))
+
 let () =
   Alcotest.run "rollout_diagnosis"
     [ ("parse_pods_json",
@@ -166,5 +190,8 @@ let () =
        [ Alcotest.test_case "none when healthy" `Quick test_format_service_diagnosis_none_when_healthy;
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
          Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
+         Alcotest.test_case "empty pods OK when not continuous (Fn)" `Quick test_format_service_diagnosis_empty_pods_ok_when_not_continuous;
+         Alcotest.test_case "default still flags empty pods" `Quick test_format_service_diagnosis_default_still_flags_empty_pods;
+         Alcotest.test_case "unhealthy pods still flagged when not continuous" `Quick test_format_service_diagnosis_unhealthy_pods_still_flagged_when_not_continuous;
        ]);
     ]

@@ -110,7 +110,7 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
 
   (* Kubernetes-derived diagnosis first, independent of Loki: the pod may
      never have started, in which case Loki has nothing either. *)
-  (match Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name:name ~k8s_name with
+  (match Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name:name ~k8s_name () with
    | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
    | None -> ());
 
