@@ -171,13 +171,19 @@ let sanitize_label_value v =
   else String.sub v 0 (len - 1) ^ "0"
 
 let render_taxonomy_labels ?(indent = "        ") ~workspace ~domain ~service ~primitive ~image () =
+  (* Every value goes through sanitize_label_value uniformly -- workspace/
+     domain are only indirectly bounded today (namespace_result validates
+     their combined length before render is ever called) and service is
+     only safe because it's always a validated k8s_name in this render
+     path; neither is a guarantee at this render site itself, so don't
+     rely on a value being safe by construction from somewhere else. *)
   [ "workspace", workspace
   ; "domain", domain
   ; "service", service
   ; "primitive", primitive
-  ; "release", sanitize_label_value (release_of_image image)
+  ; "release", release_of_image image
   ]
-  |> List.map (fun (k, v) -> f "%s%s: \"%s\"" indent k v)
+  |> List.map (fun (k, v) -> f "%s%s: \"%s\"" indent k (sanitize_label_value v))
   |> String.concat "\n"
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
