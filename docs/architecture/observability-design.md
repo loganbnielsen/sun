@@ -1,9 +1,9 @@
 # Observability Design
 
 Sun treats observability as a workspace-level capability, not a per-service
-add-on. A Sun workspace is a company monorepo: many projects, environments,
-domains, services, workers, and functions all emit into the same observability
-surface.
+add-on. A Sun workspace belongs to one company/product; domains (team-owned
+verticals, e.g. `payments`, `comms`) inside it own the services, workers, and
+functions that emit into the same observability surface.
 
 The product rule is:
 
@@ -11,36 +11,44 @@ The product rule is:
 one workspace -> one logs backend, one metrics backend, one dashboard surface
 ```
 
-Individual projects and services are scoped views inside that surface, selected
-by stable labels. A service can and should have its own dashboard; it should
-not have its own isolated observability stack.
+Individual domains and services are scoped views inside that surface,
+selected by stable labels — the same convention `sun status`/`sun logs`
+already use (`<domain>` or `<domain>/<service>`). A service can and should
+have its own dashboard; it should not have its own isolated observability
+stack.
+
+> Earlier drafts of this doc introduced a `project` layer above `domain`
+> (grouping multiple products/apps inside one workspace). Dropped: Sun's
+> existing `domain` concept already means "team-owned vertical composed of
+> services/workers/functions" (see `CLAUDE.md`'s "Teams own domains"), which
+> is what `project` was actually describing. No new layer — `workspace ->
+> domain -> service` is the whole model.
 
 ## Goals
 
 - A developer can open one dashboard and inspect the whole workspace.
-- A project, environment, domain, service, worker, or function can be filtered
-  without knowing Kubernetes names.
+- A domain, service, worker, or function can be filtered without knowing
+  Kubernetes names.
 - Self-hosted users get the same shape as future Sun-hosted users.
-- Sun commands point at the shared surface while opening scoped dashboards for
-  projects and services.
+- Sun commands point at the shared surface while opening scoped dashboards
+  for domains and services.
 
 ## Identity
 
-Every log line, metric, trace, deploy event, and generated dashboard link must
-carry the same ownership identity:
+Every log line, metric, trace, deploy event, and generated dashboard link
+must carry the same ownership identity:
 
 | Label | Meaning |
 |---|---|
-| `workspace` | Company monorepo/workspace name |
-| `project` | Product or app inside the monorepo |
-| `env` | Environment, for example `dev`, `staging`, `prod` |
+| `workspace` | Company/product workspace name |
+| `env` | Environment, for example `dev`, `staging`, `prod` — determined by which target the CLI is currently pointed at (kubeconfig context / deploy target), not a CLI path segment |
 | `domain` | Business domain/team slice, for example `payments` |
 | `service` | Service, worker, or function name |
 | `primitive` | `svc`, `worker`, or `fn` |
 | `release` | Deployed image/release identity when known |
 
-These labels are the API. Kubernetes namespaces, pod names, Helm release names,
-bucket names, and cloud resource names are implementation details.
+These labels are the API. Kubernetes namespaces, pod names, Helm release
+names, bucket names, and cloud resource names are implementation details.
 
 ## Backend Modes
 
@@ -54,7 +62,7 @@ Sun supports three observability backend modes:
 
 The mode changes storage and transport. It should not change the product
 surface: `sun status`, `sun logs`, and `sun open` should keep using the same
-workspace/project/service scopes.
+workspace/domain/service scopes.
 
 ## CLI Shape
 
@@ -63,8 +71,8 @@ current working directory is only used to find the workspace root.
 
 ```bash
 sun status
-sun status pluto/prod
-sun status pluto/prod/payments/charge-svc
+sun status payments
+sun status payments/charge-svc
 ```
 
 At workspace scope, show an index:
@@ -72,10 +80,10 @@ At workspace scope, show an index:
 ```text
 sun workspace
 
-Projects
-  pluto    prod  healthy
-  venus    prod  degraded
-  mercury  dev   not deployed
+Domains
+  payments   healthy
+  comms      degraded
+  logistics  not deployed
 
 Observability
   backend  self_hosted_durable
@@ -88,15 +96,14 @@ Open
   dashboard  sun open dashboard
 ```
 
-At project/environment scope, show service health and the shared observability
-surface:
+At domain scope, show service health and the shared observability surface:
 
 ```text
-pluto/prod  self_hosted_durable  healthy
+payments  self_hosted_durable  healthy
 
 Services
-  payments/charge-svc    healthy
-  comms/notify-worker    degraded
+  charge-svc    healthy
+  refund-svc    degraded
 
 Observability
   logs       healthy
@@ -104,15 +111,15 @@ Observability
   dashboard  healthy
 
 Open
-  logs       sun open logs pluto/prod
-  metrics    sun open metrics pluto/prod
-  dashboard  sun open dashboard pluto/prod
+  logs       sun open logs payments
+  metrics    sun open metrics payments
+  dashboard  sun open dashboard payments
 ```
 
 At service scope, open the service-specific dashboard and logs view:
 
 ```text
-pluto/prod/payments/charge-svc  healthy
+payments/charge-svc  healthy
 
 Observability
   logs       healthy
@@ -120,9 +127,9 @@ Observability
   dashboard  healthy
 
 Open
-  logs       sun open logs pluto/prod/payments/charge-svc
-  metrics    sun open metrics pluto/prod/payments/charge-svc
-  dashboard  sun open dashboard pluto/prod/payments/charge-svc
+  logs       sun open logs payments/charge-svc
+  metrics    sun open metrics payments/charge-svc
+  dashboard  sun open dashboard payments/charge-svc
 ```
 
 `Open` entries are commands, not URLs. A `--links` flag can print raw URLs for
@@ -141,21 +148,21 @@ Grafana is the default self-hosted dashboard shell today. Sun should provision
 one workspace dashboard entrypoint plus scoped dashboards:
 
 - workspace overview
-- project/environment overview
+- domain overview
 - service dashboard for service-specific metrics
 - service logs view
 - deploy/release timeline when available
 
-The dashboard should filter by Sun labels, not by namespace/pod names. For a
-monorepo, cross-service search is the point: a single incident often crosses an
-HTTP service, Kafka worker, scheduled function, database, and deploy event.
+The dashboard should filter by Sun labels, not by namespace/pod names. A
+single incident often crosses an HTTP service, Kafka worker, scheduled
+function, database, and deploy event — cross-domain search is the point.
 
 ## Hosted Path
 
 Future Sun-hosted observability should keep the same shape:
 
 ```text
-workspace/project/env/domain/service
+workspace/domain/service
 ```
 
 Sun may operate the storage itself or broker a managed provider behind the
@@ -169,3 +176,4 @@ path exists to remove operations work.
 - No CLI wrapper around every Loki or Prometheus query feature.
 - No product promise that `local` preserves history.
 - No provider-specific UX as the core model.
+- No `project` layer above `domain` — see the note under Goals.
