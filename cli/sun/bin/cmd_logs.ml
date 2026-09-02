@@ -87,7 +87,7 @@ let exec_kubectl_logs ~ns ~k8s_name ~follow ~tail =
   Unix.execvp "kubectl" (Array.of_list argv)
 
 let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
-    ~target ~loki_base_url ?grafana_base_url () : unit =
+    ~target ~explicit_loki_url ?grafana_base_url () : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -114,17 +114,19 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
    | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
    | None -> ());
 
-  (match Sun_cli_observability_url.effective_backend_and_base_domain
-           ~explicit_backend ~explicit_base_domain ~target () with
-   | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
-   | Ok (backend, base_domain) ->
-     match Sun_cli_observability_url.resolve ~backend ?base_domain
-             ?override:grafana_base_url () with
-     | Sun_cli_observability_url.Url base_url ->
-       let url = Sun_cli_logs.grafana_explore_url ~base_url ~ns ~k8s_name in
-       Printf.printf "Grafana logs: %s\n%!" url
-     | Sun_cli_observability_url.No_url reason ->
-       Printf.printf "Grafana logs: (%s)\n%!" reason);
+  let (backend, base_domain) =
+    match Sun_cli_observability_url.effective_backend_and_base_domain
+            ~explicit_backend ~explicit_base_domain ~target () with
+    | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+    | Ok pair -> pair
+  in
+  (match Sun_cli_observability_url.resolve ~backend ?base_domain
+           ?override:grafana_base_url () with
+   | Sun_cli_observability_url.Url base_url ->
+     let url = Sun_cli_logs.grafana_explore_url ~base_url ~ns ~k8s_name in
+     Printf.printf "Grafana logs: %s\n%!" url
+   | Sun_cli_observability_url.No_url reason ->
+     Printf.printf "Grafana logs: (%s)\n%!" reason);
 
   if follow then
     (* Loki tailing isn't implemented yet (would need its /tail websocket
@@ -132,16 +134,31 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
        reliably, so v1 always uses it for live tailing. *)
     exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
   else
-    match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
-    | Ok [] ->
-      Printf.printf "(no log lines found in Loki for %s; showing Kubernetes logs)\n%!" name;
+    (* OBS-025: only query Loki at a URL that's actually meaningful -- an
+       explicit --loki-base-url, or the Local backend's hardcoded default.
+       Any other backend with no explicit URL would otherwise query
+       localhost (almost certainly not where that backend's Loki lives)
+       and silently "fall back" as if that had been a real check. Reuses
+       Sun_cli_status's probe_url decision (an empty probe_path yields the
+       base URL unchanged) rather than duplicating the same three-way
+       branch. *)
+    match Sun_cli_status.probe_url ~backend ~explicit_url:explicit_loki_url
+            ~default_local_url:"http://localhost:3100" ~probe_path:"" with
+    | None ->
+      Printf.printf "(Loki not checked for backend %s; showing Kubernetes logs)\n%!"
+        (Sun_cli_observability_url.backend_to_string backend);
       exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
-    | Ok lines ->
-      List.iter (fun (l : Sun_cli_loki.line) -> print_endline l.text) lines
-    | Error e ->
-      Printf.printf "Loki unavailable: %s.\nFalling back to Kubernetes logs for %s...\n%!"
-        (Sun_cli_loki.fetch_error_to_string e) name;
-      exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+    | Some loki_base_url ->
+      match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
+      | Ok [] ->
+        Printf.printf "(no log lines found in Loki for %s; showing Kubernetes logs)\n%!" name;
+        exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+      | Ok lines ->
+        List.iter (fun (l : Sun_cli_loki.line) -> print_endline l.text) lines
+      | Error e ->
+        Printf.printf "Loki unavailable: %s.\nFalling back to Kubernetes logs for %s...\n%!"
+          (Sun_cli_loki.fetch_error_to_string e) name;
+        exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 
@@ -202,12 +219,14 @@ let target_arg =
                the hardcoded local default.")
 
 let loki_base_url_arg =
-  Arg.(value & opt string "http://localhost:3100" &
+  Arg.(value & opt (some string) None &
        info ["loki-base-url"] ~docv:"URL"
-         ~doc:"Base URL of the Loki instance (default: http://localhost:3100). \
-               'sun logs' queries Loki first for a snapshot (--no-follow) and \
-               falls back to 'kubectl logs' if the query fails, times out, or \
-               finds nothing.")
+         ~doc:"Base URL of the Loki instance. When omitted: checked at \
+               http://localhost:3100 for the local backend, otherwise Loki \
+               is skipped and 'sun logs' goes straight to 'kubectl logs' \
+               rather than guessing. 'sun logs' queries Loki first for a \
+               snapshot (--no-follow) and falls back to 'kubectl logs' if \
+               the query fails, times out, or finds nothing.")
 
 let follow_term =
   let combine follow no_follow = match follow, no_follow with
@@ -241,6 +260,6 @@ let cmd =
         let explicit_backend = backend_of_arg observability_backend in
         run ~service_arg ~follow ~tail ~explicit_backend
           ~explicit_base_domain:base_domain ~target
-          ~loki_base_url ?grafana_base_url ())
+          ~explicit_loki_url:loki_base_url ?grafana_base_url ())
       $ service_arg $ follow_term $ tail_arg $ observability_backend_arg $ base_domain_arg
       $ target_arg $ grafana_base_url_arg $ loki_base_url_arg)
