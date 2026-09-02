@@ -81,11 +81,25 @@ module Make (W : WORKER) : sig
     -> ?retry_strategy:retry_strategy
     (** Failure strategy for [Error] results from [W.handle]. Defaults to
         [In_memory default_retry]. See [retry_strategy] for the two modes. *)
-    -> ?test_consume_loop:
-         (handler:(W.Message.t -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
-          -> unit -> unit)
-    (** Test injection: replace the real per-partition consume loop with a stub.
-        The stub receives the handler directly; retry logic is not applied. *)
     -> unit
     -> (unit, run_error) result
 end
+
+module For_testing : sig
+  module Make (W : WORKER) : sig
+    val run
+      :  env:(_, _, _, _) Sun_env.timed
+      -> config:Kafka_service.config
+      -> ?ot:Obs_eio.t
+      -> ?on_ready:(unit -> unit)
+      -> ?stop:unit Eio.Promise.t
+      -> ?max_messages:int
+      -> ?retry_strategy:retry_strategy
+      -> ?test_consume_loop:
+           (handler:(W.Message.t -> ack:(unit -> (unit, Kafka.Error.t) result) -> trace_ctx:Obs_trace.t option -> Kafka.Error.t Kafka.Consumer.handler_result)
+            -> unit -> unit)
+      -> unit
+      -> (unit, run_error) result
+  end
+end
+(** Test-only hook for unit tests that drive the worker handler without Kafka. *)

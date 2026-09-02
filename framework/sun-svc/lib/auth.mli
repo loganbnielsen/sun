@@ -51,22 +51,3 @@ type error =
   | `Forbidden       of string
   | `Server_error    of string
   ]
-
-(** Internal — called by [Service.Make]. Not intended for direct use.
-    [read_api_key] is the injected API-key secret reader; [Api_key] fails
-    closed with [`Server_error] when it is omitted. [fetch_jwks] is the injected
-    capability to resolve a [Jwks_url]. [Public], [Unverified_dev_only],
-    [Hs256_secret], and [Jwks_static] never touch either capability. If a route
-    uses [Jwks_url] and no [fetch_jwks] is given, that route fails closed with
-    [`Server_error]. *)
-val validate :
-  ?read_api_key:(unit -> string option) ->
-  ?fetch_jwks:(string -> (Jose.Jwks.t, string) result) ->
-  level -> Http.Header.t -> (context, error) result
-
-(** The real [fetch_jwks] transport: HTTPS GET + JSON parse via [https-eio].
-    [Service.Make.run] builds this once, closing over its Eio env, and passes
-    it to [validate] as [~fetch_jwks:(fetch_jwks_over_https ~env)]. *)
-val fetch_jwks_over_https :
-  env:< net : _ Eio.Net.t ; clock : _ Eio.Time.clock ; .. > ->
-  string -> (Jose.Jwks.t, string) result

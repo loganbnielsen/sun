@@ -83,14 +83,14 @@ let run_ok result =
 let test_handle_ok () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-1" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message msg) () |> run_ok)
 
 let test_handle_error_returns_consumer_error () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-err" } in
-    let module W = Worker.Make(ErrWorker) in
+    let module W = Worker.For_testing.Make(ErrWorker) in
     let result_r = ref None in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message_result msg result_r) () |> run_ok;
@@ -104,7 +104,7 @@ let test_metrics_ok_counter () =
     let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-metrics" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
       ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
@@ -129,7 +129,7 @@ let test_metrics_error_counter () =
     let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-err-metrics" } in
-    let module W = Worker.Make(ErrWorker) in
+    let module W = Worker.For_testing.Make(ErrWorker) in
     ignore (W.run ~env ~config:fake_config ~ot
               ~test_consume_loop:(one_message msg) ());
     let output = render () in
@@ -147,7 +147,7 @@ let test_metrics_duration () =
     let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-dur" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     W.run ~env ~config:fake_config ~ot
       ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
@@ -175,7 +175,7 @@ let test_stop_flag_stops_after_current_message () =
       TestMsg.{ id = "msg-a" };
       TestMsg.{ id = "msg-b" };
     ] in
-    let module W = Worker.Make(StopWorker) in
+    let module W = Worker.For_testing.Make(StopWorker) in
     (* Both messages processed because stop_flag is never set externally *)
     W.run ~env ~config:fake_config
       ~test_consume_loop:(two_messages msgs) () |> run_ok;
@@ -184,7 +184,7 @@ let test_stop_flag_stops_after_current_message () =
 let test_no_metrics_without_ot () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-no-ot" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message msg) () |> run_ok)
 
@@ -197,7 +197,7 @@ let test_max_messages_stops_cleanly () =
       let handle _msg ~trace_ctx:_ = incr processed; Ok ()
     end in
     let msgs = List.init 5 (fun i -> TestMsg.{ id = Printf.sprintf "m%d" i }) in
-    let module W = Worker.Make(CountWorker) in
+    let module W = Worker.For_testing.Make(CountWorker) in
     W.run ~env ~config:fake_config ~max_messages:3
       ~test_consume_loop:(fun ~handler () ->
         List.iter (fun msg ->
@@ -212,7 +212,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
     let ot = Obs_eio.create ~service:"test-worker"
                ~mono_clock:env#mono_clock ~backend () in
     let msg = TestMsg.{ id = "msg-ack-fail" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     let result_r = ref None in
     W.run ~env ~config:fake_config ~ot
       ~test_consume_loop:(one_message_with_ack msg
@@ -235,7 +235,7 @@ let test_ack_failure_non_fatal_continues_and_is_metered () =
 let test_ack_failure_fatal_escalates () =
   Eio_main.run (fun env ->
     let msg = TestMsg.{ id = "msg-ack-fatal" } in
-    let module W = Worker.Make(OkWorker) in
+    let module W = Worker.For_testing.Make(OkWorker) in
     let result_r = ref None in
     W.run ~env ~config:fake_config
       ~test_consume_loop:(one_message_with_ack msg
@@ -255,7 +255,7 @@ let test_external_stop_flag_skips_messages () =
       let handle _msg ~trace_ctx:_ = incr processed; Ok ()
     end in
     let msgs = [TestMsg.{ id = "m1" }; TestMsg.{ id = "m2" }] in
-    let module W = Worker.Make(StopWorker) in
+    let module W = Worker.For_testing.Make(StopWorker) in
     W.run ~env ~config:fake_config ~stop
       ~test_consume_loop:(two_messages msgs) () |> run_ok;
     Alcotest.(check int) "W.handle never called when stop pre-set" 0 !processed)

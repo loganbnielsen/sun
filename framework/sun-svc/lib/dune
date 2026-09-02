@@ -1,6 +1,6 @@
 (library
  (name sun_svc)
  (wrapped false)
- (private_modules route_internal)
+ (private_modules auth_internal route_internal)
  (libraries cohttp-eio http uri yojson base64 eio eio.unix obs-eio
             jose ptime https-eio))

@@ -63,7 +63,7 @@ let read_body_limited headers (body : Cohttp_eio.Body.t) max_bytes =
 let ( let* ) = Result.bind
 
 let auth_result ?read_api_key ?fetch_jwks auth_cfg headers =
-  match Auth.validate ?read_api_key ?fetch_jwks auth_cfg headers with
+  match Auth_internal.validate ?read_api_key ?fetch_jwks auth_cfg headers with
   | Error (`Unauthorized _)    -> Error Response.unauthorized
   | Error (`Forbidden _)       -> Error Response.forbidden
   | Error (`Server_error msg)  -> Error (Response.internal_error msg)
@@ -225,7 +225,7 @@ module Make (H : HANDLER) = struct
         in
         Some (req_count, req_duration)
     in
-    let fetch_jwks = Auth.fetch_jwks_over_https ~env in
+    let fetch_jwks = Auth_internal.fetch_jwks_over_https ~env in
     let* read_api_key = api_key_reader ~env ~required:(api_key_required H.routes metrics_auth) in
     let signal_stop, signal_stop_r = Eio.Promise.create () in
     let await_stop () =
