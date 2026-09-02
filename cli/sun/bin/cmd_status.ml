@@ -232,10 +232,13 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
       Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
       exit 1
   in
-  (* OBS-022: an undeclared service has no pods, so diagnose_service_live
-     would vacuously report it healthy -- reject it up front instead of
-     reporting a status for something that was never scaffolded. *)
-  if not (List.exists (fun (_, k) -> k = k8s_name) (declared_services ~domain)) then begin
+  (* OBS-022/024: an undeclared service has no pods, so diagnose_service_live
+     would report it as "no pods found" the same as a declared-but-not-running
+     one -- reject it up front instead of reporting any status for something
+     that was never scaffolded. The decision itself lives in Sun_cli_status
+     so it's directly unit-tested. *)
+  let declared_k8s_names = List.map snd (declared_services ~domain) in
+  if not (Sun_cli_status.service_is_declared ~k8s_name declared_k8s_names) then begin
     Printf.eprintf "Service '%s' not found in domain '%s'.\n" service_name domain;
     exit 1
   end;

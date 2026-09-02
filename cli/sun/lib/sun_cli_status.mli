@@ -40,3 +40,11 @@ val reachability_of_probe
   :  probe_url:string option
   -> is_reachable:(string -> bool)
   -> reachability
+
+(** [service_is_declared ~k8s_name declared_k8s_names] is [true] when
+    [k8s_name] is one of [declared_k8s_names] -- the pure decision behind
+    `sun status <domain>/<service>` rejecting an undeclared service
+    (OBS-022). Discovering [declared_k8s_names] itself is a filesystem
+    scan and stays in [cmd_status.ml]; this is just the set-membership
+    check, pulled out so it's directly testable. *)
+val service_is_declared : k8s_name:string -> string list -> bool

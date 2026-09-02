@@ -135,6 +135,21 @@ let test_format_service_diagnosis_includes_events_and_reason () =
       (try ignore (Str.search_forward (Str.regexp_string "FailedPull") diagnosis 0); true
        with Not_found -> false)
 
+(* OBS-024: an empty pod list is itself a finding ("never started"), not
+   silence -- a declared service with a missing/scaled-to-zero/broken
+   Deployment used to vacuously look healthy since "no unhealthy pods"
+   trivially held for an empty list too. *)
+let test_format_service_diagnosis_reports_empty_pod_list () =
+  match D.format_service_diagnosis ~service_name:"charge-svc" [] [] with
+  | None -> Alcotest.fail "expected a diagnosis for zero pods, got None (looks healthy)"
+  | Some diagnosis ->
+    check_bool "mentions rollout failed" true
+      (try ignore (Str.search_forward (Str.regexp_string "charge-svc rollout failed") diagnosis 0); true
+       with Not_found -> false);
+    check_bool "mentions no pods found" true
+      (try ignore (Str.search_forward (Str.regexp_string "No pods found") diagnosis 0); true
+       with Not_found -> false)
+
 let () =
   Alcotest.run "rollout_diagnosis"
     [ ("parse_pods_json",
@@ -150,5 +165,6 @@ let () =
       ("format_service_diagnosis",
        [ Alcotest.test_case "none when healthy" `Quick test_format_service_diagnosis_none_when_healthy;
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
+         Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
        ]);
     ]
