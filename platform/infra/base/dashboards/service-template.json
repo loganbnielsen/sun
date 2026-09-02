@@ -9,10 +9,18 @@
   "templating": {
     "list": [
       {
+        "name": "workspace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up, workspace)",
+        "refresh": 2,
+        "includeAll": false
+      },
+      {
         "name": "domain",
         "type": "query",
         "datasource": "Prometheus",
-        "query": "label_values(up, domain)",
+        "query": "label_values(up{workspace=\"$workspace\"}, domain)",
         "refresh": 2,
         "includeAll": false
       },
@@ -20,7 +28,7 @@
         "name": "service",
         "type": "query",
         "datasource": "Prometheus",
-        "query": "label_values(up{domain=\"$domain\"}, service)",
+        "query": "label_values(up{workspace=\"$workspace\", domain=\"$domain\"}, service)",
         "refresh": 2,
         "includeAll": false
       }
@@ -35,7 +43,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(rate(sun_svc_requests_total{domain=\"$domain\", service=\"$service\"}[5m])) by (route, method)",
+          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}[5m])) by (route, method)",
           "legendFormat": "{{method}} {{route}}"
         }
       ]
@@ -48,7 +56,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(sun_svc_request_duration_seconds_bucket{domain=\"$domain\", service=\"$service\"}[5m])) by (le, route))",
+          "expr": "histogram_quantile(0.95, sum(rate(sun_svc_request_duration_seconds_bucket{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}[5m])) by (le, route))",
           "legendFormat": "{{route}}"
         }
       ]
@@ -61,7 +69,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "up{domain=\"$domain\", service=\"$service\"}",
+          "expr": "up{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}",
           "legendFormat": "{{pod}}"
         }
       ]
@@ -73,7 +81,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": "Loki",
       "targets": [
-        { "expr": "{domain=\"$domain\", service=\"$service\"}" }
+        { "expr": "{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}" }
       ]
     }
   ]

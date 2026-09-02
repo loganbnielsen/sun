@@ -40,19 +40,27 @@ let workspace = "myapp"
 
 let test_dashboard_workspace_scope () =
   let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard O.Workspace) in
-  check_string "workspace dashboard" "http://localhost:3000/d/sun-workspace-overview" url
+  check_string "workspace dashboard"
+    "http://localhost:3000/d/sun-workspace-overview?var-workspace=myapp" url
 
 let test_dashboard_domain_scope () =
   let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard (O.Domain "payments")) in
   check_bool "uses service-template uid" true (contains url "/d/sun-service-template");
+  check_bool "presets var-workspace" true (contains url "var-workspace=myapp");
   check_bool "presets var-domain" true (contains url "var-domain=payments");
   check_bool "no var-service" false (contains url "var-service")
 
 let test_dashboard_service_scope () =
   let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard
                        (O.Service ("payments", "charge-svc"))) in
+  check_bool "presets var-workspace" true (contains url "var-workspace=myapp");
   check_bool "presets var-domain" true (contains url "var-domain=payments");
   check_bool "presets var-service" true (contains url "var-service=charge-svc")
+
+let test_dashboard_workspace_scope_normalizes_case_and_underscore () =
+  let url = ok_url (O.url ~base_url ~workspace:"My_App" ~kind:O.Dashboard O.Workspace) in
+  check_bool "var-workspace uses the normalized (lowercase, hyphenated) name" true
+    (contains url "var-workspace=my-app")
 
 let test_metrics_matches_dashboard () =
   let dashboard = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard (O.Domain "payments")) in
@@ -120,6 +128,8 @@ let () =
         `Quick test_dashboard_service_scope_normalizes_underscore_name;
       Alcotest.test_case "domain scope normalizes case/underscore"
         `Quick test_dashboard_domain_scope_normalizes_case_and_underscore;
+      Alcotest.test_case "workspace scope normalizes case/underscore"
+        `Quick test_dashboard_workspace_scope_normalizes_case_and_underscore;
       Alcotest.test_case "invalid service name -> Error"
         `Quick test_dashboard_service_scope_invalid_name;
     ];

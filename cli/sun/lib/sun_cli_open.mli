@@ -18,7 +18,8 @@ val parse_scope : string option -> (scope, string) result
       scoped to one).
     - [Metrics] and [Dashboard] both deep-link into OBS-011's provisioned
       dashboards (workspace overview, or the service template with
-      $domain/$service preset via query params once scoped).
+      $workspace/$domain/$service preset via query params once scoped;
+      $workspace is always preset -- see OBS-020).
     [Error _] means [scope]'s domain/service name failed Sun's naming
     rules (see [Sun_cli_deployment_plan]). *)
 val url
