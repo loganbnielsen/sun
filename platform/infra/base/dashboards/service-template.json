@@ -11,24 +11,24 @@
       {
         "name": "workspace",
         "type": "query",
-        "datasource": "Prometheus",
-        "query": "label_values(up, workspace)",
+        "datasource": "Loki",
+        "query": "label_values(workspace)",
         "refresh": 2,
         "includeAll": false
       },
       {
         "name": "domain",
         "type": "query",
-        "datasource": "Prometheus",
-        "query": "label_values(up{workspace=\"$workspace\"}, domain)",
+        "datasource": "Loki",
+        "query": "label_values({workspace=\"$workspace\"}, domain)",
         "refresh": 2,
         "includeAll": false
       },
       {
         "name": "service",
         "type": "query",
-        "datasource": "Prometheus",
-        "query": "label_values(up{workspace=\"$workspace\", domain=\"$domain\"}, service)",
+        "datasource": "Loki",
+        "query": "label_values({workspace=\"$workspace\", domain=\"$domain\"}, service)",
         "refresh": 2,
         "includeAll": false
       }
