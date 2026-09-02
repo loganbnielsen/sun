@@ -33,6 +33,18 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
+(* Services actually declared under a domain (source name + k8s name),
+   independent of any kubectl call -- used both to drive diagnosis below
+   and, at service scope, to reject a service that was never declared
+   (OBS-022) before reporting any health status for it. *)
+let declared_services ~domain : (string * string) list =
+  Sun_cli_manifest.discover_services ~filter_path:None
+  |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)
+  |> List.filter_map (fun (s : Sun_cli_manifest.service) ->
+       match Sun_cli_deployment_plan.k8s_name_result s.name with
+       | Error _ -> None
+       | Ok k8s_name -> Some (s.name, Sun_cli_deployment_plan.k8s_name_to_string k8s_name))
+
 (* Kubernetes-derived rollout diagnosis: works even when the app never
    started and Loki has nothing, so it's used unconditionally, not as a
    fallback behind Loki health. One entry per checkable service in the
@@ -41,12 +53,7 @@ let namespace_or_exit ~workspace ~domain =
    Keyed by k8s (hyphenated) name -- the same form 'sun open'/'sun logs'
    scope arguments use. *)
 let service_diagnoses_named ~ns ~domain : (string * string option) list =
-  Sun_cli_manifest.discover_services ~filter_path:None
-  |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)
-  |> List.filter_map (fun (s : Sun_cli_manifest.service) ->
-       match Sun_cli_deployment_plan.k8s_name_result s.name with
-       | Error _ -> None
-       | Ok k8s_name -> Some (s.name, Sun_cli_deployment_plan.k8s_name_to_string k8s_name))
+  declared_services ~domain
   |> List.map (fun (service_name, k8s_name) ->
        (k8s_name, Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name ~k8s_name))
 
@@ -225,6 +232,13 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
       Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
       exit 1
   in
+  (* OBS-022: an undeclared service has no pods, so diagnose_service_live
+     would vacuously report it healthy -- reject it up front instead of
+     reporting a status for something that was never scaffolded. *)
+  if not (List.exists (fun (_, k) -> k = k8s_name) (declared_services ~domain)) then begin
+    Printf.eprintf "Service '%s' not found in domain '%s'.\n" service_name domain;
+    exit 1
+  end;
   let exists = ns_exists ns in
   let diagnosis =
     if exists then
