@@ -59,13 +59,17 @@ let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) l
    scope arguments use. An Fn has no pod between scheduled runs by
    design, so a zero-pod Fn isn't degraded the way a zero-pod Svc/Worker
    is (OBS-024 follow-up). *)
+let pod_expectation_of_primitive = function
+  | Sun_cli_manifest.Fn -> Sun_cli_rollout_diagnosis.Ephemeral
+  | Sun_cli_manifest.Svc | Sun_cli_manifest.Worker -> Sun_cli_rollout_diagnosis.Continuous
+
 let service_diagnoses_named ~ns ~domain : (string * string option) list =
   declared_services ~domain
   |> List.map (fun (service_name, k8s_name, primitive) ->
-       let expects_continuous_pods = primitive <> Sun_cli_manifest.Fn in
+       let pod_expectation = pod_expectation_of_primitive primitive in
        (k8s_name,
         Sun_cli_rollout_diagnosis.diagnose_service_live
-          ~expects_continuous_pods ~ns ~service_name ~k8s_name ()))
+          ~pod_expectation ~ns ~service_name ~k8s_name ()))
 
 let service_diagnoses ~ns ~domain : string option list =
   service_diagnoses_named ~ns ~domain |> List.map snd
@@ -253,15 +257,15 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
     Printf.eprintf "Service '%s' not found in domain '%s'.\n" service_name domain;
     exit 1
   end;
-  (* Fn has no pod between scheduled runs by design (OBS-024 follow-up) --
-     found above, so this List.find can't raise. *)
+  (* Fn has no pod between scheduled runs by design (OBS-024/026 follow-up)
+     -- found above, so this List.find can't raise. *)
   let (_, _, primitive) = List.find (fun (_, k, _) -> k = k8s_name) declared in
-  let expects_continuous_pods = primitive <> Sun_cli_manifest.Fn in
+  let pod_expectation = pod_expectation_of_primitive primitive in
   let exists = ns_exists ns in
   let diagnosis =
     if exists then
       Sun_cli_rollout_diagnosis.diagnose_service_live
-        ~expects_continuous_pods ~ns ~service_name:k8s_name ~k8s_name ()
+        ~pod_expectation ~ns ~service_name:k8s_name ~k8s_name ()
     else None
   in
   let status = Sun_cli_status.rollup_domain_status ~ns_exists:exists [diagnosis] in

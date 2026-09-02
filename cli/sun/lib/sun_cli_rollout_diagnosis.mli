@@ -40,24 +40,45 @@ val events_for_pod : ?limit:int -> pod_name:string -> event list -> event list
     also Running (not stuck Waiting/Terminated with a stale ready flag). *)
 val is_healthy : pod_status -> bool
 
+(** Which pod-count/lifecycle model a service follows. Kept local to this
+    module rather than taking [Sun_cli_manifest.primitive] directly, so
+    rollout diagnosis doesn't couple to manifest concepts -- callers
+    translate from primitive to this. *)
+type pod_expectation =
+  | Continuous
+  (** Deployment/Rollout-backed (Svc, Worker): a pod should always be
+      running; zero pods, or a pod that isn't [is_healthy], is a finding. *)
+  | Ephemeral
+  (** CronJob-backed (Fn): no pod at all between scheduled runs is the
+      expected resting state, and a pod that ran to completion
+      successfully (phase "Succeeded") is not a failure either -- only an
+      active pod that isn't healthy and hasn't completed is a finding. *)
+
+(** [true] when [p] ran to completion successfully (Kubernetes pod phase
+    "Succeeded") -- exposed for [Ephemeral] callers that want to
+    distinguish this from an active/failed pod directly. *)
+val is_successfully_completed : pod_status -> bool
+
 (** Render one pod's diagnosis block: state/reason, restarts, last
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [format_service_diagnosis ?expects_continuous_pods ~service_name pods
-    events] returns [None] when every pod is healthy, or a rendered
-    "<service_name> rollout failed" block otherwise -- covering every
-    unhealthy pod, or, when [pods] is empty *and* [expects_continuous_pods]
-    (default [true]), a "no pods found for this service" finding
-    (OBS-024): an empty pod list for a namespace that exists means the
-    service never started, which this diagnosis exists to catch.
-    [expects_continuous_pods:false] is for primitives that are normally
-    idle between runs (Fn/CronJob) -- an empty pod list there is the
-    expected resting state, not a failure. Only pass a confirmed pod list
-    here (see [fetch_pod_statuses]) -- an empty list always reads as
-    "confirmed zero pods," never "couldn't check." *)
+(** [format_service_diagnosis ?pod_expectation ~service_name pods events]
+    returns [None] when every pod is OK for [pod_expectation] (default
+    [Continuous]), or a rendered "<service_name> rollout failed" block
+    otherwise:
+    - [Continuous]: any pod that isn't [is_healthy] is a finding,
+      including an empty pod list (OBS-024) -- a namespace that exists
+      with no pod means the service never started.
+    - [Ephemeral]: an empty pod list is not a finding (idle between runs
+      is expected), and a pod is only a finding when it's neither
+      [is_healthy] nor [is_successfully_completed] (OBS-026) -- a
+      scheduled run that finished successfully isn't a failure either.
+    Only pass a confirmed pod list here (see [fetch_pod_statuses]) -- an
+    empty list always reads as "confirmed zero pods," never "couldn't
+    check." *)
 val format_service_diagnosis
-  :  ?expects_continuous_pods:bool
+  :  ?pod_expectation:pod_expectation
   -> service_name:string
   -> pod_status list
   -> event list
@@ -74,12 +95,12 @@ val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
 
 (** Live, I/O-performing version of [format_service_diagnosis]: fetches pods
     and events for the given service and returns its diagnosis, if any.
-    [None] both when every pod is healthy and when the pod fetch itself
+    [None] both when every pod is OK and when the pod fetch itself
     failed -- a transient kubectl failure stays silent rather than being
-    reported as "no pods found." [?expects_continuous_pods] is forwarded
-    to [format_service_diagnosis]. *)
+    reported as "no pods found." [?pod_expectation] is forwarded to
+    [format_service_diagnosis]. *)
 val diagnose_service_live
-  :  ?expects_continuous_pods:bool
+  :  ?pod_expectation:pod_expectation
   -> ns:string
   -> service_name:string
   -> k8s_name:string

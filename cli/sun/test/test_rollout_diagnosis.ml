@@ -15,6 +15,17 @@ let healthy_pod_json = {|
 ]}
 |}
 
+let succeeded_pod_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-abc"},
+   "status": {"phase": "Succeeded",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha1",
+        "state": {"terminated": {"reason": "Completed", "exitCode": 0}}}
+     ]}}
+]}
+|}
+
 let image_pull_backoff_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-xyz"},
@@ -151,28 +162,53 @@ let test_format_service_diagnosis_reports_empty_pod_list () =
        with Not_found -> false)
 
 (* OBS-024 follow-up: an Fn (CronJob-backed) has no pod between scheduled
-   runs by design -- ~expects_continuous_pods:false must keep an empty
-   pod list looking healthy, unlike a Svc/Worker. *)
-let test_format_service_diagnosis_empty_pods_ok_when_not_continuous () =
+   runs by design -- ~pod_expectation:Ephemeral must keep an empty pod
+   list looking healthy, unlike a Svc/Worker (Continuous). *)
+let test_format_service_diagnosis_empty_pods_ok_when_ephemeral () =
   check_bool "no diagnosis for an idle Fn with zero pods" true
     (Option.is_none
-       (D.format_service_diagnosis ~expects_continuous_pods:false
+       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
           ~service_name:"invoice-fn" [] []))
 
 let test_format_service_diagnosis_default_still_flags_empty_pods () =
-  check_bool "default (no ~expects_continuous_pods) still flags empty pods" true
+  check_bool "default (Continuous) still flags empty pods" true
     (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" [] []))
 
-(* Even an idle-between-runs primitive should still be flagged while a
-   pod is actually present and unhealthy (e.g. a scheduled run stuck
-   crash-looping) -- ~expects_continuous_pods:false only changes the
-   empty-list case. *)
-let test_format_service_diagnosis_unhealthy_pods_still_flagged_when_not_continuous () =
+(* Even an Ephemeral primitive should still be flagged while a pod is
+   actually present and unhealthy (e.g. a scheduled run stuck
+   crash-looping) -- Ephemeral only changes the empty-list/completed-pod
+   cases. *)
+let test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral () =
   let pods = D.parse_pods_json image_pull_backoff_json in
-  check_bool "unhealthy pod still flagged for a non-continuous primitive" true
+  check_bool "unhealthy pod still flagged for an Ephemeral primitive" true
     (Option.is_some
-       (D.format_service_diagnosis ~expects_continuous_pods:false
+       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
           ~service_name:"invoice-fn" pods []))
+
+(* OBS-026 (fifth-round review of PR #85): a CronJob pod that ran to
+   completion successfully (phase "Succeeded") is not a failure for
+   Ephemeral -- the fix for idle (zero-pod) Fn services didn't cover the
+   equally-common case of a *completed* one. *)
+let test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral () =
+  let pods = D.parse_pods_json succeeded_pod_json in
+  check_bool "successfully completed pod is not a diagnosis for Ephemeral" true
+    (Option.is_none
+       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
+          ~service_name:"invoice-fn" pods []))
+
+let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous () =
+  let pods = D.parse_pods_json succeeded_pod_json in
+  check_bool "a Succeeded pod is still a finding for Continuous (Svc/Worker)" true
+    (Option.is_some
+       (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
+
+let test_is_successfully_completed () =
+  let succeeded = D.parse_pods_json succeeded_pod_json in
+  let running = D.parse_pods_json healthy_pod_json in
+  check_bool "Succeeded phase -> true" true
+    (List.for_all D.is_successfully_completed succeeded);
+  check_bool "Running phase -> false" false
+    (List.exists D.is_successfully_completed running)
 
 let () =
   Alcotest.run "rollout_diagnosis"
@@ -190,8 +226,11 @@ let () =
        [ Alcotest.test_case "none when healthy" `Quick test_format_service_diagnosis_none_when_healthy;
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
          Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
-         Alcotest.test_case "empty pods OK when not continuous (Fn)" `Quick test_format_service_diagnosis_empty_pods_ok_when_not_continuous;
+         Alcotest.test_case "empty pods OK when Ephemeral (Fn)" `Quick test_format_service_diagnosis_empty_pods_ok_when_ephemeral;
          Alcotest.test_case "default still flags empty pods" `Quick test_format_service_diagnosis_default_still_flags_empty_pods;
-         Alcotest.test_case "unhealthy pods still flagged when not continuous" `Quick test_format_service_diagnosis_unhealthy_pods_still_flagged_when_not_continuous;
+         Alcotest.test_case "unhealthy pods still flagged when Ephemeral" `Quick test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral;
+         Alcotest.test_case "succeeded pod OK when Ephemeral" `Quick test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral;
+         Alcotest.test_case "succeeded pod still flagged when Continuous" `Quick test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous;
+         Alcotest.test_case "is_successfully_completed" `Quick test_is_successfully_completed;
        ]);
     ]
