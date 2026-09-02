@@ -84,7 +84,8 @@ let print_workspace_index ~workspace ~domains ~observability_backend
   Printf.printf "  metrics    sun open metrics\n";
   Printf.printf "  dashboard  sun open dashboard\n%!"
 
-let run filter_domain observability_backend loki_base_url prometheus_base_url =
+let run filter_domain explicit_backend explicit_base_domain target
+    loki_base_url prometheus_base_url =
   let workspace = workspace_name () in
   let all_domains = discover_domains () in
   if all_domains = [] then begin
@@ -93,6 +94,12 @@ let run filter_domain observability_backend loki_base_url prometheus_base_url =
   end;
   match filter_domain with
   | None ->
+    let observability_backend =
+      match Sun_cli_observability_url.effective_backend_and_base_domain
+              ~explicit_backend ~explicit_base_domain ~target () with
+      | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+      | Ok (backend, _base_domain) -> backend
+    in
     print_workspace_index ~workspace ~domains:all_domains ~observability_backend
       ~loki_base_url ~prometheus_base_url
   | Some d ->
@@ -161,20 +168,24 @@ let prometheus_base_url_arg =
                workspace index's reachability check (default: \
                http://localhost:9090).")
 
+let backend_of_arg = function
+  | None -> None
+  | Some s ->
+    match Sun_cli_observability_url.backend_of_string s with
+    | Some b -> Some b
+    | None ->
+      Printf.eprintf
+        "error: unknown --observability-backend %S (expected: local, \
+         self_hosted_durable, external)\n" s;
+      exit 1
+
 let cmd =
   Cmd.v
     (Cmd.info "status"
        ~doc:"Show running pods and service endpoints for the current workspace")
-    Term.(const (fun domain observability_backend loki_base_url prometheus_base_url ->
-        let observability_backend =
-          match Sun_cli_observability_url.backend_of_string observability_backend with
-          | Some b -> b
-          | None ->
-            Printf.eprintf
-              "error: unknown --observability-backend %S (expected: local, \
-               self_hosted_durable, external)\n" observability_backend;
-            exit 1
-        in
-        run domain observability_backend loki_base_url prometheus_base_url)
-      $ domain_arg $ Cmd_logs.observability_backend_arg $ Cmd_logs.loki_base_url_arg
-      $ prometheus_base_url_arg)
+    Term.(const (fun domain observability_backend base_domain target
+                     loki_base_url prometheus_base_url ->
+        run domain (backend_of_arg observability_backend) base_domain target
+          loki_base_url prometheus_base_url)
+      $ domain_arg $ Cmd_logs.observability_backend_arg $ Cmd_logs.base_domain_arg
+      $ Cmd_logs.target_arg $ Cmd_logs.loki_base_url_arg $ prometheus_base_url_arg)

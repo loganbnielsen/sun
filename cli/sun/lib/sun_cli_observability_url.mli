@@ -29,3 +29,21 @@ val resolve
   -> ?override:string
   -> unit
   -> resolution
+
+(** [effective_backend_and_base_domain ~explicit_backend ~explicit_base_domain
+    ~target ()] layers explicit CLI flags over [target]'s [sun.yml] config
+    (loaded via [Sun_cli_config.load_for_target], the same path
+    [sun plan]/[sun cloud tf] use) over the hardcoded [Local] default:
+    - an explicit flag always wins when given;
+    - otherwise, when [target] ([<env>/<provider>/<region>]) is given, its
+      config supplies the backend/base_domain;
+    - otherwise falls back to [Local]/[None], matching today's behavior.
+    [Error _] covers: [target] fails to load, resolves to no target, or
+    sets an [observability_backend] value outside
+    ["local"|"self_hosted_durable"|"external"]. *)
+val effective_backend_and_base_domain
+  :  explicit_backend:backend option
+  -> explicit_base_domain:string option
+  -> target:string option
+  -> unit
+  -> (backend * string option, string) result
