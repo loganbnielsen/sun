@@ -160,31 +160,47 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
+(* An empty pod list is itself a finding, not silence: it means "never
+   started" just as much as an unhealthy pod does (OBS-024) -- the whole
+   point of this diagnosis, per its call sites, is to catch that case.
+   Only meaningful when [pods] reflects a *confirmed* kubectl result;
+   callers must not pass an empty list for "couldn't check" (see
+   fetch_pod_statuses/diagnose_service_live below). *)
 let format_service_diagnosis ~service_name (pods : pod_status list) (events : event list) : string option =
-  let unhealthy = List.filter (fun p -> not (is_healthy p)) pods in
-  if unhealthy = [] then None
-  else begin
-    let buf = Buffer.create 512 in
-    Buffer.add_string buf (Printf.sprintf "%s rollout failed\n\n" service_name);
-    List.iter (fun p ->
-      Buffer.add_string buf (format_pod_diagnosis p (events_for_pod ~pod_name:p.name events));
-      Buffer.add_char buf '\n'
-    ) unhealthy;
-    Some (Buffer.contents buf)
-  end
+  if pods = [] then
+    Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
+  else
+    let unhealthy = List.filter (fun p -> not (is_healthy p)) pods in
+    if unhealthy = [] then None
+    else begin
+      let buf = Buffer.create 512 in
+      Buffer.add_string buf (Printf.sprintf "%s rollout failed\n\n" service_name);
+      List.iter (fun p ->
+        Buffer.add_string buf (format_pod_diagnosis p (events_for_pod ~pod_name:p.name events));
+        Buffer.add_char buf '\n'
+      ) unhealthy;
+      Some (Buffer.contents buf)
+    end
 
 let fetch_namespace_events ~ns : event list =
   match Sun_cli_kubectl.get_raw ~args:["get"; "events"; "-n"; ns; "-o"; "json"] with
   | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_events_json r.Sun_cli_process.stdout
   | _ -> []
 
-let fetch_pod_statuses ~ns ~k8s_name : pod_status list =
+(* [None] means the kubectl call itself failed (transient error, timeout,
+   ...) -- distinct from [Some []], a confirmed zero pods. Conflating the
+   two used to mean a transient failure and "no pods deployed" looked
+   identical to callers; format_service_diagnosis now treats a confirmed
+   empty list as a real finding, so this distinction matters. *)
+let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   match Sun_cli_kubectl.get_raw
           ~args:["get"; "pods"; "-n"; ns; "-l"; "app=" ^ k8s_name; "-o"; "json"] with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_pods_json r.Sun_cli_process.stdout
-  | _ -> []
+  | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
+  | _ -> None
 
 let diagnose_service_live ~ns ~service_name ~k8s_name : string option =
-  let events = fetch_namespace_events ~ns in
-  let pods = fetch_pod_statuses ~ns ~k8s_name in
-  format_service_diagnosis ~service_name pods events
+  match fetch_pod_statuses ~ns ~k8s_name with
+  | None -> None
+  | Some pods ->
+    let events = fetch_namespace_events ~ns in
+    format_service_diagnosis ~service_name pods events

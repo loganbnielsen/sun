@@ -49,3 +49,11 @@ let reachability_of_probe ~probe_url ~is_reachable =
   match probe_url with
   | None -> Not_checked
   | Some url -> if is_reachable url then Healthy else Unreachable
+
+(* Service-existence decision (OBS-022/024). Pulled out of cmd_status.ml's
+   inline check so it's directly unit-tested -- discovering the declared
+   k8s names themselves still requires a filesystem scan
+   (Sun_cli_manifest.discover_services), so that part stays in
+   cmd_status.ml; this is just the pure "is it in the set" decision. *)
+let service_is_declared ~k8s_name declared_k8s_names =
+  List.mem k8s_name declared_k8s_names
