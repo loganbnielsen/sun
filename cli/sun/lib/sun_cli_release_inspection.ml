@@ -171,10 +171,10 @@ let manifest_name yaml =
   |> Option.value ~default:"unknown"
 
 let rendered_manifests_of_service
-    ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) service =
+    ~workspace ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) service =
   (* Default to Kubernetes_placeholder for diagnostics so that
      rendered_manifests_of_plan can be called without live env vars. *)
-  match Sun_cli_deployment_render.render_spec ~secret_backend service with
+  match Sun_cli_deployment_render.render_spec ~workspace ~secret_backend service with
   | Error msg -> failwith msg
   | Ok (namespace_yaml, workload_yaml) ->
     split_manifest_docs (namespace_yaml ^ "\n" ^ workload_yaml)
@@ -188,6 +188,7 @@ let rendered_manifests_of_service
 let rendered_manifests_of_plan (plan : Sun_cli_deployment_plan.t) =
   List.concat_map
     (rendered_manifests_of_service
+       ~workspace:plan.workspace
        ~secret_backend:plan.environment.Sun_cli_deployment_plan.secret_backend)
     plan.services
 

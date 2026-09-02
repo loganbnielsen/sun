@@ -167,7 +167,7 @@ let run (req : Sun_cli_command_request.up_request) =
         if req.dry_run then { spec with Sun_cli_deployment_plan.image = push_image }
         else spec
       in
-      ignore (Sun_cli_executor.local ~dry_run:req.dry_run exec_spec);
+      ignore (Sun_cli_executor.local ~workspace ~dry_run:req.dry_run exec_spec);
 
       if not req.dry_run then begin
         (match spec.primitive with

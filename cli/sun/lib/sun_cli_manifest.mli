@@ -39,12 +39,12 @@ type workload_shape = Http_service | Background_worker
 (** Workload shape determines whether a deployment exposes HTTP and uses health
     probes. [Http_service] enables both; [Background_worker] disables both. *)
 
-val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> unit -> string
+val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> workspace:string -> domain:string -> primitive:string -> unit -> string
 
 (** [rollout_doc] renders an Argo Rollout resource instead of a Deployment.
     Requires Argo Rollouts installed in the cluster.
     [pd] must be [Canary _] or [Blue_green]. *)
-val rollout_doc : ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> pd:Sun_cli_toml.progressive_delivery -> unit -> string
+val rollout_doc : ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> pd:Sun_cli_toml.progressive_delivery -> workspace:string -> domain:string -> primitive:string -> unit -> string
 
 (** [blue_green_service_docs ~ns ~name] renders two ClusterIP Services
     ([<name>-active] and [<name>-preview]) required by the blue-green strategy. *)
@@ -53,13 +53,15 @@ val blue_green_service_docs : ns:string -> name:string -> string
 val service_doc        : ns:string -> name:string -> string
 val ingress_doc        : ?ingress_host:string -> ?ingress_path:string -> ns:string -> name:string -> unit -> string
 val network_policy_doc : ns:string -> name:string -> string
-val cronjob_doc        : ?secret_keys:string list -> ns:string -> name:string -> image:string -> schedule:string -> unit -> string
+val cronjob_doc        : ?secret_keys:string list -> ns:string -> name:string -> image:string -> schedule:string -> workspace:string -> domain:string -> unit -> string
 
 (** Render a (namespace_yaml, workload_yaml) pair for one service.
-    [extra_env] is appended to the ConfigMap data block. *)
+    [extra_env] is appended to the ConfigMap data block. [workspace] plus
+    [svc.domain]/[svc.primitive] populate the OBS-008 label taxonomy. *)
 val render
   :  ?toml:Sun_cli_toml.t
   -> service
+  -> workspace:string
   -> ns:string
   -> name:string
   -> image:string
