@@ -20,5 +20,6 @@
   test_loki
   test_run_log
   test_observability_url
-  test_open)
+  test_open
+  test_status)
  (libraries sun_cli alcotest unix yojson str))

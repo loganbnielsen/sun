@@ -32,6 +32,7 @@
   Sun_cli_run_log
   Sun_cli_observability_url
   Sun_cli_open
+  Sun_cli_status
   Sun_cli_rollback
   Sun_cli_docker
   Sun_cli_helm
