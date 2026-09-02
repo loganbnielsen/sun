@@ -26,17 +26,6 @@ let succeeded_pod_json = {|
 ]}
 |}
 
-let failed_pod_json = {|
-{"items": [
-  {"metadata": {"name": "invoice-fn-old"},
-   "status": {"phase": "Failed",
-     "containerStatuses": [
-       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha0",
-        "state": {"terminated": {"reason": "Error", "exitCode": 1}}}
-     ]}}
-]}
-|}
-
 let image_pull_backoff_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-xyz"},
@@ -139,12 +128,12 @@ let test_events_for_pod_excludes_other_pods () =
 let test_format_service_diagnosis_none_when_healthy () =
   let pods = D.parse_pods_json healthy_pod_json in
   check_bool "no diagnosis for healthy service" true
-    (Option.is_none (D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods []))
+    (Option.is_none (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
 
 let test_format_service_diagnosis_includes_events_and_reason () =
   let pods = D.parse_pods_json image_pull_backoff_json in
   let events = D.parse_events_json events_json in
-  match D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods events with
+  match D.format_service_diagnosis ~service_name:"charge-svc" pods events with
   | None -> Alcotest.fail "expected a diagnosis"
   | Some diagnosis ->
     check_bool "mentions rollout failed" true
@@ -162,7 +151,7 @@ let test_format_service_diagnosis_includes_events_and_reason () =
    Deployment used to vacuously look healthy since "no unhealthy pods"
    trivially held for an empty list too. *)
 let test_format_service_diagnosis_reports_empty_pod_list () =
-  match D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" [] [] with
+  match D.format_service_diagnosis ~service_name:"charge-svc" [] [] with
   | None -> Alcotest.fail "expected a diagnosis for zero pods, got None (looks healthy)"
   | Some diagnosis ->
     check_bool "mentions rollout failed" true
@@ -172,62 +161,97 @@ let test_format_service_diagnosis_reports_empty_pod_list () =
       (try ignore (Str.search_forward (Str.regexp_string "No pods found") diagnosis 0); true
        with Not_found -> false)
 
-(* OBS-024 follow-up: an Fn (CronJob-backed) has no pod between scheduled
-   runs by design -- ~pod_expectation:Ephemeral must keep an empty pod
-   list looking healthy, unlike a Svc/Worker (Continuous). *)
-let test_format_service_diagnosis_empty_pods_ok_when_ephemeral () =
-  check_bool "no diagnosis for an idle Fn with zero pods" true
-    (Option.is_none
-       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
-          ~service_name:"invoice-fn" [] []))
-
-(* Even an Ephemeral primitive should still be flagged while a pod is
-   actually present, active, and unhealthy (e.g. a scheduled run stuck
-   crash-looping right now) -- Ephemeral only changes how terminal
-   (finished) pods are treated. *)
-let test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral () =
-  let pods = D.parse_pods_json image_pull_backoff_json in
-  check_bool "an active unhealthy pod still flagged for an Ephemeral primitive" true
-    (Option.is_some
-       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
-          ~service_name:"invoice-fn" pods []))
-
-(* OBS-026 (fifth-round review of PR #85): a CronJob pod that ran to
-   completion successfully (phase "Succeeded") is not a failure for
-   Ephemeral -- the fix for idle (zero-pod) Fn services didn't cover the
-   equally-common case of a *completed* one. *)
-let test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral () =
-  let pods = D.parse_pods_json succeeded_pod_json in
-  check_bool "successfully completed pod is not a diagnosis for Ephemeral" true
-    (Option.is_none
-       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
-          ~service_name:"invoice-fn" pods []))
-
-(* OBS-026 (sixth-round review of PR #85): an old *failed* run pod must
-   not keep an Ephemeral service looking DEGRADED once a later run has
-   succeeded -- kubectl can return several historical run pods at once
-   (successfulJobsHistoryLimit/failedJobsHistoryLimit), so a terminal
-   pod's outcome (succeeded or failed) is history, not a live signal. *)
-let test_format_service_diagnosis_failed_terminal_pod_ok_when_ephemeral () =
-  let pods = D.parse_pods_json failed_pod_json in
-  check_bool "a failed but terminal (finished) pod is not a diagnosis for Ephemeral" true
-    (Option.is_none
-       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
-          ~service_name:"invoice-fn" pods []))
-
 let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous () =
   let pods = D.parse_pods_json succeeded_pod_json in
   check_bool "a Succeeded pod is still a finding for Continuous (Svc/Worker)" true
-    (Option.is_some
-       (D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods []))
+    (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
 
-let test_is_terminal () =
-  let succeeded = D.parse_pods_json succeeded_pod_json in
-  let failed = D.parse_pods_json failed_pod_json in
-  let running = D.parse_pods_json healthy_pod_json in
-  check_bool "Succeeded phase -> true" true (List.for_all D.is_terminal succeeded);
-  check_bool "Failed phase -> true" true (List.for_all D.is_terminal failed);
-  check_bool "Running phase -> false" false (List.exists D.is_terminal running)
+(* ── format_cronjob_diagnosis (Ephemeral/Fn, OBS-026) ───────────────────── *)
+
+let never_scheduled : D.cronjob_status =
+  { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+
+let idle_last_run_succeeded : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-02T10:00:05Z";
+    active_count = 0 }
+
+let idle_last_run_failed : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-01T10:00:05Z" (* stale, from an earlier run *);
+    active_count = 0 }
+
+let idle_never_succeeded : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = None;
+    active_count = 0 }
+
+let run_currently_active : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = None;
+    active_count = 1 }
+
+let test_format_cronjob_diagnosis_never_scheduled_is_ok () =
+  check_bool "never scheduled -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" never_scheduled))
+
+let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
+  check_bool "most recent run succeeded -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_succeeded))
+
+(* OBS-026 (sixth-round review of PR #85): an old *failed* run must not
+   keep an Ephemeral service looking DEGRADED once a later run has
+   succeeded. Structurally impossible to get wrong here the way pod-list
+   inspection was, since this only ever compares the two CronJob-level
+   timestamps -- there's no historical Job/pod list to misread. *)
+let test_format_cronjob_diagnosis_stale_failure_does_not_linger () =
+  check_bool "an old failure superseded by a newer success is not a diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_succeeded))
+
+(* OBS-026 (seventh-round review of PR #85): the most recently scheduled
+   run *not* having succeeded -- whether it failed outright or has simply
+   never succeeded -- must still be flagged. A prior pod-based fix that
+   treated any terminal (Failed included) pod as OK made a function that
+   just failed report healthy, which defeats the point of `sun status`. *)
+let test_format_cronjob_diagnosis_last_run_failed_is_flagged () =
+  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_failed with
+  | None -> Alcotest.fail "expected a diagnosis for a most-recent-run failure, got None (looks healthy)"
+  | Some diagnosis ->
+    check_bool "mentions rollout failed" true
+      (try ignore (Str.search_forward (Str.regexp_string "invoice-fn rollout failed") diagnosis 0); true
+       with Not_found -> false);
+    check_bool "mentions the schedule time" true
+      (try ignore (Str.search_forward (Str.regexp_string "2026-09-02T10:00:00Z") diagnosis 0); true
+       with Not_found -> false)
+
+let test_format_cronjob_diagnosis_never_succeeded_is_flagged () =
+  check_bool "scheduled but never once succeeded -> flagged" true
+    (Option.is_some (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_never_succeeded))
+
+(* A run currently in progress isn't judged yet either way -- Sun's
+   CronJobs set backoffLimit: 3, so a run stuck failing terminates within
+   a few retries rather than staying "active" indefinitely. *)
+let test_format_cronjob_diagnosis_active_run_is_ok () =
+  check_bool "a currently-active run is not (yet) a diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" run_currently_active))
+
+let test_parse_cronjob_status () =
+  let json = {|{"status": {"lastScheduleTime": "2026-09-02T10:00:00Z", "lastSuccessfulTime": "2026-09-02T10:00:05Z", "active": [{"name": "invoice-fn-1"}]}}|} in
+  match D.parse_cronjob_status json with
+  | None -> Alcotest.fail "expected Some cronjob_status"
+  | Some (status : D.cronjob_status) ->
+    check_string "lastScheduleTime" "2026-09-02T10:00:00Z"
+      (Option.value ~default:"" status.last_schedule_time);
+    check_string "lastSuccessfulTime" "2026-09-02T10:00:05Z"
+      (Option.value ~default:"" status.last_successful_time);
+    check_int "active_count" 1 status.active_count
+
+let test_parse_cronjob_status_never_scheduled () =
+  match D.parse_cronjob_status {|{"status": {}}|} with
+  | None -> Alcotest.fail "expected Some cronjob_status"
+  | Some (status : D.cronjob_status) ->
+    check_bool "no lastScheduleTime" true (status.last_schedule_time = None);
+    check_int "active_count defaults to 0" 0 status.active_count
 
 let () =
   Alcotest.run "rollout_diagnosis"
@@ -245,11 +269,18 @@ let () =
        [ Alcotest.test_case "none when healthy" `Quick test_format_service_diagnosis_none_when_healthy;
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
          Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
-         Alcotest.test_case "empty pods OK when Ephemeral (Fn)" `Quick test_format_service_diagnosis_empty_pods_ok_when_ephemeral;
-         Alcotest.test_case "unhealthy pods still flagged when Ephemeral" `Quick test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral;
-         Alcotest.test_case "succeeded pod OK when Ephemeral" `Quick test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral;
-         Alcotest.test_case "failed terminal pod OK when Ephemeral" `Quick test_format_service_diagnosis_failed_terminal_pod_ok_when_ephemeral;
          Alcotest.test_case "succeeded pod still flagged when Continuous" `Quick test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous;
-         Alcotest.test_case "is_terminal" `Quick test_is_terminal;
+       ]);
+      ("format_cronjob_diagnosis",
+       [ Alcotest.test_case "never scheduled -> OK" `Quick test_format_cronjob_diagnosis_never_scheduled_is_ok;
+         Alcotest.test_case "last run succeeded -> OK" `Quick test_format_cronjob_diagnosis_last_run_succeeded_is_ok;
+         Alcotest.test_case "stale failure doesn't linger" `Quick test_format_cronjob_diagnosis_stale_failure_does_not_linger;
+         Alcotest.test_case "last run failed -> flagged" `Quick test_format_cronjob_diagnosis_last_run_failed_is_flagged;
+         Alcotest.test_case "never succeeded -> flagged" `Quick test_format_cronjob_diagnosis_never_succeeded_is_flagged;
+         Alcotest.test_case "active run -> OK" `Quick test_format_cronjob_diagnosis_active_run_is_ok;
+       ]);
+      ("parse_cronjob_status",
+       [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;
+         Alcotest.test_case "never scheduled defaults" `Quick test_parse_cronjob_status_never_scheduled;
        ]);
     ]

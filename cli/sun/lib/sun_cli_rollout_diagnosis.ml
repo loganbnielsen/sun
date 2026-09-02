@@ -129,32 +129,25 @@ let events_for_pod ?(limit = 5) ~pod_name (events : event list) : event list =
 let is_healthy (p : pod_status) : bool =
   p.phase = "Running" && p.ready && (p.state = Running)
 
-(* Which pod-count/lifecycle model a service follows -- kept local to this
-   module rather than taking Sun_cli_manifest.primitive directly, so
-   rollout diagnosis doesn't couple to manifest concepts; cmd_status.ml
+(* Which health model a service follows -- kept local to this module
+   rather than taking Sun_cli_manifest.primitive directly, so rollout
+   diagnosis doesn't couple to manifest concepts; cmd_status.ml
    translates from primitive to this. *)
 type pod_expectation =
   | Continuous
   (** Deployment/Rollout-backed (Svc, Worker): a pod should always be
-      running; zero pods, or a pod that isn't [is_healthy], is a finding. *)
+      running; zero pods, or a pod that isn't [is_healthy], is a finding.
+      Diagnosed from the live pod list ([format_service_diagnosis]). *)
   | Ephemeral
-  (** CronJob-backed (Fn): no pod at all between scheduled runs is the
-      expected resting state. A *terminal* pod (phase "Succeeded" or
-      "Failed") is history, not a live signal, and is never a finding
-      either way -- `kubectl get pods -l app=<name>` can return several
-      historical run pods at once (successfulJobsHistoryLimit/
-      failedJobsHistoryLimit), and an old failed run must not keep the
-      function looking DEGRADED after a later run succeeds. Only a
-      currently *active* pod (Running/Pending) that isn't [is_healthy]
-      -- e.g. crash-looping mid-run -- is a finding. *)
-
-let is_terminal (p : pod_status) : bool =
-  p.phase = "Succeeded" || p.phase = "Failed"
-
-let is_ok_for ~pod_expectation (p : pod_status) : bool =
-  match pod_expectation with
-  | Continuous -> is_healthy p
-  | Ephemeral -> is_healthy p || is_terminal p
+  (** CronJob-backed (Fn): there's no stable pod to inspect between runs,
+      and `kubectl get pods -l app=<name>` can return several historical
+      run pods at once (successfulJobsHistoryLimit/failedJobsHistoryLimit)
+      with no reliable way to tell, from pod state alone, whether an old
+      failure has since been superseded by a newer success -- pod-list
+      inspection is the wrong data source for this primitive. Diagnosed
+      instead from the CronJob's own status fields
+      ([format_cronjob_diagnosis]), which Kubernetes maintains natively
+      for exactly this ("did the most recently scheduled run succeed"). *)
 
 let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   let buf = Buffer.create 256 in
@@ -187,31 +180,19 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
-(* An empty pod list is itself a finding, not silence, for [Continuous]
-   (Svc/Worker): it means "never started" just as much as an unhealthy
-   pod does (OBS-024) -- the whole point of this diagnosis, per its call
-   sites, is to catch that case. It is NOT a finding for [Ephemeral]
-   (Fn/CronJob) -- that has no pod at all except while a scheduled
-   invocation is actively executing, and a terminal pod (succeeded or
-   failed) is history, not a failure (OBS-024/026 follow-up: originally
-   unconditional and falsely degraded every idle scheduled function, then
-   every completed one, including ones that failed and were later
-   superseded by a success).
-   [~pod_expectation] is required, not defaulted -- the bug this fixes
-   came from applying the wrong health model, so a caller must say which
-   one it means rather than silently inheriting a default.
+(* An empty pod list is itself a finding, not silence (OBS-024): it means
+   "never started" just as much as an unhealthy pod does -- the whole
+   point of this diagnosis, per its call sites, is to catch that case.
+   [Continuous] only -- see [format_cronjob_diagnosis] for [Ephemeral].
    Only meaningful when [pods] reflects a *confirmed* kubectl result;
    callers must not pass an empty list for "couldn't check" (see
    fetch_pod_statuses/diagnose_service_live below). *)
-let format_service_diagnosis ~pod_expectation ~service_name
+let format_service_diagnosis ~service_name
     (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
-    match pod_expectation with
-    | Continuous ->
-      Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
-    | Ephemeral -> None
+    Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
   else
-    let unhealthy = List.filter (fun p -> not (is_ok_for ~pod_expectation p)) pods in
+    let unhealthy = List.filter (fun p -> not (is_healthy p)) pods in
     if unhealthy = [] then None
     else begin
       let buf = Buffer.create 512 in
@@ -222,6 +203,57 @@ let format_service_diagnosis ~pod_expectation ~service_name
       ) unhealthy;
       Some (Buffer.contents buf)
     end
+
+(* CronJob status, as Kubernetes itself tracks it -- the authoritative
+   source for "did the most recently scheduled run succeed," which pod
+   inspection can't answer reliably once more than one historical pod is
+   retained (OBS-026). *)
+type cronjob_status = {
+  last_schedule_time   : string option;
+  last_successful_time : string option;
+  active_count         : int;
+}
+
+let parse_cronjob_status (s : string) : cronjob_status option =
+  try
+    let j = Yojson.Safe.from_string s in
+    match member_opt "status" j with
+    | None -> Some { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+    | Some status ->
+      let last_schedule_time = J.member "lastScheduleTime" status |> to_string_opt in
+      let last_successful_time = J.member "lastSuccessfulTime" status |> to_string_opt in
+      let active_count =
+        match member_opt "active" status with
+        | Some (`List l) -> List.length l
+        | _ -> 0
+      in
+      Some { last_schedule_time; last_successful_time; active_count }
+  with _ -> None
+
+(* [Ephemeral]: no run scheduled yet, or a run currently in progress, is
+   not a finding (nothing to judge yet, or too early to tell -- Sun's
+   CronJobs set backoffLimit: 3, so a run stuck failing terminates within
+   a few retries rather than staying "active" indefinitely). Once idle
+   between runs, the most recently *scheduled* run is a finding only if
+   it hasn't since been recorded as successful -- comparing
+   lastSuccessfulTime against lastScheduleTime (RFC3339 UTC timestamps
+   sort correctly as strings) tells us that without needing to reason
+   about which of several historical pods is "the latest" one. *)
+let format_cronjob_diagnosis ~service_name (status : cronjob_status) : string option =
+  if status.active_count > 0 then None
+  else
+    match status.last_schedule_time with
+    | None -> None
+    | Some scheduled ->
+      let succeeded_since = match status.last_successful_time with
+        | Some succeeded -> succeeded >= scheduled
+        | None -> false
+      in
+      if succeeded_since then None
+      else
+        Some (Printf.sprintf
+                "%s rollout failed\n\nMost recently scheduled run (%s) did not complete successfully.\n"
+                service_name scheduled)
 
 let fetch_namespace_events ~ns : event list =
   match Sun_cli_kubectl.get_raw ~args:["get"; "events"; "-n"; ns; "-o"; "json"] with
@@ -239,9 +271,20 @@ let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
+let fetch_cronjob_status ~ns ~k8s_name : cronjob_status option =
+  match Sun_cli_kubectl.get_raw ~args:["get"; "cronjob"; k8s_name; "-n"; ns; "-o"; "json"] with
+  | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_cronjob_status r.Sun_cli_process.stdout
+  | _ -> None
+
 let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : string option =
-  match fetch_pod_statuses ~ns ~k8s_name with
-  | None -> None
-  | Some pods ->
-    let events = fetch_namespace_events ~ns in
-    format_service_diagnosis ~pod_expectation ~service_name pods events
+  match pod_expectation with
+  | Continuous ->
+    (match fetch_pod_statuses ~ns ~k8s_name with
+     | None -> None
+     | Some pods ->
+       let events = fetch_namespace_events ~ns in
+       format_service_diagnosis ~service_name pods events)
+  | Ephemeral ->
+    (match fetch_cronjob_status ~ns ~k8s_name with
+     | None -> None
+     | Some status -> format_cronjob_diagnosis ~service_name status)
