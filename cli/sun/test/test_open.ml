@@ -59,6 +59,27 @@ let test_metrics_matches_dashboard () =
   let metrics   = ok_url (O.url ~base_url ~workspace ~kind:O.Metrics (O.Domain "payments")) in
   check_string "metrics == dashboard target" dashboard metrics
 
+(* Regression: dashboard_url used to pass scope strings through unchanged,
+   while logs_url already normalized them -- 'sun open dashboard
+   payments/charge_svc' presented a var-service value ("charge_svc") that
+   never matched any metric's normalized 'service' label ("charge-svc"),
+   so the dashboard opened empty. *)
+let test_dashboard_service_scope_normalizes_underscore_name () =
+  let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard
+                       (O.Service ("payments", "charge_svc"))) in
+  check_bool "var-service uses the normalized (hyphenated) name" true
+    (contains url "var-service=charge-svc")
+
+let test_dashboard_domain_scope_normalizes_case_and_underscore () =
+  let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard
+                       (O.Domain "Payments_Team")) in
+  check_bool "var-domain uses the normalized (lowercase, hyphenated) name" true
+    (contains url "var-domain=payments-team")
+
+let test_dashboard_service_scope_invalid_name () =
+  let result = O.url ~base_url ~workspace ~kind:O.Dashboard (O.Service ("payments", "")) in
+  check_bool "empty service name -> Error" true (String.length (err_msg result) > 0)
+
 (* ── url: logs ───────────────────────────────────────────────────────────── *)
 
 let test_logs_workspace_scope () =
@@ -95,6 +116,12 @@ let () =
       Alcotest.test_case "domain scope"          `Quick test_dashboard_domain_scope;
       Alcotest.test_case "service scope"         `Quick test_dashboard_service_scope;
       Alcotest.test_case "metrics == dashboard"  `Quick test_metrics_matches_dashboard;
+      Alcotest.test_case "service scope normalizes underscore name"
+        `Quick test_dashboard_service_scope_normalizes_underscore_name;
+      Alcotest.test_case "domain scope normalizes case/underscore"
+        `Quick test_dashboard_domain_scope_normalizes_case_and_underscore;
+      Alcotest.test_case "invalid service name -> Error"
+        `Quick test_dashboard_service_scope_invalid_name;
     ];
     "url logs", [
       Alcotest.test_case "workspace scope"       `Quick test_logs_workspace_scope;

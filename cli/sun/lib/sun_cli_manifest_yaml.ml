@@ -147,24 +147,37 @@ let render_extra_labels labels =
   String.concat "\n" (List.map (fun (k, v) -> f "        %s: \"%s\"" k v) labels)
 
 (* docs/architecture/observability-design.md's identity taxonomy: workspace,
-   domain, service, primitive, release (env is the active deployment target,
-   not a label — see the doc). `release` is the image tag, the part after the
-   last ':' -- falls back to "unknown" for a tag-less/malformed image ref
-   rather than raising, since a bad label value is far cheaper than a failed
-   deploy. Rendered at pod-template indent (8 spaces), same as extra_labels. *)
+   domain, service, primitive, release. `env` is a sixth taxonomy label the
+   doc calls for, sourced from the active deployment target -- not emitted
+   yet, since sun up/sun deploy have no target-resolution concept today
+   (see OBS-016). `release` is the image tag, the part after the last ':'
+   -- falls back to "unknown" for a tag-less/malformed image ref rather
+   than raising, since a bad label value is far cheaper than a failed
+   deploy; sanitize_label_value bounds it to Kubernetes' 63-char
+   label-value limit for the same reason (an oversized value from a long
+   CI-generated tag would otherwise make `kubectl apply` fail outright).
+   Rendered at pod-template indent (8 spaces), same as extra_labels. *)
 let release_of_image image =
   match String.rindex_opt image ':' with
   | Some i -> String.sub image (i + 1) (String.length image - i - 1)
   | None -> "unknown"
+
+let sanitize_label_value v =
+  let v = if String.length v > 63 then String.sub v 0 63 else v in
+  let is_alnum = function 'a'..'z' | 'A'..'Z' | '0'..'9' -> true | _ -> false in
+  let len = String.length v in
+  if len = 0 then "unknown"
+  else if is_alnum v.[len - 1] then v
+  else String.sub v 0 (len - 1) ^ "0"
 
 let render_taxonomy_labels ?(indent = "        ") ~workspace ~domain ~service ~primitive ~image () =
   [ "workspace", workspace
   ; "domain", domain
   ; "service", service
   ; "primitive", primitive
-  ; "release", release_of_image image
+  ; "release", sanitize_label_value (release_of_image image)
   ]
-  |> List.map (fun (k, v) -> f "%s%s: %s" indent k v)
+  |> List.map (fun (k, v) -> f "%s%s: \"%s\"" indent k v)
   |> String.concat "\n"
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)

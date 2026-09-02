@@ -16,6 +16,11 @@ let url_encode_logql s =
       | ',' -> "%2C"
       | '=' -> "%3D"
       | ' ' -> "%20"
+      | '%' -> "%25"
+      | '+' -> "%2B"
+      | '&' -> "%26"
+      | '?' -> "%3F"
+      | '#' -> "%23"
       | c   -> String.make 1 c)
   ) s;
   Buffer.contents buf
