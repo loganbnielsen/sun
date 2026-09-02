@@ -19,5 +19,6 @@
   test_rollout_diagnosis
   test_loki
   test_run_log
-  test_observability_url)
+  test_observability_url
+  test_open)
  (libraries sun_cli alcotest unix yojson str))
