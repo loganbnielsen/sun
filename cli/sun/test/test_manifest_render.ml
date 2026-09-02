@@ -7,8 +7,8 @@ let check_string = Alcotest.(check string)
 let check_bool   = Alcotest.(check bool)
 
 (** Unwrap a [render_spec] result, failing the test on [Error]. *)
-let render_spec_ok ?image ?secret_backend spec =
-  match Sun_cli_deployment_render.render_spec ~workspace:"myapp" ?image ?secret_backend spec with
+let render_spec_ok ?(workspace = "myapp") ?image ?secret_backend spec =
+  match Sun_cli_deployment_render.render_spec ~workspace ?image ?secret_backend spec with
   | Ok v    -> v
   | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
 
@@ -1128,6 +1128,33 @@ let test_taxonomy_labels_fn () =
 (* matchLabels/selector must stay app-only -- changing selector labels would
    orphan running pods on the next rollout. The taxonomy labels only belong
    in the pod template's own labels block, rendered separately below this. *)
+(* OBS-021 regression: a mixed-case/underscore workspace or domain used to
+   render as-is in the manifest label while sun open's dashboard link
+   normalized it differently (lowercase + hyphens only) -- the two
+   permanently disagreed, so the dashboard opened empty. Both now go
+   through the same Sun_cli_kubernetes_name.sanitize_label_value. *)
+let test_taxonomy_labels_match_dashboard_link_normalization () =
+  let spec = { svc_spec with
+    domain = "Payments_Team";
+    namespace = namespace ~workspace:"Sun_Obs_Review_App" ~domain:"Payments_Team";
+  } in
+  let (_, workload) = render_spec_ok ~workspace:"Sun_Obs_Review_App" spec in
+  assert_contains "workspace label matches sun open's normalization"
+    workload {|workspace: "sun-obs-review-app"|};
+  assert_contains "domain label matches sun open's normalization"
+    workload {|domain: "payments-team"|};
+  let dashboard_url =
+    match Sun_cli_open.url ~base_url:"http://localhost:3000"
+            ~workspace:"Sun_Obs_Review_App" ~kind:Sun_cli_open.Dashboard
+            (Sun_cli_open.Domain "Payments_Team") with
+    | Ok url -> url
+    | Error msg -> Alcotest.fail msg
+  in
+  assert_contains "dashboard link uses the identical normalized workspace"
+    dashboard_url "var-workspace=sun-obs-review-app";
+  assert_contains "dashboard link uses the identical normalized domain"
+    dashboard_url "var-domain=payments-team"
+
 let test_taxonomy_labels_not_in_selector () =
   let (_, workload) = render_spec_ok svc_spec in
   assert_contains "selector is still exactly app: <name>, nothing else"
@@ -1188,6 +1215,22 @@ let test_sanitize_label_value_no_op_when_already_safe () =
 let test_sanitize_label_value_empty_falls_back_to_unknown () =
   check_string "empty value -> unknown" "unknown"
     (Sun_cli_manifest.sanitize_label_value "")
+
+(* OBS-021: sanitize_label_value now guarantees a genuinely valid
+   Kubernetes label value, not just a bounded one -- lowercases, replaces
+   every invalid character (not just underscore), and strips a leading
+   invalid character entirely rather than only fixing the trailing one. *)
+let test_sanitize_label_value_lowercases_and_replaces_underscores () =
+  check_string "mixed case + underscores normalized" "sun-obs-review-app"
+    (Sun_cli_manifest.sanitize_label_value "Sun_Obs_Review_App")
+
+let test_sanitize_label_value_replaces_internal_space () =
+  check_string "internal space replaced" "my-app"
+    (Sun_cli_manifest.sanitize_label_value "My App")
+
+let test_sanitize_label_value_strips_leading_non_alnum () =
+  check_string "leading hyphens stripped" "app"
+    (Sun_cli_manifest.sanitize_label_value "---app")
 
 let () =
   Alcotest.run "manifest_render"
@@ -1307,6 +1350,7 @@ let () =
       ; Alcotest.test_case "worker"                    `Quick test_taxonomy_labels_worker
       ; Alcotest.test_case "fn"                        `Quick test_taxonomy_labels_fn
       ; Alcotest.test_case "not in selector"           `Quick test_taxonomy_labels_not_in_selector
+      ; Alcotest.test_case "matches sun open dashboard link normalization" `Quick test_taxonomy_labels_match_dashboard_link_normalization
       ; Alcotest.test_case "malformed image -> unknown" `Quick test_release_of_image_malformed
       ; Alcotest.test_case "oversized tag truncated to 63 chars" `Quick test_release_of_image_oversized_tag_truncated
       ; Alcotest.test_case "trailing non-alnum after truncation fixed up" `Quick test_release_of_image_trailing_non_alnum_after_truncation
@@ -1315,5 +1359,8 @@ let () =
       ; Alcotest.test_case "sanitize_label_value fixes trailing non-alnum" `Quick test_sanitize_label_value_fixes_trailing_non_alnum
       ; Alcotest.test_case "sanitize_label_value no-op when already safe" `Quick test_sanitize_label_value_no_op_when_already_safe
       ; Alcotest.test_case "sanitize_label_value empty -> unknown" `Quick test_sanitize_label_value_empty_falls_back_to_unknown
+      ; Alcotest.test_case "sanitize_label_value lowercases + replaces underscores" `Quick test_sanitize_label_value_lowercases_and_replaces_underscores
+      ; Alcotest.test_case "sanitize_label_value replaces internal space" `Quick test_sanitize_label_value_replaces_internal_space
+      ; Alcotest.test_case "sanitize_label_value strips leading non-alnum" `Quick test_sanitize_label_value_strips_leading_non_alnum
       ]
     ]
