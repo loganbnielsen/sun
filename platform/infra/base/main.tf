@@ -202,6 +202,13 @@ resource "helm_release" "postgresql" {
 
 # ── Loki + Grafana ────────────────────────────────────────────────────────── #
 
+# promtail.enabled defaults to true in loki-stack (it scrapes every pod's
+# stdout/stderr cluster-wide via a DaemonSet, relabeling namespace/pod/
+# container/app from Kubernetes metadata). Sun depends on this for the
+# failures obs-loki-eio's app-push logging structurally can't see: OOMKilled,
+# CrashLoopBackOff, a crash before the app ever logs (OBS-004). Declared
+# explicitly rather than left as an implicit chart default so a future chart
+# bump can't silently turn it off without showing up in a diff.
 resource "helm_release" "loki" {
   name       = "loki"
   repository = "https://grafana.github.io/helm-charts"
@@ -220,6 +227,10 @@ resource "helm_release" "loki" {
   set {
     name  = "loki.persistence.enabled"
     value = tostring(var.loki_persistent_storage)
+  }
+  set {
+    name  = "promtail.enabled"
+    value = "true"
   }
 }
 

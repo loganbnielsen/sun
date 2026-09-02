@@ -108,8 +108,12 @@ let dev_up () =
   let need_grafana = req.loki || req.prometheus in
   if req.loki then begin
     Printf.printf "\n  Installing Loki...\n%!";
+    (* promtail.enabled: true — explicit, not just the chart default. Scrapes
+       every pod's stdout/stderr so 'sun logs' can fall back to real log
+       content even for a pod that crashed before it could push its own logs
+       (OBS-004). Matches platform/infra/base/main.tf's helm_release.loki. *)
     let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
-      ~values:[("grafana.enabled", Bool need_grafana)] ()
+      ~values:[("grafana.enabled", Bool need_grafana); ("promtail.enabled", Bool true)] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1)
   end;

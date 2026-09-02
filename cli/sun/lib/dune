@@ -27,6 +27,9 @@
   Sun_cli_port_forward
   Sun_cli_command_request
   Sun_cli_kubectl
+  Sun_cli_rollout_diagnosis
+  Sun_cli_loki
+  Sun_cli_run_log
   Sun_cli_rollback
   Sun_cli_docker
   Sun_cli_helm
