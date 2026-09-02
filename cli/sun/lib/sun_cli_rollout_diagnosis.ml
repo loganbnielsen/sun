@@ -133,21 +133,8 @@ let is_healthy (p : pod_status) : bool =
    rather than taking Sun_cli_manifest.primitive directly, so rollout
    diagnosis doesn't couple to manifest concepts; cmd_status.ml
    translates from primitive to this. *)
-type pod_expectation =
-  | Continuous
-  (** Deployment/Rollout-backed (Svc, Worker): a pod should always be
-      running; zero pods, or a pod that isn't [is_healthy], is a finding.
-      Diagnosed from the live pod list ([format_service_diagnosis]). *)
-  | Ephemeral
-  (** CronJob-backed (Fn): there's no stable pod to inspect between runs,
-      and `kubectl get pods -l app=<name>` can return several historical
-      run pods at once (successfulJobsHistoryLimit/failedJobsHistoryLimit)
-      with no reliable way to tell, from pod state alone, whether an old
-      failure has since been superseded by a newer success -- pod-list
-      inspection is the wrong data source for this primitive. Diagnosed
-      instead from the CronJob's own status fields
-      ([format_cronjob_diagnosis]), which Kubernetes maintains natively
-      for exactly this ("did the most recently scheduled run succeed"). *)
+(* See the .mli for what Continuous/Ephemeral mean and why. *)
+type pod_expectation = Continuous | Ephemeral
 
 let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   let buf = Buffer.create 256 in
@@ -246,18 +233,25 @@ type cronjob_fetch_result =
       (transient error, timeout, RBAC, ...) -- stays silent, same as
       other transient-failure handling in this module. *)
 
-(* [Ephemeral]: no run scheduled yet, or a run currently in progress, is
-   not a finding (nothing to judge yet, or too early to tell -- Sun's
-   CronJobs set backoffLimit: 3, so a run stuck failing terminates within
-   a few retries rather than staying "active" indefinitely). Once idle
-   between runs, the most recently *scheduled* run is a finding only if
-   it hasn't since been recorded as successful -- comparing
-   lastSuccessfulTime against lastScheduleTime (RFC3339 UTC timestamps
-   sort correctly as strings) tells us that without needing to reason
-   about which of several historical pods is "the latest" one. A
-   [Missing] CronJob is always a finding: a declared service with no
-   backing resource at all is exactly the kind of failure this diagnosis
-   exists to catch. *)
+(* [Ephemeral] diagnoses the CronJob's last *completed* run, not an
+   in-progress one's pod health: a currently-active run (active_count >
+   0) is never a finding here, even if its pod is stuck Pending or
+   crash-looping -- backoffLimit: 3 bounds how long that can last before
+   the run terminates, but a truly stuck active run won't be caught until
+   then. Diagnosing an active run's own pod state is a separate,
+   not-yet-done piece of work.
+   Idle between runs, the most recently scheduled run is a finding unless
+   it has since been recorded as successful. Timestamps compare via Ptime
+   (see [is_at_or_after]), not as raw strings -- RFC3339 timestamps aren't
+   always the same width (fractional seconds vary), so string comparison
+   can sort them wrong. [Missing] is always a finding regardless. *)
+let is_at_or_after ~reference candidate =
+  match Ptime.of_rfc3339 candidate, Ptime.of_rfc3339 reference with
+  | Ok (t_candidate, _, _), Ok (t_reference, _, _) -> Ptime.compare t_candidate t_reference >= 0
+  | _ -> false
+  (* A timestamp that fails to parse fails toward surfacing a finding,
+     not hiding one. *)
+
 let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : string option =
   match result with
   | Unavailable -> None
@@ -270,7 +264,7 @@ let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : str
       | None -> None
       | Some scheduled ->
         let succeeded_since = match status.last_successful_time with
-          | Some succeeded -> succeeded >= scheduled
+          | Some succeeded -> is_at_or_after ~reference:scheduled succeeded
           | None -> false
         in
         if succeeded_since then None

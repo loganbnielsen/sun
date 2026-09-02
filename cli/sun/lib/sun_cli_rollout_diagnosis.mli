@@ -43,45 +43,35 @@ val is_healthy : pod_status -> bool
 (** Which health model a service follows. Kept local to this module
     rather than taking [Sun_cli_manifest.primitive] directly, so rollout
     diagnosis doesn't couple to manifest concepts -- callers translate
-    from primitive to this. *)
-type pod_expectation =
-  | Continuous
-  (** Deployment/Rollout-backed (Svc, Worker): a pod should always be
-      running; zero pods, or a pod that isn't [is_healthy], is a finding.
-      Diagnosed from the live pod list ([format_service_diagnosis]). *)
-  | Ephemeral
-  (** CronJob-backed (Fn): there's no stable pod to inspect between runs,
-      and several historical run pods can coexist
-      (successfulJobsHistoryLimit/failedJobsHistoryLimit) with no
-      reliable way to tell, from pod state alone, whether an old failure
-      has since been superseded by a newer success -- pod-list
-      inspection is the wrong data source for this primitive. Diagnosed
-      instead from the CronJob's own status fields
-      ([format_cronjob_diagnosis]). *)
+    from primitive to this.
+    - [Continuous] (Svc, Worker): a pod should always be running;
+      diagnosed from the live pod list ([format_service_diagnosis]).
+    - [Ephemeral] (Fn): several historical run pods can coexist with no
+      reliable way to tell which is "the latest" from pod state alone;
+      diagnosed instead from the CronJob's own status
+      ([format_cronjob_diagnosis]), which only covers its last
+      *completed* run -- an in-progress run's pod health isn't inspected. *)
+type pod_expectation = Continuous | Ephemeral
 
 (** Render one pod's diagnosis block: state/reason, restarts, last
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [format_service_diagnosis ~service_name pods events] returns [None]
-    when every pod is [is_healthy], or a rendered "<service_name> rollout
-    failed" block otherwise -- covering every unhealthy pod, or, when
-    [pods] is empty, a "no pods found for this service" finding
-    (OBS-024): an empty pod list for a namespace that exists means the
-    service never started. [Continuous] only -- see
-    [format_cronjob_diagnosis] for [Ephemeral]. Only pass a confirmed pod
-    list here (see [fetch_pod_statuses]) -- an empty list always reads as
-    "confirmed zero pods," never "couldn't check." *)
+(** [Continuous] diagnosis: [None] when every pod is [is_healthy] or
+    (OBS-024) when [pods] is empty for a namespace that exists (a
+    declared service with no pod at all means it never started); a
+    rendered "<service_name> rollout failed" finding otherwise. Pass a
+    confirmed pod list only -- an empty list always reads as "confirmed
+    zero pods," never "couldn't check." *)
 val format_service_diagnosis
   :  service_name:string
   -> pod_status list
   -> event list
   -> string option
 
-(** A CronJob's own status, as Kubernetes tracks it -- the authoritative
-    source for "did the most recently scheduled run succeed," which pod
-    inspection can't answer reliably once more than one historical pod is
-    retained (OBS-026). *)
+(** A CronJob's own status -- the authoritative source for "did the most
+    recently scheduled run succeed," which pod inspection can't answer
+    reliably once more than one historical pod is retained (OBS-026). *)
 type cronjob_status = {
   last_schedule_time    : string option;
   last_successful_time  : string option;
@@ -95,57 +85,30 @@ type cronjob_status = {
     "never happened" default, not [None]. *)
 val parse_cronjob_status : string -> cronjob_status option
 
-(** Result of trying to fetch a CronJob's status -- distinguishes "the
-    resource genuinely doesn't exist" from "the kubectl call itself
-    failed" (OBS-026): conflating the two into one [None] used to mean a
-    declared [Fn] whose CronJob was never actually created (deploy failed
-    partway, or it was deleted) reported healthy with no diagnosis. *)
+(** Distinguishes "the CronJob genuinely doesn't exist" ([Missing],
+    confirmed via kubectl's NotFound response) from "the kubectl call
+    itself failed or its output couldn't be parsed" ([Unavailable],
+    transient -- stays silent). Conflating the two used to mean a
+    declared [Fn] whose CronJob was never created reported healthy with
+    no diagnosis at all (OBS-026). *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing
-  (** Confirmed via kubectl's own NotFound response -- not a transient
-      failure. *)
   | Unavailable
-  (** The kubectl call itself failed, or its output couldn't be parsed
-      (transient error, timeout, RBAC, ...) -- stays silent, same as
-      other transient-failure handling in this module. *)
 
-(** [format_cronjob_diagnosis ~service_name result] is the [Ephemeral]
-    counterpart to [format_service_diagnosis]:
-    - [Unavailable]: [None] -- couldn't check, stays silent.
-    - [Missing]: always a finding -- a declared service with no backing
-      CronJob at all is exactly the kind of failure this diagnosis exists
-      to catch.
-    - [Found status]: [None] when no run has been scheduled yet, a run is
-      currently active (Sun's CronJobs set `backoffLimit: 3`, so a run
-      stuck failing terminates within a few retries rather than staying
-      active indefinitely), or the most recently scheduled run has a
-      later-or-equal successful completion recorded; a rendered finding
-      otherwise -- the most recently scheduled run hasn't (yet, or ever)
-      completed successfully. *)
+(** [Ephemeral] counterpart to [format_service_diagnosis]: [Unavailable]
+    is [None]; [Missing] is always a finding; [Found status] is [None]
+    when no run has been scheduled yet, a run is currently active (not
+    inspected further -- see [pod_expectation]), or the most recently
+    scheduled run has a later-or-equal successful completion recorded,
+    and a finding otherwise. *)
 val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
 
-(** [kubectl get events -n <ns> -o json], parsed. Empty list on any kubectl
-    failure — diagnosis degrades gracefully rather than erroring. *)
-val fetch_namespace_events : ns:string -> event list
-
-(** [kubectl get pods -n <ns> -l app=<k8s_name> -o json], parsed. [None] if
-    the kubectl call itself failed (transient error, timeout, ...) --
-    distinct from [Some []], a confirmed zero pods. *)
-val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
-
-(** [kubectl get cronjob <k8s_name> -n <ns> -o json], parsed into a
-    [cronjob_fetch_result] that distinguishes a confirmed-missing
-    resource from an unavailable/unparseable one. *)
-val fetch_cronjob_status : ns:string -> k8s_name:string -> cronjob_fetch_result
-
 (** Live, I/O-performing diagnosis, dispatching on [pod_expectation]:
-    [Continuous] fetches pods and events and calls
+    [Continuous] fetches pods+events and calls
     [format_service_diagnosis]; [Ephemeral] fetches CronJob status and
     calls [format_cronjob_diagnosis]. [None] both when the target is OK
-    and when the underlying kubectl fetch itself failed -- a transient
-    kubectl failure stays silent rather than being reported as a
-    finding. *)
+    and when the underlying kubectl fetch itself failed. *)
 val diagnose_service_live
   :  pod_expectation:pod_expectation
   -> ns:string

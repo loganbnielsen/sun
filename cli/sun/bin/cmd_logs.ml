@@ -109,12 +109,9 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
   end;
 
   (* Kubernetes-derived diagnosis first, independent of Loki: the pod may
-     never have started, in which case Loki has nothing either. *)
-  (* sun logs doesn't look up the target's primitive (it works even for a
-     service not discoverable via app/), so it always diagnoses as
-     Continuous -- correct for today's only tailable primitives
-     (Svc/Worker; see OBS-027 for Fn, which sun logs can't tail at all
-     yet). *)
+     never have started, in which case Loki has nothing either. Always
+     Continuous: sun logs doesn't look up the target's primitive, and
+     Fn can't be tailed here yet (OBS-027). *)
   (match Sun_cli_rollout_diagnosis.diagnose_service_live
            ~pod_expectation:Sun_cli_rollout_diagnosis.Continuous
            ~ns ~service_name:name ~k8s_name () with
