@@ -27,6 +27,14 @@ let ticket_arg =
   Arg.(required & pos 0 (some string) None &
        info [] ~docv:"TICKET-ID" ~doc:"e.g. EXP-005")
 
+let submit_cmd =
+  Cmd.v
+    (Cmd.info "submit"
+       ~doc:"Push an IN_PROGRESS ticket's branch, open a PR (or reuse an \
+             existing one for that branch), record it in the ticket's \
+             frontmatter, and move the ticket to REVIEW.")
+    Term.(const Sundev_merge.run_submit $ ticket_arg)
+
 let result_file_arg =
   Arg.(value & opt (some string) None &
        info ["result-file"; "f"] ~docv:"PATH"
@@ -60,4 +68,4 @@ let cmd =
   Cmd.group
     (Cmd.info "pipeline"
        ~doc:"Deterministic pipeline operations: merge tickets, process review results, list status")
-    [ ls_cmd; check_cmd; merge_cmd; review_cmd ]
+    [ ls_cmd; check_cmd; submit_cmd; merge_cmd; review_cmd ]
