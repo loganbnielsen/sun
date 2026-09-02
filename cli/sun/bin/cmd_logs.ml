@@ -68,7 +68,15 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
-let run ~service_arg ~follow ~tail ~grafana_base_url : unit =
+let exec_kubectl_logs ~ns ~k8s_name ~follow ~tail =
+  let argv =
+    ["kubectl"; "logs"; "-n"; ns; "deployment/" ^ k8s_name]
+    @ (if follow then ["--follow"] else [])
+    @ ["--tail=" ^ string_of_int tail]
+  in
+  Unix.execvp "kubectl" (Array.of_list argv)
+
+let run ~service_arg ~follow ~tail ~grafana_base_url ~loki_base_url : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -89,15 +97,31 @@ let run ~service_arg ~follow ~tail ~grafana_base_url : unit =
     exit 1
   end;
 
+  (* Kubernetes-derived diagnosis first, independent of Loki: the pod may
+     never have started, in which case Loki has nothing either. *)
+  (match Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name:name ~k8s_name with
+   | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
+   | None -> ());
+
   let url = Sun_cli_logs.grafana_explore_url ~base_url:grafana_base_url ~ns ~k8s_name in
   Printf.printf "Grafana logs: %s\n%!" url;
 
-  let argv =
-    ["kubectl"; "logs"; "-n"; ns; "deployment/" ^ k8s_name]
-    @ (if follow then ["--follow"] else [])
-    @ ["--tail=" ^ string_of_int tail]
-  in
-  Unix.execvp "kubectl" (Array.of_list argv)
+  if follow then
+    (* Loki tailing isn't implemented yet (would need its /tail websocket
+       endpoint or a polling loop); kubectl --follow already streams
+       reliably, so v1 always uses it for live tailing. *)
+    exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+  else
+    match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
+    | Ok [] ->
+      Printf.printf "(no log lines found in Loki for %s; showing Kubernetes logs)\n%!" name;
+      exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+    | Ok lines ->
+      List.iter (fun (l : Sun_cli_loki.line) -> print_endline l.text) lines
+    | Error e ->
+      Printf.printf "Loki unavailable: %s.\nFalling back to Kubernetes logs for %s...\n%!"
+        (Sun_cli_loki.fetch_error_to_string e) name;
+      exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 
@@ -132,6 +156,14 @@ let grafana_base_url_arg =
                Sun prints a copyable Grafana Explore URL with a LogQL query \
                before streaming kubectl logs.")
 
+let loki_base_url_arg =
+  Arg.(value & opt string "http://localhost:3100" &
+       info ["loki-base-url"] ~docv:"URL"
+         ~doc:"Base URL of the Loki instance (default: http://localhost:3100). \
+               'sun logs' queries Loki first for a snapshot (--no-follow) and \
+               falls back to 'kubectl logs' if the query fails, times out, or \
+               finds nothing.")
+
 let follow_term =
   let combine follow no_follow = match follow, no_follow with
     | true,  true  ->
@@ -148,6 +180,6 @@ let cmd =
        ~doc:"Stream logs from a deployed service. \
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
-    Term.(const (fun service_arg follow tail grafana_base_url ->
-        run ~service_arg ~follow ~tail ~grafana_base_url)
-      $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg)
+    Term.(const (fun service_arg follow tail grafana_base_url loki_base_url ->
+        run ~service_arg ~follow ~tail ~grafana_base_url ~loki_base_url)
+      $ service_arg $ follow_term $ tail_arg $ grafana_base_url_arg $ loki_base_url_arg)

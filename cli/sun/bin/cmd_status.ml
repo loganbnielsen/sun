@@ -24,6 +24,22 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
+(* Kubernetes-derived rollout diagnosis: works even when the app never
+   started and Loki has nothing, so it's printed unconditionally, not as a
+   fallback behind Loki health. *)
+
+let print_rollout_diagnosis ~ns ~domain =
+  Sun_cli_manifest.discover_services ~filter_path:None
+  |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)
+  |> List.iter (fun (s : Sun_cli_manifest.service) ->
+       match Sun_cli_deployment_plan.k8s_name_result s.name with
+       | Error _ -> ()
+       | Ok k8s_name ->
+         let k8s_name = Sun_cli_deployment_plan.k8s_name_to_string k8s_name in
+         match Sun_cli_rollout_diagnosis.diagnose_service_live ~ns ~service_name:s.name ~k8s_name with
+         | None -> ()
+         | Some diagnosis -> Printf.printf "%s\n%!" diagnosis)
+
 let run filter_domain =
   let workspace = workspace_name () in
   let all_domains = discover_domains () in
@@ -53,6 +69,7 @@ let run filter_domain =
       (match Sun_cli_kubectl.get_raw ~args:["get"; "pods"; "-n"; ns] with
        | Ok r -> print_string r.Sun_cli_process.stdout; print_char '\n'
        | Error _ -> ());
+      print_rollout_diagnosis ~ns ~domain;
       (* Print port-forward hint for ClusterIP HTTP services in this namespace.
          Filter out internal services: names ending in "-headless" or equal to "kubernetes". *)
       let jsonpath = "{.items[?(@.spec.type==\"ClusterIP\")].metadata.name}" in

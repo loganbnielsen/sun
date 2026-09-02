@@ -2292,13 +2292,8 @@
         },
         {
           "date": "2026-09-01",
-          "commit": "d8b9d05",
-          "duration_s": 2.011
-        },
-        {
-          "date": "2026-09-01",
-          "commit": "d8b9d05",
-          "duration_s": 2.036
+          "commit": "0613fab",
+          "duration_s": 2.035
         }
       ]
     },
@@ -3940,13 +3935,8 @@
         },
         {
           "date": "2026-09-01",
-          "commit": "d8b9d05",
-          "duration_s": 2.165
-        },
-        {
-          "date": "2026-09-01",
-          "commit": "d8b9d05",
-          "duration_s": 1.086
+          "commit": "0613fab",
+          "duration_s": 1.159
         }
       ]
     },
@@ -5416,8 +5406,8 @@
         },
         {
           "date": "2026-09-01",
-          "commit": "d8b9d05",
-          "duration_s": 1.156
+          "commit": "0613fab",
+          "duration_s": 1.168
         }
       ]
     }
