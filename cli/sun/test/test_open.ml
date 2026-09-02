@@ -84,6 +84,14 @@ let test_dashboard_domain_scope_normalizes_case_and_underscore () =
   check_bool "var-domain uses the normalized (lowercase, hyphenated) name" true
     (contains url "var-domain=payments-team")
 
+(* OBS-021: sanitize_label_value handles arbitrary invalid characters
+   (spaces, etc.), not just underscore -- a workspace directory name like
+   "My App" used to survive un-mangled past the old normalize-only call. *)
+let test_dashboard_domain_scope_normalizes_internal_space () =
+  let url = ok_url (O.url ~base_url ~workspace ~kind:O.Dashboard (O.Domain "Payments Team")) in
+  check_bool "var-domain replaces the internal space" true
+    (contains url "var-domain=payments-team")
+
 let test_dashboard_service_scope_invalid_name () =
   let result = O.url ~base_url ~workspace ~kind:O.Dashboard (O.Service ("payments", "")) in
   check_bool "empty service name -> Error" true (String.length (err_msg result) > 0)
@@ -130,6 +138,8 @@ let () =
         `Quick test_dashboard_domain_scope_normalizes_case_and_underscore;
       Alcotest.test_case "workspace scope normalizes case/underscore"
         `Quick test_dashboard_workspace_scope_normalizes_case_and_underscore;
+      Alcotest.test_case "domain scope normalizes internal space"
+        `Quick test_dashboard_domain_scope_normalizes_internal_space;
       Alcotest.test_case "invalid service name -> Error"
         `Quick test_dashboard_service_scope_invalid_name;
     ];

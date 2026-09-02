@@ -162,13 +162,13 @@ let release_of_image image =
   | Some i -> String.sub image (i + 1) (String.length image - i - 1)
   | None -> "unknown"
 
-let sanitize_label_value v =
-  let v = if String.length v > 63 then String.sub v 0 63 else v in
-  let is_alnum = function 'a'..'z' | 'A'..'Z' | '0'..'9' -> true | _ -> false in
-  let len = String.length v in
-  if len = 0 then "unknown"
-  else if is_alnum v.[len - 1] then v
-  else String.sub v 0 (len - 1) ^ "0"
+(* OBS-021: delegates to Sun_cli_kubernetes_name's canonical sanitizer so
+   this and Sun_cli_open.dashboard_url always agree on the same
+   workspace/domain value -- keeping a separate, weaker implementation
+   here (bound + trailing-char fix only, no lowercasing) is exactly how a
+   rendered label and a dashboard link's query param end up permanently
+   disagreeing. *)
+let sanitize_label_value = Sun_cli_kubernetes_name.sanitize_label_value
 
 let render_taxonomy_labels ?(indent = "        ") ~workspace ~domain ~service ~primitive ~image () =
   (* Every value goes through sanitize_label_value uniformly -- workspace/
