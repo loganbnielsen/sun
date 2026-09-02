@@ -53,3 +53,56 @@ let resolve ~backend ?base_domain ?override () =
     | External ->
       No_url
         "no generated URL for the \"external\" backend -- check your configured observability provider directly"
+
+(* OBS-015: sun status/logs/open used to default straight to Local/no
+   base_domain, with no path to the target's actual configuration --
+   "backend-aware" in name only. Reuse sun plan/sun cloud tf's existing
+   target-resolution path (Sun_cli_config.load_for_target) instead of
+   inventing a second, disconnected notion of "target". *)
+
+(** [effective_backend_and_base_domain ~explicit_backend ~explicit_base_domain
+    ~target ()] layers explicit CLI flags over [target]'s config over the
+    hardcoded [Local] default:
+    - an explicit flag always wins when given;
+    - otherwise, when [target] (an [<env>/<provider>/<region>] path) is
+      given, its [sun.yml] config supplies the backend/base_domain;
+    - otherwise falls back to [Local]/[None], matching today's behavior.
+    [Error _] covers: [target] fails to load, resolves to no target, or
+    sets an [observability_backend] value that isn't one of
+    ["local"|"self_hosted_durable"|"external"]. *)
+let effective_backend_and_base_domain
+    ~explicit_backend ~explicit_base_domain ~target () =
+  match target with
+  | None ->
+    Ok (Option.value explicit_backend ~default:Local, explicit_base_domain)
+  | Some target_path ->
+    match Sun_cli_config.load_for_target ~target:target_path with
+    | Error e -> Error (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      match Sun_cli_config.target cfg with
+      | None -> Error (Printf.sprintf "target %S not found" target_path)
+      | Some t ->
+        let target_backend =
+          match t.Sun_cli_config.observability_backend with
+          | None -> Ok None
+          | Some s ->
+            (match backend_of_string s with
+             | Some b -> Ok (Some b)
+             | None ->
+               Error (Printf.sprintf
+                        "target %s has invalid observability_backend %S \
+                         (expected: local, self_hosted_durable, external)"
+                        target_path s))
+        in
+        (match target_backend with
+         | Error e -> Error e
+         | Ok target_backend ->
+           let backend = match explicit_backend with
+             | Some b -> b
+             | None -> Option.value target_backend ~default:Local
+           in
+           let base_domain = match explicit_base_domain with
+             | Some _ -> explicit_base_domain
+             | None -> t.Sun_cli_config.base_domain
+           in
+           Ok (backend, base_domain))

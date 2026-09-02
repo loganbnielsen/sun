@@ -1,6 +1,7 @@
 let check_str = Alcotest.(check string)
 let check_strs = Alcotest.(check (list string))
 let check_int_opt = Alcotest.(check (option int))
+let check_bool = Alcotest.(check bool)
 
 let write path content =
   let oc = open_out path in
@@ -114,6 +115,36 @@ services:
       check_strs "resources" ["sessions"] resource_names;
       check_strs "services" [] service_names)
 
+let test_target_observability_backend_parsed () =
+  with_temp_dir (fun () ->
+    write_base ();
+    mkdir_p "sun/prod/aws";
+    write "sun/prod/aws/us-east-1.yml" {|
+target:
+  base_domain: pluto.example.com
+  observability_backend: self_hosted_durable
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_str "observability_backend" "self_hosted_durable"
+        (Option.get target.observability_backend))
+
+let test_target_observability_backend_absent_when_unset () =
+  with_temp_dir (fun () ->
+    write_base ();
+    mkdir_p "sun/dev/aws";
+    write "sun/dev/aws/us-east-1.yml" {|
+target:
+  cluster_name: sun-dev
+|};
+    match Sun_cli_config.load_for_target ~target:"dev/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_bool "observability_backend absent" true (target.observability_backend = None))
+
 let test_bad_target_path_fails () =
   with_temp_dir (fun () ->
     write_base ();
@@ -127,6 +158,8 @@ let () =
     [ "sun.yml", [
         Alcotest.test_case "target path supplies placement" `Quick test_target_path_supplies_placement;
         Alcotest.test_case "target overlay omits entries" `Quick test_target_overlay_can_omit_resources_and_services;
+        Alcotest.test_case "observability_backend parsed" `Quick test_target_observability_backend_parsed;
+        Alcotest.test_case "observability_backend absent when unset" `Quick test_target_observability_backend_absent_when_unset;
         Alcotest.test_case "bad target path fails" `Quick test_bad_target_path_fails;
       ]
     ]

@@ -1,12 +1,13 @@
 type target = {
-  name               : string;
-  env                : string;
-  provider           : string;
-  region             : string;
-  registry           : string option;
-  base_domain        : string option;
-  cluster_name       : string option;
-  terraform_var_file : string option;
+  name                   : string;
+  env                    : string;
+  provider               : string;
+  region                 : string;
+  registry               : string option;
+  base_domain            : string option;
+  cluster_name           : string option;
+  terraform_var_file     : string option;
+  observability_backend  : string option;
 }
 
 type resource = {
@@ -176,7 +177,7 @@ let load path =
                    let current = Option.value !cfg.target ~default:{
                      name = ""; env = ""; provider = ""; region = "";
                      registry = None; base_domain = None; cluster_name = None;
-                     terraform_var_file = None;
+                     terraform_var_file = None; observability_backend = None;
                    } in
                    let target =
                      match k with
@@ -184,6 +185,7 @@ let load path =
                      | "base_domain" -> { current with base_domain = Some (strip_quotes v) }
                      | "cluster_name" -> { current with cluster_name = Some (strip_quotes v) }
                      | "terraform_var_file" -> { current with terraform_var_file = Some (strip_quotes v) }
+                     | "observability_backend" -> { current with observability_backend = Some (strip_quotes v) }
                      | _ -> current
                    in
                    cfg := { !cfg with target = Some target }
@@ -267,6 +269,7 @@ let merge_target a b = {
   base_domain = prefer a.base_domain b.base_domain;
   cluster_name = prefer a.cluster_name b.cluster_name;
   terraform_var_file = prefer a.terraform_var_file b.terraform_var_file;
+  observability_backend = prefer a.observability_backend b.observability_backend;
 }
 
 let merge_resource (a : resource) (b : resource) = {
@@ -313,7 +316,7 @@ let target_of_path s =
   match String.split_on_char '/' s with
   | [env; provider; region] when env <> "" && provider <> "" && region <> "" ->
     Ok { name = s; env; provider; region; registry = None; base_domain = None;
-         cluster_name = None; terraform_var_file = None }
+         cluster_name = None; terraform_var_file = None; observability_backend = None }
   | _ ->
     Error { path = s; line = 0;
             message = "target must look like <env>/<provider>/<region>" }

@@ -76,8 +76,8 @@ let exec_kubectl_logs ~ns ~k8s_name ~follow ~tail =
   in
   Unix.execvp "kubectl" (Array.of_list argv)
 
-let run ~service_arg ~follow ~tail ~observability_backend ~base_domain
-    ~loki_base_url ?grafana_base_url () : unit =
+let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
+    ~target ~loki_base_url ?grafana_base_url () : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -104,13 +104,17 @@ let run ~service_arg ~follow ~tail ~observability_backend ~base_domain
    | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
    | None -> ());
 
-  (match Sun_cli_observability_url.resolve ~backend:observability_backend
-           ?base_domain ?override:grafana_base_url () with
-   | Sun_cli_observability_url.Url base_url ->
-     let url = Sun_cli_logs.grafana_explore_url ~base_url ~ns ~k8s_name in
-     Printf.printf "Grafana logs: %s\n%!" url
-   | Sun_cli_observability_url.No_url reason ->
-     Printf.printf "Grafana logs: (%s)\n%!" reason);
+  (match Sun_cli_observability_url.effective_backend_and_base_domain
+           ~explicit_backend ~explicit_base_domain ~target () with
+   | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+   | Ok (backend, base_domain) ->
+     match Sun_cli_observability_url.resolve ~backend ?base_domain
+             ?override:grafana_base_url () with
+     | Sun_cli_observability_url.Url base_url ->
+       let url = Sun_cli_logs.grafana_explore_url ~base_url ~ns ~k8s_name in
+       Printf.printf "Grafana logs: %s\n%!" url
+     | Sun_cli_observability_url.No_url reason ->
+       Printf.printf "Grafana logs: (%s)\n%!" reason);
 
   if follow then
     (* Loki tailing isn't implemented yet (would need its /tail websocket
@@ -163,19 +167,29 @@ let grafana_base_url_arg =
                Explore URL with a LogQL query before streaming kubectl logs.")
 
 let observability_backend_arg =
-  Arg.(value & opt string "local" &
+  Arg.(value & opt (some string) None &
        info ["observability-backend"] ~docv:"BACKEND"
          ~doc:"Which observability_backend (see platform/infra/base) this \
-               target uses: local (default), self_hosted_durable, or \
-               external. Determines the Grafana URL Sun resolves when \
-               --grafana-base-url is not given.")
+               target uses: local, self_hosted_durable, or external. \
+               Overrides whatever --target's config supplies; defaults to \
+               local when neither is given. Determines the Grafana URL \
+               Sun resolves when --grafana-base-url is not given.")
 
 let base_domain_arg =
   Arg.(value & opt (some string) None &
        info ["base-domain"] ~docv:"DOMAIN"
          ~doc:"Base domain for the self_hosted_durable backend's Grafana \
-               Ingress (grafana.<base-domain>). Required for that backend \
+               Ingress (grafana.<base-domain>). Overrides whatever \
+               --target's config supplies. Required for that backend \
                unless --grafana-base-url overrides it directly.")
+
+let target_arg =
+  Arg.(value & opt (some string) None &
+       info ["target"] ~docv:"ENV/PROVIDER/REGION"
+         ~doc:"Deployment target path (same as sun plan/sun cloud tf, e.g. \
+               prod/aws/us-east-1). When given, its sun.yml config supplies \
+               the observability_backend/base_domain defaults instead of \
+               the hardcoded local default.")
 
 let loki_base_url_arg =
   Arg.(value & opt string "http://localhost:3100" &
@@ -195,6 +209,17 @@ let follow_term =
   in
   Term.(const combine $ follow_flag $ no_follow_flag)
 
+let backend_of_arg = function
+  | None -> None
+  | Some s ->
+    match Sun_cli_observability_url.backend_of_string s with
+    | Some b -> Some b
+    | None ->
+      Printf.eprintf
+        "error: unknown --observability-backend %S (expected: local, \
+         self_hosted_durable, external)\n" s;
+      exit 1
+
 let cmd =
   Cmd.v
     (Cmd.info "logs"
@@ -202,17 +227,10 @@ let cmd =
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
     Term.(const (fun service_arg follow tail observability_backend base_domain
-                     grafana_base_url loki_base_url ->
-        let observability_backend =
-          match Sun_cli_observability_url.backend_of_string observability_backend with
-          | Some b -> b
-          | None ->
-            Printf.eprintf
-              "error: unknown --observability-backend %S (expected: local, \
-               self_hosted_durable, external)\n" observability_backend;
-            exit 1
-        in
-        run ~service_arg ~follow ~tail ~observability_backend ~base_domain
+                     target grafana_base_url loki_base_url ->
+        let explicit_backend = backend_of_arg observability_backend in
+        run ~service_arg ~follow ~tail ~explicit_backend
+          ~explicit_base_domain:base_domain ~target
           ~loki_base_url ?grafana_base_url ())
       $ service_arg $ follow_term $ tail_arg $ observability_backend_arg $ base_domain_arg
-      $ grafana_base_url_arg $ loki_base_url_arg)
+      $ target_arg $ grafana_base_url_arg $ loki_base_url_arg)

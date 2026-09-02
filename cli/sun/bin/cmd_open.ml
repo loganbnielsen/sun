@@ -9,32 +9,38 @@ let kind_label = function
   | Sun_cli_open.Metrics -> "Grafana metrics"
   | Sun_cli_open.Dashboard -> "Grafana dashboard"
 
-let backend_of_arg s =
-  match Sun_cli_observability_url.backend_of_string s with
-  | Some b -> b
-  | None ->
-    Printf.eprintf
-      "error: unknown --observability-backend %S (expected: local, \
-       self_hosted_durable, external)\n" s;
-    exit 1
+let backend_of_arg = function
+  | None -> None
+  | Some s ->
+    match Sun_cli_observability_url.backend_of_string s with
+    | Some b -> Some b
+    | None ->
+      Printf.eprintf
+        "error: unknown --observability-backend %S (expected: local, \
+         self_hosted_durable, external)\n" s;
+      exit 1
 
-let run kind scope_str links observability_backend base_domain grafana_base_url =
+let run kind scope_str links explicit_backend explicit_base_domain target grafana_base_url =
   let workspace = Cmd_logs.workspace_name () in
   let scope =
     match Sun_cli_open.parse_scope scope_str with
     | Ok s -> s
     | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
   in
-  match Sun_cli_observability_url.resolve ~backend:observability_backend
-          ?base_domain ?override:grafana_base_url () with
-  | Sun_cli_observability_url.No_url reason ->
-    Printf.printf "%s: (%s)\n%!" (kind_label kind) reason
-  | Sun_cli_observability_url.Url base_url ->
-    (match Sun_cli_open.url ~base_url ~workspace ~kind scope with
-     | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
-     | Ok url ->
-       Printf.printf "%s\n%!" url;
-       if not links then try_open_browser url)
+  match Sun_cli_observability_url.effective_backend_and_base_domain
+          ~explicit_backend ~explicit_base_domain ~target () with
+  | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+  | Ok (backend, base_domain) ->
+    match Sun_cli_observability_url.resolve ~backend ?base_domain
+            ?override:grafana_base_url () with
+    | Sun_cli_observability_url.No_url reason ->
+      Printf.printf "%s: (%s)\n%!" (kind_label kind) reason
+    | Sun_cli_observability_url.Url base_url ->
+      match Sun_cli_open.url ~base_url ~workspace ~kind scope with
+      | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+      | Ok url ->
+        Printf.printf "%s\n%!" url;
+        if not links then try_open_browser url
 
 let scope_arg =
   Arg.(value & pos 0 (some string) None &
@@ -49,10 +55,10 @@ let links_flag =
 
 let make_subcmd name kind doc =
   Cmd.v (Cmd.info name ~doc)
-    Term.(const (fun scope_str links backend base_domain grafana_base_url ->
-        run kind scope_str links (backend_of_arg backend) base_domain grafana_base_url)
+    Term.(const (fun scope_str links backend base_domain target grafana_base_url ->
+        run kind scope_str links (backend_of_arg backend) base_domain target grafana_base_url)
       $ scope_arg $ links_flag $ Cmd_logs.observability_backend_arg
-      $ Cmd_logs.base_domain_arg $ Cmd_logs.grafana_base_url_arg)
+      $ Cmd_logs.base_domain_arg $ Cmd_logs.target_arg $ Cmd_logs.grafana_base_url_arg)
 
 let cmd =
   Cmd.group
