@@ -79,3 +79,102 @@ variable "prometheus_persistent_storage" {
   type        = bool
   default     = true
 }
+
+# ── Observability backend profile (OBS-005/006/007) ──────────────────────── #
+#
+# "local" is for dev/throwaway clusters. "external" points at infrastructure
+# the user already has. "self_hosted_durable" is the production self-host path:
+# Loki/Prometheus backed by S3 via platform/infra/aws (AWS only for now).
+
+variable "observability_backend" {
+  description = <<-EOT
+    Observability backend profile:
+      local                — in-cluster Loki + Grafana + Prometheus (default).
+      external             — point promtail/Prometheus remote_write at a
+                              user-supplied endpoint; skip installing local
+                              Loki + Grafana (Prometheus still runs to scrape
+                              and forward, with minimal local retention).
+      self_hosted_durable — same in-cluster components as "local", but backed
+                              by durable storage provisioned in
+                              platform/infra/aws (see OBS-006/OBS-007).
+  EOT
+  type        = string
+  default     = "local"
+  validation {
+    condition     = contains(["local", "external", "self_hosted_durable"], var.observability_backend)
+    error_message = "observability_backend must be one of: local, external, self_hosted_durable."
+  }
+}
+
+variable "external_loki_url" {
+  description = "Loki push URL for the \"external\" profile, e.g. https://logs-prod-000.grafana.net/loki/api/v1/push. Required when observability_backend = \"external\"."
+  type        = string
+  default     = ""
+}
+
+variable "external_loki_username" {
+  description = "Basic auth username for external_loki_url (e.g. a Grafana Cloud tenant ID). Leave empty for an endpoint that doesn't require auth."
+  type        = string
+  default     = ""
+}
+
+variable "external_loki_password" {
+  description = "Basic auth password/API key for external_loki_url."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "external_prometheus_remote_write_url" {
+  description = "Prometheus remote_write URL for the \"external\" profile. Required when observability_backend = \"external\"."
+  type        = string
+  default     = ""
+}
+
+variable "external_prometheus_username" {
+  description = "Basic auth username for external_prometheus_remote_write_url."
+  type        = string
+  default     = ""
+}
+
+variable "external_prometheus_password" {
+  description = "Basic auth password/API key for external_prometheus_remote_write_url."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# ── self_hosted_durable (AWS only) — from platform/infra/aws's outputs ──── #
+# platform/infra/aws and platform/infra/base are separate Terraform states
+# with no automatic remote-state link (same pattern already used for
+# cert_manager_irsa_role_arn) — pass these by hand from `terraform output`.
+
+variable "aws_region" {
+  description = "AWS region the S3 buckets live in (self_hosted_durable profile)."
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "loki_s3_bucket" {
+  description = "S3 bucket for durable Loki storage. From platform/infra/aws's loki_s3_bucket output."
+  type        = string
+  default     = ""
+}
+
+variable "loki_irsa_role_arn" {
+  description = "IAM role ARN for Loki's S3 access. From platform/infra/aws's loki_irsa_arn output."
+  type        = string
+  default     = ""
+}
+
+variable "thanos_s3_bucket" {
+  description = "S3 bucket for durable Prometheus/Thanos storage. From platform/infra/aws's thanos_s3_bucket output."
+  type        = string
+  default     = ""
+}
+
+variable "thanos_irsa_role_arn" {
+  description = "IAM role ARN for Thanos S3 access. From platform/infra/aws's thanos_irsa_arn output."
+  type        = string
+  default     = ""
+}

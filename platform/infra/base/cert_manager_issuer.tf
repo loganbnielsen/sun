@@ -20,8 +20,8 @@ resource "kubernetes_manifest" "letsencrypt_staging" {
     metadata   = { name = "letsencrypt-staging" }
     spec = {
       acme = {
-        server = "https://acme-staging-v02.api.letsencrypt.org/directory"
-        email  = var.letsencrypt_email
+        server              = "https://acme-staging-v02.api.letsencrypt.org/directory"
+        email               = var.letsencrypt_email
         privateKeySecretRef = { name = "letsencrypt-staging" }
         solvers = [{
           dns01 = {
@@ -46,8 +46,8 @@ resource "kubernetes_manifest" "letsencrypt_prod" {
     metadata   = { name = "letsencrypt-prod" }
     spec = {
       acme = {
-        server = "https://acme-v02.api.letsencrypt.org/directory"
-        email  = var.letsencrypt_email
+        server              = "https://acme-v02.api.letsencrypt.org/directory"
+        email               = var.letsencrypt_email
         privateKeySecretRef = { name = "letsencrypt-prod" }
         solvers = [{
           dns01 = {

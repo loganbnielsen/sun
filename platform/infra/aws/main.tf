@@ -252,3 +252,137 @@ module "cert_manager_irsa" {
     cert_manager = aws_iam_policy.cert_manager.arn
   }
 }
+
+# ── Durable observability storage (OBS-006 logs, OBS-007 metrics) ─────────── #
+#
+# Bucket/role names are predictable (${cluster_name}-...) so
+# platform/infra/base's observability_backend = "self_hosted_durable" can
+# reference them via plain -var flags. Same manual-wiring pattern as
+# cert_manager_irsa_role_arn above — these are separate Terraform states with
+# no automatic remote-state linking; see this module's outputs.
+
+resource "aws_s3_bucket" "loki" {
+  count  = var.enable_durable_observability ? 1 : 0
+  bucket = "${var.cluster_name}-loki-logs"
+  tags   = var.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "loki" {
+  count  = var.enable_durable_observability ? 1 : 0
+  bucket = aws_s3_bucket.loki[0].id
+
+  rule {
+    id     = "expire-old-chunks"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 90
+    }
+  }
+}
+
+data "aws_iam_policy_document" "loki_s3" {
+  count = var.enable_durable_observability ? 1 : 0
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.loki[0].arn]
+  }
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.loki[0].arn}/*"]
+  }
+}
+
+resource "aws_iam_policy" "loki_s3" {
+  count  = var.enable_durable_observability ? 1 : 0
+  name   = "${var.cluster_name}-loki-s3"
+  policy = data.aws_iam_policy_document.loki_s3[0].json
+}
+
+module "loki_irsa" {
+  count   = var.enable_durable_observability ? 1 : 0
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.39"
+
+  role_name = "${var.cluster_name}-loki"
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["monitoring:loki"]
+    }
+  }
+
+  role_policy_arns = {
+    loki_s3 = aws_iam_policy.loki_s3[0].arn
+  }
+}
+
+resource "aws_s3_bucket" "thanos" {
+  count  = var.enable_durable_observability ? 1 : 0
+  bucket = "${var.cluster_name}-thanos-metrics"
+  tags   = var.tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "thanos" {
+  count  = var.enable_durable_observability ? 1 : 0
+  bucket = aws_s3_bucket.thanos[0].id
+
+  rule {
+    id     = "expire-old-blocks"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 90
+    }
+  }
+}
+
+data "aws_iam_policy_document" "thanos_s3" {
+  count = var.enable_durable_observability ? 1 : 0
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.thanos[0].arn]
+  }
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.thanos[0].arn}/*"]
+  }
+}
+
+resource "aws_iam_policy" "thanos_s3" {
+  count  = var.enable_durable_observability ? 1 : 0
+  name   = "${var.cluster_name}-thanos-s3"
+  policy = data.aws_iam_policy_document.thanos_s3[0].json
+}
+
+module "thanos_irsa" {
+  count   = var.enable_durable_observability ? 1 : 0
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.39"
+
+  role_name = "${var.cluster_name}-thanos"
+
+  oidc_providers = {
+    main = {
+      provider_arn = module.eks.oidc_provider_arn
+      namespace_service_accounts = [
+        "monitoring:prometheus-server",
+        "monitoring:thanos-storegateway",
+        "monitoring:thanos-compactor",
+      ]
+    }
+  }
+
+  role_policy_arns = {
+    thanos_s3 = aws_iam_policy.thanos_s3[0].arn
+  }
+}

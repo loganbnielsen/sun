@@ -106,3 +106,10 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+# Durable observability (OBS-006/OBS-007)
+variable "enable_durable_observability" {
+  description = "Provision S3 buckets + IRSA roles for durable Loki (OBS-006) and Thanos-backed Prometheus (OBS-007) storage. Pair with platform/infra/base's observability_backend = \"self_hosted_durable\"."
+  type        = bool
+  default     = false
+}
