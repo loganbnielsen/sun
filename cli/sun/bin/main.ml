@@ -1,12 +1,9 @@
 let () =
-  (* Make every command deterministic from any directory inside the
-     workspace, not just the root: chdir to the nearest ancestor containing
-     app/ before any subcommand runs, so the many existing Sys.getcwd ()
-     /relative-"app" call sites downstream resolve correctly unmodified.
-     A no-op outside any workspace (e.g. before sun new's first scaffold). *)
-  (match Sun_cli_workspace.find_root ~dir:(Sys.getcwd ()) with
-   | Some root -> Sys.chdir root
-   | None -> ());
+  (* Root-discovery chdir (OBS-013) is scoped to sun status/logs/open's own
+     workspace_name(), not done here globally -- a global chdir here would
+     also change relative-path resolution for sun deploy --emit-to/
+     --emit-plan-to, sun migrate --dir, and sun cloud tf --var-file, none
+     of which asked for workspace-root-relative behavior (OBS-017). *)
   let cmd =
     Cmdliner.Cmd.group
       (Cmdliner.Cmd.info "sun"

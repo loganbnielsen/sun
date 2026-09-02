@@ -1,6 +1,15 @@
 open Cmdliner
 
-let workspace_name () = Filename.basename (Sys.getcwd ())
+(* Resolve the workspace root (OBS-013) and chdir there before any
+   app/-relative scanning below -- scoped to this command only (OBS-017),
+   not a global chdir in main.ml, so it doesn't change relative-path
+   resolution for other commands' flags (sun deploy --emit-to, sun migrate
+   --dir, sun cloud tf --var-file, ...). *)
+let workspace_name () =
+  (match Sun_cli_workspace.find_root ~dir:(Sys.getcwd ()) with
+   | Some root -> Sys.chdir root
+   | None -> ());
+  Filename.basename (Sys.getcwd ())
 
 let discover_domains () =
   let app_dir = "app" in
