@@ -20,14 +20,17 @@ let url_encode_logql s =
   ) s;
   Buffer.contents buf
 
-(* Build a Grafana Explore URL for the given LogQL query.
+(* Build a Grafana Explore URL for the given raw LogQL query. *)
+let explore_url ~base_url ~logql =
+  let encoded = url_encode_logql logql in
+  Printf.sprintf
+    "%s/explore?orgId=1&left=%%7B%%22datasource%%22:%%22loki%%22,%%22queries%%22:%%5B%%7B%%22expr%%22:%%22%s%%22%%7D%%5D%%7D"
+    base_url encoded
+
+(* Build a Grafana Explore URL scoped to one service.
    base_url: e.g. "http://localhost:3000"
    ns:       Kubernetes namespace
    k8s_name: service k8s name (hyphens, lowercase)
    Returns a URL the operator can paste directly into a browser. *)
 let grafana_explore_url ~base_url ~ns ~k8s_name =
-  let logql   = Printf.sprintf {|{namespace="%s",app="%s"}|} ns k8s_name in
-  let encoded = url_encode_logql logql in
-  Printf.sprintf
-    "%s/explore?orgId=1&left=%%7B%%22datasource%%22:%%22loki%%22,%%22queries%%22:%%5B%%7B%%22expr%%22:%%22%s%%22%%7D%%5D%%7D"
-    base_url encoded
+  explore_url ~base_url ~logql:(Printf.sprintf {|{namespace="%s",app="%s"}|} ns k8s_name)

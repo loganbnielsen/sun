@@ -17,6 +17,7 @@
   cmd_deploy
   cmd_status
   cmd_logs
+  cmd_open
   cmd_migrate
   cmd_rollback
   cmd_secret
