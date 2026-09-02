@@ -153,6 +153,10 @@ application model.
 | Rollback | local CLI | Sun CLI/GitOps | customer operation | Sun hosting plane |
 | Billing | none | customer cloud bill | customer cloud bill | Sun |
 
+Observability is a shared workspace surface, not one dashboard per service. See
+[`observability-design.md`](observability-design.md) for the label model,
+backend modes, and `sun status` / `sun open` UX.
+
 ---
 
 ## Deployment Compiler

@@ -3,6 +3,8 @@
 `platform/infra/base`'s `observability_backend` variable selects where Loki
 (logs) and Prometheus (metrics) data lives. Sun ships a self-hosted durable
 path so production users are not forced into Sun-hosted observability.
+The product design is documented in
+[`docs/architecture/observability-design.md`](../architecture/observability-design.md).
 
 | Profile | Logs (Loki) | Metrics (Prometheus) | Requires |
 |---|---|---|---|
