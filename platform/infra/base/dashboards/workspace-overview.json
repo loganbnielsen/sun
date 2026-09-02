@@ -6,6 +6,18 @@
   "editable": true,
   "time": { "from": "now-6h", "to": "now" },
   "tags": ["sun"],
+  "templating": {
+    "list": [
+      {
+        "name": "workspace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up, workspace)",
+        "refresh": 2,
+        "includeAll": false
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
@@ -15,7 +27,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(rate(sun_svc_requests_total[5m])) by (domain)",
+          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\"}[5m])) by (domain)",
           "legendFormat": "{{domain}}"
         }
       ]
@@ -28,7 +40,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(rate(sun_svc_requests_total{status_class=\"5xx\"}[5m])) by (domain)",
+          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", status_class=\"5xx\"}[5m])) by (domain)",
           "legendFormat": "{{domain}}"
         }
       ]
@@ -41,7 +53,7 @@
       "datasource": "Prometheus",
       "targets": [
         {
-          "expr": "sum(up{domain=~\".+\"}) by (domain)",
+          "expr": "sum(up{workspace=\"$workspace\"}) by (domain)",
           "legendFormat": "{{domain}}"
         }
       ]
@@ -53,7 +65,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": "Loki",
       "targets": [
-        { "expr": "{namespace=~\".+\"}" }
+        { "expr": "{workspace=\"$workspace\"}" }
       ]
     }
   ]

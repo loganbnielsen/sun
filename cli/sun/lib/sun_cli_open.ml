@@ -18,31 +18,38 @@ let parse_scope = function
      | _ -> Error (Printf.sprintf "scope must be 'domain' or 'domain/service', got %S" s))
 
 (* Deep-links into OBS-011's provisioned dashboards: the workspace overview
-   at workspace scope, the service template (with $domain/$service preset
-   via query params) once scoped. 'metrics' and 'dashboard' share this
-   target -- OBS-011 provisions one dashboard per scope covering both,
-   there's no separate metrics-only dashboard to link to.
+   at workspace scope, the service template (with $workspace/$domain/
+   $service preset via query params) once scoped. 'metrics' and
+   'dashboard' share this target -- OBS-011 provisions one dashboard per
+   scope covering both, there's no separate metrics-only dashboard to
+   link to.
 
-   $domain/$service are matched against the actual domain/service label
+   $workspace/$domain/$service are matched against the actual label
    values, which are always normalized (lowercase, underscores -> hyphens
    -- see Sun_cli_kubernetes_name.normalize and k8s_name_result). A raw,
-   un-normalized scope argument here would preset a var-domain/var-service
-   value that never matches any metric's labels, so the dashboard opens
-   empty -- normalize the same way logs_url already does. *)
-let dashboard_url ~base_url scope =
+   un-normalized scope argument here would preset a var-*  value that
+   never matches any metric's labels, so the dashboard opens empty --
+   normalize the same way logs_url already does. $workspace matters most
+   once a Prometheus/Grafana instance is shared across more than one Sun
+   workspace (OBS-020): without it, two workspaces using the same domain
+   name would blend in these dashboards. *)
+let dashboard_url ~base_url ~workspace scope =
+  let workspace = Sun_cli_kubernetes_name.normalize workspace in
   match scope with
-  | Workspace -> Ok (base_url ^ "/d/sun-workspace-overview")
+  | Workspace ->
+    Ok (Printf.sprintf "%s/d/sun-workspace-overview?var-workspace=%s" base_url workspace)
   | Domain domain ->
     let domain = Sun_cli_kubernetes_name.normalize domain in
-    Ok (Printf.sprintf "%s/d/sun-service-template?var-domain=%s" base_url domain)
+    Ok (Printf.sprintf "%s/d/sun-service-template?var-workspace=%s&var-domain=%s"
+          base_url workspace domain)
   | Service (domain, service) ->
     let domain = Sun_cli_kubernetes_name.normalize domain in
     (match Sun_cli_deployment_plan.k8s_name_result service with
      | Error e -> Error (Sun_cli_deployment_plan.plan_error_to_string e)
      | Ok k8s_name ->
        let service = Sun_cli_deployment_plan.k8s_name_to_string k8s_name in
-       Ok (Printf.sprintf "%s/d/sun-service-template?var-domain=%s&var-service=%s"
-             base_url domain service))
+       Ok (Printf.sprintf "%s/d/sun-service-template?var-workspace=%s&var-domain=%s&var-service=%s"
+             base_url workspace domain service))
 
 let logs_url ~base_url ~workspace scope =
   match scope with
@@ -67,4 +74,4 @@ let logs_url ~base_url ~workspace scope =
 let url ~base_url ~workspace ~kind scope =
   match kind with
   | Logs -> logs_url ~base_url ~workspace scope
-  | Metrics | Dashboard -> dashboard_url ~base_url scope
+  | Metrics | Dashboard -> dashboard_url ~base_url ~workspace scope
