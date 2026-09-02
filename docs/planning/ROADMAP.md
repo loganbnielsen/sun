@@ -712,3 +712,50 @@ self-hosted factory path into a safer production path. See
 | ~~`sun logs` Grafana pointer~~ ✓ done (FEAT-023) | Low | `sun logs` now prints a copyable Grafana Explore URL with a pre-built LogQL query before streaming kubectl logs. Pass `--grafana-base-url` to override the default `http://localhost:3000`. |
 | Path format unification (`sun rollback`) | Low | `sun rollback` uses `domain/svc`; `sun up` uses `app/domain/svc`. Pick one or document both explicitly. |
 | Fixed-tag pod restart | Low | With a fixed `dev` image tag, `sun up` does not restart running pods. Consider forcing a rollout restart when the build SHA changes even if the tag does not. |
+
+### Deploy & runtime visibility — three-layer model (decision, 2026-09-01)
+
+Surfaced by the first live AWS smoke test: Loki is app-push-based
+(`obs-loki-eio`), so a pod that never starts (OOMKilled, CrashLoopBackOff,
+ImagePullBackOff, unschedulable) never logs anything to Loki — the failures a
+user most needs explained are exactly the ones the current pipeline can't
+show. Decision: don't build hosted/managed logging infra for users (different
+company shape — auth, billing, retention, abuse, uptime). Make the user's own
+cluster observable instead, with the right data source per layer:
+
+| Layer | Source | Consumers |
+|---|---|---|
+| Deploy/build logs | Local command output — `sun deploy`, Docker/buildx, Terraform, Helm | Stored per run under `.sun/runs/<run-id>/`; compact progress printed, full log attached/tailed on failure. Never store deploy diagnostics only inside a cluster that the run itself may tear down. |
+| Cluster/deployment diagnosis | `kubectl` — pods, events, image pull errors, OOMKilled, scheduling failures, rollout status | Powers `sun status`, `sun deploy status`, failed-deploy summaries. Most reliable source when the app never starts, so it does not depend on Loki. |
+| Runtime logs | Loki — app logs, worker logs, platform pod logs once promtail/an agent scrapes pod stdout (not just app-pushed lines) | `sun logs <service>` prefers Loki, falls back to `kubectl logs` when a Loki *query* fails, not only when Loki is absent. |
+
+Follow-up work implied (not yet ticketed): install promtail (or equivalent)
+as part of `platform/infra/base/` scraping pod stdout directly, not just
+app-pushed Loki lines; add `sun status`/`sun deploy status` summarizing
+rollout health from Kubernetes events/pod states; give `sun deploy` run IDs
+and local `.sun/runs/` logging.
+
+**`sun logs <svc>` fallback is a runtime check, not a config flag.** Trigger
+the `kubectl logs` fallback on any of: Loki query failure, timeout (~5s),
+auth/connect error, or unhealthy Loki pods — not only "Loki not installed".
+Print why before falling back (`Loki unavailable: query timed out after 5s.
+Falling back to Kubernetes logs for charge-svc...`) so the user isn't left
+guessing which source they're looking at. If the target pods aren't running,
+include `kubectl describe pod` event excerpts, not just `kubectl logs`.
+
+**`sun status` leads with Kubernetes-derived diagnosis unconditionally**, even
+when Loki is healthy — it's the layer that explains a rollout failure when
+the app never ran, so it can't be secondary to Loki:
+
+```
+charge-svc rollout failed
+
+Pod charge-svc-...: ImagePullBackOff
+Reason: failed to pull image ...
+Last events:
+  FailedPull ...
+  BackOff ...
+```
+
+Loki stays the richer follow-up path once the platform itself is healthy —
+never the only path to debugging why it isn't.

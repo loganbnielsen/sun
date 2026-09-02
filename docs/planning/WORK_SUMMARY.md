@@ -1,5 +1,36 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: deploy/runtime visibility decision — three-layer model (2026-09-01)
+
+First live AWS smoke test (`tools/aws-live-smoke.sh` against real EKS) found a
+real product gap, not just a test-tooling one: Loki only receives logs an app
+explicitly pushes (`obs-loki-eio`), so a pod that never starts — Redpanda
+OOMKilled on an undersized node, in this run's case — produces nothing in
+Loki. The failure was only visible via an ad-hoc `kubectl logs` run outside
+any logging pipeline. No code changed for this yet; recorded as a roadmap
+decision (see `docs/planning/ROADMAP.md` §"Deploy & runtime visibility —
+three-layer model") to unblock ticketing later:
+
+- Deploy/build logs (terraform/helm/docker output) → local files under
+  `.sun/runs/<run-id>/`, not Loki.
+- Cluster/deployment diagnosis (why a pod never started) → `kubectl`
+  events/pod state, powering `sun status`/`sun deploy status`. Does not
+  depend on Loki — most reliable exactly when the app never runs.
+- Runtime logs (app/worker output once running) → Loki, via promtail
+  scraping pod stdout (not just app-pushed lines), with `sun logs` falling
+  back to `kubectl logs` on a Loki query failure.
+
+Explicitly rejected: hosted/managed logging infra run by Sun for users — that
+commits to a different product shape (auth, billing, retention, abuse,
+uptime) this stage doesn't need. Goal stays "make the user's own cluster
+observable," not "Sun hosts the logs."
+
+Separately, `tools/aws-live-smoke.sh` (new, this session) now wraps every
+phase in `timeout $PHASE_TIMEOUT` (default 900s) and tails the last 40 log
+lines to stdout on failure, and `platform/infra/aws/smoke-test.tfvars` bumped
+to EKS 1.36 / two `t3.medium` nodes / `redpanda_memory=2Gi` — the smallest
+shape that got past the scheduling and OOM failures found in this run.
+
 ## Latest: track every support package's `main` instead of stale tags (2026-08-29)
 
 Local opam switch and both `.github/workflows/{ci,release}.yml` pin steps now track
