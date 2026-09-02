@@ -139,17 +139,22 @@ type pod_expectation =
       running; zero pods, or a pod that isn't [is_healthy], is a finding. *)
   | Ephemeral
   (** CronJob-backed (Fn): no pod at all between scheduled runs is the
-      expected resting state, and a pod that ran to completion
-      successfully (phase "Succeeded") is not a failure either -- only an
-      active pod that isn't healthy and hasn't completed is a finding. *)
+      expected resting state. A *terminal* pod (phase "Succeeded" or
+      "Failed") is history, not a live signal, and is never a finding
+      either way -- `kubectl get pods -l app=<name>` can return several
+      historical run pods at once (successfulJobsHistoryLimit/
+      failedJobsHistoryLimit), and an old failed run must not keep the
+      function looking DEGRADED after a later run succeeds. Only a
+      currently *active* pod (Running/Pending) that isn't [is_healthy]
+      -- e.g. crash-looping mid-run -- is a finding. *)
 
-let is_successfully_completed (p : pod_status) : bool =
-  p.phase = "Succeeded"
+let is_terminal (p : pod_status) : bool =
+  p.phase = "Succeeded" || p.phase = "Failed"
 
 let is_ok_for ~pod_expectation (p : pod_status) : bool =
   match pod_expectation with
   | Continuous -> is_healthy p
-  | Ephemeral -> is_healthy p || is_successfully_completed p
+  | Ephemeral -> is_healthy p || is_terminal p
 
 let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   let buf = Buffer.create 256 in
@@ -187,16 +192,18 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
    pod does (OBS-024) -- the whole point of this diagnosis, per its call
    sites, is to catch that case. It is NOT a finding for [Ephemeral]
    (Fn/CronJob) -- that has no pod at all except while a scheduled
-   invocation is actively executing, and a pod that ran to completion
-   successfully is also not a failure (OBS-024/026 follow-up: originally
+   invocation is actively executing, and a terminal pod (succeeded or
+   failed) is history, not a failure (OBS-024/026 follow-up: originally
    unconditional and falsely degraded every idle scheduled function, then
-   every *successfully completed* one). Defaults to [Continuous] since
-   most callers (e.g. sun logs, which doesn't look up the primitive) are
-   checking a Svc/Worker.
+   every completed one, including ones that failed and were later
+   superseded by a success).
+   [~pod_expectation] is required, not defaulted -- the bug this fixes
+   came from applying the wrong health model, so a caller must say which
+   one it means rather than silently inheriting a default.
    Only meaningful when [pods] reflects a *confirmed* kubectl result;
    callers must not pass an empty list for "couldn't check" (see
    fetch_pod_statuses/diagnose_service_live below). *)
-let format_service_diagnosis ?(pod_expectation = Continuous) ~service_name
+let format_service_diagnosis ~pod_expectation ~service_name
     (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
     match pod_expectation with
@@ -232,9 +239,9 @@ let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
-let diagnose_service_live ?pod_expectation ~ns ~service_name ~k8s_name () : string option =
+let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : string option =
   match fetch_pod_statuses ~ns ~k8s_name with
   | None -> None
   | Some pods ->
     let events = fetch_namespace_events ~ns in
-    format_service_diagnosis ?pod_expectation ~service_name pods events
+    format_service_diagnosis ~pod_expectation ~service_name pods events

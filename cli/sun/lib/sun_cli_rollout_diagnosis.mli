@@ -50,35 +50,40 @@ type pod_expectation =
       running; zero pods, or a pod that isn't [is_healthy], is a finding. *)
   | Ephemeral
   (** CronJob-backed (Fn): no pod at all between scheduled runs is the
-      expected resting state, and a pod that ran to completion
-      successfully (phase "Succeeded") is not a failure either -- only an
-      active pod that isn't healthy and hasn't completed is a finding. *)
+      expected resting state. A *terminal* pod ([is_terminal]: succeeded
+      or failed) is history, not a live signal -- several historical run
+      pods can coexist (successfulJobsHistoryLimit/
+      failedJobsHistoryLimit), so an old failed run must not keep the
+      function looking degraded after a later run succeeds. Only a
+      currently active pod that isn't [is_healthy] (e.g. crash-looping
+      mid-run) is a finding. *)
 
-(** [true] when [p] ran to completion successfully (Kubernetes pod phase
-    "Succeeded") -- exposed for [Ephemeral] callers that want to
-    distinguish this from an active/failed pod directly. *)
-val is_successfully_completed : pod_status -> bool
+(** [true] when [p] has finished running, successfully or not (Kubernetes
+    pod phase "Succeeded" or "Failed") -- exposed for [Ephemeral] callers
+    that want to distinguish history from an active pod directly. *)
+val is_terminal : pod_status -> bool
 
 (** Render one pod's diagnosis block: state/reason, restarts, last
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [format_service_diagnosis ?pod_expectation ~service_name pods events]
-    returns [None] when every pod is OK for [pod_expectation] (default
-    [Continuous]), or a rendered "<service_name> rollout failed" block
-    otherwise:
+(** [format_service_diagnosis ~pod_expectation ~service_name pods events]
+    returns [None] when every pod is OK for [pod_expectation], or a
+    rendered "<service_name> rollout failed" block otherwise:
     - [Continuous]: any pod that isn't [is_healthy] is a finding,
       including an empty pod list (OBS-024) -- a namespace that exists
       with no pod means the service never started.
     - [Ephemeral]: an empty pod list is not a finding (idle between runs
-      is expected), and a pod is only a finding when it's neither
-      [is_healthy] nor [is_successfully_completed] (OBS-026) -- a
-      scheduled run that finished successfully isn't a failure either.
-    Only pass a confirmed pod list here (see [fetch_pod_statuses]) -- an
-    empty list always reads as "confirmed zero pods," never "couldn't
-    check." *)
+      is expected), a terminal pod ([is_terminal]) is never a finding
+      either way it ended, and only a currently active, unhealthy pod is
+      (OBS-026).
+    [~pod_expectation] is required, not defaulted -- the bug this fixes
+    came from applying the wrong health model, so a caller must say which
+    one it means. Only pass a confirmed pod list here (see
+    [fetch_pod_statuses]) -- an empty list always reads as "confirmed
+    zero pods," never "couldn't check." *)
 val format_service_diagnosis
-  :  ?pod_expectation:pod_expectation
+  :  pod_expectation:pod_expectation
   -> service_name:string
   -> pod_status list
   -> event list
@@ -97,10 +102,10 @@ val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
     and events for the given service and returns its diagnosis, if any.
     [None] both when every pod is OK and when the pod fetch itself
     failed -- a transient kubectl failure stays silent rather than being
-    reported as "no pods found." [?pod_expectation] is forwarded to
-    [format_service_diagnosis]. *)
+    reported as "no pods found." [~pod_expectation] is forwarded to
+    [format_service_diagnosis] (required for the same reason). *)
 val diagnose_service_live
-  :  ?pod_expectation:pod_expectation
+  :  pod_expectation:pod_expectation
   -> ns:string
   -> service_name:string
   -> k8s_name:string

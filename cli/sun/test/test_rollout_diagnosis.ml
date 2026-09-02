@@ -26,6 +26,17 @@ let succeeded_pod_json = {|
 ]}
 |}
 
+let failed_pod_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-old"},
+   "status": {"phase": "Failed",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha0",
+        "state": {"terminated": {"reason": "Error", "exitCode": 1}}}
+     ]}}
+]}
+|}
+
 let image_pull_backoff_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-xyz"},
@@ -128,12 +139,12 @@ let test_events_for_pod_excludes_other_pods () =
 let test_format_service_diagnosis_none_when_healthy () =
   let pods = D.parse_pods_json healthy_pod_json in
   check_bool "no diagnosis for healthy service" true
-    (Option.is_none (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
+    (Option.is_none (D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods []))
 
 let test_format_service_diagnosis_includes_events_and_reason () =
   let pods = D.parse_pods_json image_pull_backoff_json in
   let events = D.parse_events_json events_json in
-  match D.format_service_diagnosis ~service_name:"charge-svc" pods events with
+  match D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods events with
   | None -> Alcotest.fail "expected a diagnosis"
   | Some diagnosis ->
     check_bool "mentions rollout failed" true
@@ -151,7 +162,7 @@ let test_format_service_diagnosis_includes_events_and_reason () =
    Deployment used to vacuously look healthy since "no unhealthy pods"
    trivially held for an empty list too. *)
 let test_format_service_diagnosis_reports_empty_pod_list () =
-  match D.format_service_diagnosis ~service_name:"charge-svc" [] [] with
+  match D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" [] [] with
   | None -> Alcotest.fail "expected a diagnosis for zero pods, got None (looks healthy)"
   | Some diagnosis ->
     check_bool "mentions rollout failed" true
@@ -170,17 +181,13 @@ let test_format_service_diagnosis_empty_pods_ok_when_ephemeral () =
        (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
           ~service_name:"invoice-fn" [] []))
 
-let test_format_service_diagnosis_default_still_flags_empty_pods () =
-  check_bool "default (Continuous) still flags empty pods" true
-    (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" [] []))
-
 (* Even an Ephemeral primitive should still be flagged while a pod is
-   actually present and unhealthy (e.g. a scheduled run stuck
-   crash-looping) -- Ephemeral only changes the empty-list/completed-pod
-   cases. *)
+   actually present, active, and unhealthy (e.g. a scheduled run stuck
+   crash-looping right now) -- Ephemeral only changes how terminal
+   (finished) pods are treated. *)
 let test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral () =
   let pods = D.parse_pods_json image_pull_backoff_json in
-  check_bool "unhealthy pod still flagged for an Ephemeral primitive" true
+  check_bool "an active unhealthy pod still flagged for an Ephemeral primitive" true
     (Option.is_some
        (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
           ~service_name:"invoice-fn" pods []))
@@ -196,19 +203,31 @@ let test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral () =
        (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
           ~service_name:"invoice-fn" pods []))
 
+(* OBS-026 (sixth-round review of PR #85): an old *failed* run pod must
+   not keep an Ephemeral service looking DEGRADED once a later run has
+   succeeded -- kubectl can return several historical run pods at once
+   (successfulJobsHistoryLimit/failedJobsHistoryLimit), so a terminal
+   pod's outcome (succeeded or failed) is history, not a live signal. *)
+let test_format_service_diagnosis_failed_terminal_pod_ok_when_ephemeral () =
+  let pods = D.parse_pods_json failed_pod_json in
+  check_bool "a failed but terminal (finished) pod is not a diagnosis for Ephemeral" true
+    (Option.is_none
+       (D.format_service_diagnosis ~pod_expectation:D.Ephemeral
+          ~service_name:"invoice-fn" pods []))
+
 let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous () =
   let pods = D.parse_pods_json succeeded_pod_json in
   check_bool "a Succeeded pod is still a finding for Continuous (Svc/Worker)" true
     (Option.is_some
-       (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
+       (D.format_service_diagnosis ~pod_expectation:D.Continuous ~service_name:"charge-svc" pods []))
 
-let test_is_successfully_completed () =
+let test_is_terminal () =
   let succeeded = D.parse_pods_json succeeded_pod_json in
+  let failed = D.parse_pods_json failed_pod_json in
   let running = D.parse_pods_json healthy_pod_json in
-  check_bool "Succeeded phase -> true" true
-    (List.for_all D.is_successfully_completed succeeded);
-  check_bool "Running phase -> false" false
-    (List.exists D.is_successfully_completed running)
+  check_bool "Succeeded phase -> true" true (List.for_all D.is_terminal succeeded);
+  check_bool "Failed phase -> true" true (List.for_all D.is_terminal failed);
+  check_bool "Running phase -> false" false (List.exists D.is_terminal running)
 
 let () =
   Alcotest.run "rollout_diagnosis"
@@ -227,10 +246,10 @@ let () =
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
          Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
          Alcotest.test_case "empty pods OK when Ephemeral (Fn)" `Quick test_format_service_diagnosis_empty_pods_ok_when_ephemeral;
-         Alcotest.test_case "default still flags empty pods" `Quick test_format_service_diagnosis_default_still_flags_empty_pods;
          Alcotest.test_case "unhealthy pods still flagged when Ephemeral" `Quick test_format_service_diagnosis_unhealthy_pods_still_flagged_when_ephemeral;
          Alcotest.test_case "succeeded pod OK when Ephemeral" `Quick test_format_service_diagnosis_succeeded_pod_ok_when_ephemeral;
+         Alcotest.test_case "failed terminal pod OK when Ephemeral" `Quick test_format_service_diagnosis_failed_terminal_pod_ok_when_ephemeral;
          Alcotest.test_case "succeeded pod still flagged when Continuous" `Quick test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous;
-         Alcotest.test_case "is_successfully_completed" `Quick test_is_successfully_completed;
+         Alcotest.test_case "is_terminal" `Quick test_is_terminal;
        ]);
     ]
