@@ -29,6 +29,14 @@ val default_secrets     : (string * string) list
 val runtime_secret_name : string
 val config_hash : (string * string) list -> string
 
+(** Bounds a taxonomy label value to Kubernetes' 63-char label-value limit
+    and fixes up a trailing non-alphanumeric character left by truncation
+    (or present in the original value). Applied uniformly to every
+    taxonomy label value rendered by [render_taxonomy_labels] -- exposed
+    here since it's a reusable safety net, not a guarantee any particular
+    caller already provides. *)
+val sanitize_label_value : string -> string
+
 (** Low-level YAML document builders used by [render] and [render_spec]. *)
 val namespace_doc       : ns:string -> string
 val service_account_doc : ns:string -> name:string -> string

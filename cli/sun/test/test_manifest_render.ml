@@ -1165,6 +1165,30 @@ let test_release_of_image_numeric_tag_quoted () =
   assert_contains "numeric-looking release stays a quoted string"
     workload {|release: "123"|}
 
+(* OBS-019: sanitize_label_value applies uniformly to every taxonomy label
+   value, not just release. workspace/domain/service are already bounded
+   before render_spec ever reaches label rendering (namespace_result
+   validates their combined length/charset upstream, and service is
+   always a validated k8s_name here), so these can't be exercised through
+   the full render pipeline the way release's truncation/fixup tests are
+   above -- test the exposed sanitizer directly instead. *)
+let test_sanitize_label_value_bounds_length () =
+  let long = String.make 90 'a' in
+  check_string "truncated to 63 chars" (String.make 63 'a')
+    (Sun_cli_manifest.sanitize_label_value long)
+
+let test_sanitize_label_value_fixes_trailing_non_alnum () =
+  check_string "trailing '.' replaced with a safe char" "abc0"
+    (Sun_cli_manifest.sanitize_label_value "abc.")
+
+let test_sanitize_label_value_no_op_when_already_safe () =
+  check_string "already-safe value unchanged" "payments-team"
+    (Sun_cli_manifest.sanitize_label_value "payments-team")
+
+let test_sanitize_label_value_empty_falls_back_to_unknown () =
+  check_string "empty value -> unknown" "unknown"
+    (Sun_cli_manifest.sanitize_label_value "")
+
 let () =
   Alcotest.run "manifest_render"
     [ "svc", [
@@ -1287,5 +1311,9 @@ let () =
       ; Alcotest.test_case "oversized tag truncated to 63 chars" `Quick test_release_of_image_oversized_tag_truncated
       ; Alcotest.test_case "trailing non-alnum after truncation fixed up" `Quick test_release_of_image_trailing_non_alnum_after_truncation
       ; Alcotest.test_case "numeric-looking tag stays quoted" `Quick test_release_of_image_numeric_tag_quoted
+      ; Alcotest.test_case "sanitize_label_value bounds length" `Quick test_sanitize_label_value_bounds_length
+      ; Alcotest.test_case "sanitize_label_value fixes trailing non-alnum" `Quick test_sanitize_label_value_fixes_trailing_non_alnum
+      ; Alcotest.test_case "sanitize_label_value no-op when already safe" `Quick test_sanitize_label_value_no_op_when_already_safe
+      ; Alcotest.test_case "sanitize_label_value empty -> unknown" `Quick test_sanitize_label_value_empty_falls_back_to_unknown
       ]
     ]
