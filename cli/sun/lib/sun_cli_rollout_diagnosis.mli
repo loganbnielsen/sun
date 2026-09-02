@@ -95,15 +95,35 @@ type cronjob_status = {
     "never happened" default, not [None]. *)
 val parse_cronjob_status : string -> cronjob_status option
 
-(** [format_cronjob_diagnosis ~service_name status] is the [Ephemeral]
-    counterpart to [format_service_diagnosis]: [None] when no run has
-    been scheduled yet, a run is currently active (Sun's CronJobs set
-    `backoffLimit: 3`, so a run stuck failing terminates within a few
-    retries rather than staying active indefinitely), or the most
-    recently scheduled run has a later-or-equal successful completion
-    recorded; a rendered finding otherwise -- the most recently scheduled
-    run hasn't (yet, or ever) completed successfully. *)
-val format_cronjob_diagnosis : service_name:string -> cronjob_status -> string option
+(** Result of trying to fetch a CronJob's status -- distinguishes "the
+    resource genuinely doesn't exist" from "the kubectl call itself
+    failed" (OBS-026): conflating the two into one [None] used to mean a
+    declared [Fn] whose CronJob was never actually created (deploy failed
+    partway, or it was deleted) reported healthy with no diagnosis. *)
+type cronjob_fetch_result =
+  | Found of cronjob_status
+  | Missing
+  (** Confirmed via kubectl's own NotFound response -- not a transient
+      failure. *)
+  | Unavailable
+  (** The kubectl call itself failed, or its output couldn't be parsed
+      (transient error, timeout, RBAC, ...) -- stays silent, same as
+      other transient-failure handling in this module. *)
+
+(** [format_cronjob_diagnosis ~service_name result] is the [Ephemeral]
+    counterpart to [format_service_diagnosis]:
+    - [Unavailable]: [None] -- couldn't check, stays silent.
+    - [Missing]: always a finding -- a declared service with no backing
+      CronJob at all is exactly the kind of failure this diagnosis exists
+      to catch.
+    - [Found status]: [None] when no run has been scheduled yet, a run is
+      currently active (Sun's CronJobs set `backoffLimit: 3`, so a run
+      stuck failing terminates within a few retries rather than staying
+      active indefinitely), or the most recently scheduled run has a
+      later-or-equal successful completion recorded; a rendered finding
+      otherwise -- the most recently scheduled run hasn't (yet, or ever)
+      completed successfully. *)
+val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
 
 (** [kubectl get events -n <ns> -o json], parsed. Empty list on any kubectl
     failure — diagnosis degrades gracefully rather than erroring. *)
@@ -114,9 +134,10 @@ val fetch_namespace_events : ns:string -> event list
     distinct from [Some []], a confirmed zero pods. *)
 val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
 
-(** [kubectl get cronjob <k8s_name> -n <ns> -o json], parsed. [None] if the
-    kubectl call itself failed or the response couldn't be parsed. *)
-val fetch_cronjob_status : ns:string -> k8s_name:string -> cronjob_status option
+(** [kubectl get cronjob <k8s_name> -n <ns> -o json], parsed into a
+    [cronjob_fetch_result] that distinguishes a confirmed-missing
+    resource from an unavailable/unparseable one. *)
+val fetch_cronjob_status : ns:string -> k8s_name:string -> cronjob_fetch_result
 
 (** Live, I/O-performing diagnosis, dispatching on [pod_expectation]:
     [Continuous] fetches pods and events and calls

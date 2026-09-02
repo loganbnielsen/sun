@@ -193,11 +193,11 @@ let run_currently_active : D.cronjob_status =
 
 let test_format_cronjob_diagnosis_never_scheduled_is_ok () =
   check_bool "never scheduled -> no diagnosis" true
-    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" never_scheduled))
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found never_scheduled)))
 
 let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
   check_bool "most recent run succeeded -> no diagnosis" true
-    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_succeeded))
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
 
 (* OBS-026 (sixth-round review of PR #85): an old *failed* run must not
    keep an Ephemeral service looking DEGRADED once a later run has
@@ -206,7 +206,7 @@ let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
    timestamps -- there's no historical Job/pod list to misread. *)
 let test_format_cronjob_diagnosis_stale_failure_does_not_linger () =
   check_bool "an old failure superseded by a newer success is not a diagnosis" true
-    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_succeeded))
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
 
 (* OBS-026 (seventh-round review of PR #85): the most recently scheduled
    run *not* having succeeded -- whether it failed outright or has simply
@@ -214,7 +214,7 @@ let test_format_cronjob_diagnosis_stale_failure_does_not_linger () =
    treated any terminal (Failed included) pod as OK made a function that
    just failed report healthy, which defeats the point of `sun status`. *)
 let test_format_cronjob_diagnosis_last_run_failed_is_flagged () =
-  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_last_run_failed with
+  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_failed) with
   | None -> Alcotest.fail "expected a diagnosis for a most-recent-run failure, got None (looks healthy)"
   | Some diagnosis ->
     check_bool "mentions rollout failed" true
@@ -226,14 +226,36 @@ let test_format_cronjob_diagnosis_last_run_failed_is_flagged () =
 
 let test_format_cronjob_diagnosis_never_succeeded_is_flagged () =
   check_bool "scheduled but never once succeeded -> flagged" true
-    (Option.is_some (D.format_cronjob_diagnosis ~service_name:"invoice-fn" idle_never_succeeded))
+    (Option.is_some (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_never_succeeded)))
 
 (* A run currently in progress isn't judged yet either way -- Sun's
    CronJobs set backoffLimit: 3, so a run stuck failing terminates within
    a few retries rather than staying "active" indefinitely. *)
 let test_format_cronjob_diagnosis_active_run_is_ok () =
   check_bool "a currently-active run is not (yet) a diagnosis" true
-    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" run_currently_active))
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found run_currently_active)))
+
+(* OBS-026 (eighth-round review of PR #85): a declared Fn whose CronJob
+   was never actually created (deploy failed partway, or it was deleted)
+   used to report healthy with no diagnosis at all -- Missing and
+   Unavailable were both just None. A missing resource for a declared
+   service is exactly the kind of failure this diagnosis exists to
+   catch, so it must be flagged; an unavailable one (transient kubectl
+   failure) still stays silent. *)
+let test_format_cronjob_diagnosis_missing_is_flagged () =
+  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Missing with
+  | None -> Alcotest.fail "expected a diagnosis for a missing CronJob, got None (looks healthy)"
+  | Some diagnosis ->
+    check_bool "mentions rollout failed" true
+      (try ignore (Str.search_forward (Str.regexp_string "invoice-fn rollout failed") diagnosis 0); true
+       with Not_found -> false);
+    check_bool "mentions not found" true
+      (try ignore (Str.search_forward (Str.regexp_string "not found") diagnosis 0); true
+       with Not_found -> false)
+
+let test_format_cronjob_diagnosis_unavailable_stays_silent () =
+  check_bool "an unavailable (transient failure) fetch is not a diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Unavailable))
 
 let test_parse_cronjob_status () =
   let json = {|{"status": {"lastScheduleTime": "2026-09-02T10:00:00Z", "lastSuccessfulTime": "2026-09-02T10:00:05Z", "active": [{"name": "invoice-fn-1"}]}}|} in
@@ -278,6 +300,8 @@ let () =
          Alcotest.test_case "last run failed -> flagged" `Quick test_format_cronjob_diagnosis_last_run_failed_is_flagged;
          Alcotest.test_case "never succeeded -> flagged" `Quick test_format_cronjob_diagnosis_never_succeeded_is_flagged;
          Alcotest.test_case "active run -> OK" `Quick test_format_cronjob_diagnosis_active_run_is_ok;
+         Alcotest.test_case "missing CronJob -> flagged" `Quick test_format_cronjob_diagnosis_missing_is_flagged;
+         Alcotest.test_case "unavailable fetch stays silent" `Quick test_format_cronjob_diagnosis_unavailable_stays_silent;
        ]);
       ("parse_cronjob_status",
        [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;

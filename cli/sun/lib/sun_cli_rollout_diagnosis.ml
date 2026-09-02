@@ -230,6 +230,22 @@ let parse_cronjob_status (s : string) : cronjob_status option =
       Some { last_schedule_time; last_successful_time; active_count }
   with _ -> None
 
+(* Result of trying to fetch a CronJob's status -- distinguishes "the
+   resource genuinely doesn't exist" from "the kubectl call itself
+   failed," which used to be conflated into one [None] (OBS-026): a
+   declared Fn in a namespace that exists, but whose CronJob was never
+   actually created (deploy failed partway, or it was deleted), reported
+   healthy with no diagnosis at all. *)
+type cronjob_fetch_result =
+  | Found of cronjob_status
+  | Missing
+  (** Confirmed via kubectl's own NotFound response -- not a transient
+      failure. *)
+  | Unavailable
+  (** The kubectl call itself failed, or its output couldn't be parsed
+      (transient error, timeout, RBAC, ...) -- stays silent, same as
+      other transient-failure handling in this module. *)
+
 (* [Ephemeral]: no run scheduled yet, or a run currently in progress, is
    not a finding (nothing to judge yet, or too early to tell -- Sun's
    CronJobs set backoffLimit: 3, so a run stuck failing terminates within
@@ -238,22 +254,30 @@ let parse_cronjob_status (s : string) : cronjob_status option =
    it hasn't since been recorded as successful -- comparing
    lastSuccessfulTime against lastScheduleTime (RFC3339 UTC timestamps
    sort correctly as strings) tells us that without needing to reason
-   about which of several historical pods is "the latest" one. *)
-let format_cronjob_diagnosis ~service_name (status : cronjob_status) : string option =
-  if status.active_count > 0 then None
-  else
-    match status.last_schedule_time with
-    | None -> None
-    | Some scheduled ->
-      let succeeded_since = match status.last_successful_time with
-        | Some succeeded -> succeeded >= scheduled
-        | None -> false
-      in
-      if succeeded_since then None
-      else
-        Some (Printf.sprintf
-                "%s rollout failed\n\nMost recently scheduled run (%s) did not complete successfully.\n"
-                service_name scheduled)
+   about which of several historical pods is "the latest" one. A
+   [Missing] CronJob is always a finding: a declared service with no
+   backing resource at all is exactly the kind of failure this diagnosis
+   exists to catch. *)
+let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : string option =
+  match result with
+  | Unavailable -> None
+  | Missing ->
+    Some (Printf.sprintf "%s rollout failed\n\nCronJob not found for this service.\n" service_name)
+  | Found status ->
+    if status.active_count > 0 then None
+    else
+      match status.last_schedule_time with
+      | None -> None
+      | Some scheduled ->
+        let succeeded_since = match status.last_successful_time with
+          | Some succeeded -> succeeded >= scheduled
+          | None -> false
+        in
+        if succeeded_since then None
+        else
+          Some (Printf.sprintf
+                  "%s rollout failed\n\nMost recently scheduled run (%s) did not complete successfully.\n"
+                  service_name scheduled)
 
 let fetch_namespace_events ~ns : event list =
   match Sun_cli_kubectl.get_raw ~args:["get"; "events"; "-n"; ns; "-o"; "json"] with
@@ -271,10 +295,16 @@ let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
-let fetch_cronjob_status ~ns ~k8s_name : cronjob_status option =
+let fetch_cronjob_status ~ns ~k8s_name : cronjob_fetch_result =
   match Sun_cli_kubectl.get_raw ~args:["get"; "cronjob"; k8s_name; "-n"; ns; "-o"; "json"] with
-  | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_cronjob_status r.Sun_cli_process.stdout
-  | _ -> None
+  | Error _ -> Unavailable
+  | Ok r when r.Sun_cli_process.exit_code = 0 ->
+    (match parse_cronjob_status r.Sun_cli_process.stdout with
+     | Some status -> Found status
+     | None -> Unavailable)
+  | Ok r ->
+    if Sun_cli_port_forward.string_contains ~needle:"NotFound" r.Sun_cli_process.stderr
+    then Missing else Unavailable
 
 let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : string option =
   match pod_expectation with
@@ -285,6 +315,4 @@ let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : stri
        let events = fetch_namespace_events ~ns in
        format_service_diagnosis ~service_name pods events)
   | Ephemeral ->
-    (match fetch_cronjob_status ~ns ~k8s_name with
-     | None -> None
-     | Some status -> format_cronjob_diagnosis ~service_name status)
+    format_cronjob_diagnosis ~service_name (fetch_cronjob_status ~ns ~k8s_name)
