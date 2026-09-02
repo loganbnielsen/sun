@@ -25,6 +25,14 @@ Completion criteria:
 - `sun cloud plan dev/aws/us-east-1` shows a reviewable plan.
 - `sun cloud apply dev/aws/us-east-1` provisions the low-cost dev stack.
 - Printed outputs are enough to configure kubectl and registry login.
+- Base platform components install successfully on the live cluster:
+  ingress-nginx, cert-manager, Redpanda, Loki/Grafana, Prometheus, and
+  pushgateway.
+- Loki, Prometheus, and Grafana are reachable through either ingress or
+  temporary `kubectl port-forward`.
+- Read-only checks prove observability is functional:
+  Loki responds to `/ready`, Prometheus responds to `/-/ready`, and Grafana
+  responds to `/api/health`.
 - `sun cloud destroy dev/aws/us-east-1 --plan` previews teardown.
 - `sun cloud destroy dev/aws/us-east-1 --apply` completes.
 - A read-only AWS CLI verification step confirms EKS, RDS, and ECR resources are gone.
@@ -35,6 +43,8 @@ Tests:
 - No unit test should hit AWS.
 - Terraform adapter argv tests cover init, plan, apply, plan-destroy, destroy.
 - Live test uses the smoke-test tfvars and IAM policy only.
+- Live observability test uses `kubectl get pods`, short-lived port-forwards,
+  and HTTP readiness probes only; it does not require deploying an app service.
 
 ## Project 2: Changed-Service Build And Deploy
 
