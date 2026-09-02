@@ -355,6 +355,16 @@ resource "helm_release" "loki" {
     name  = "promtail.enabled"
     value = "true"
   }
+  # OBS-011: loki-stack's Grafana ships with dashboard/datasource
+  # sidecar-ConfigMap loading available (sidecar.datasources.enabled is
+  # already the chart default; dashboards is not) -- both watch for
+  # ConfigMaps carrying their respective labels in this namespace, which
+  # kubernetes_config_map.grafana_dashboards/grafana_prometheus_datasource
+  # below provide.
+  set {
+    name  = "grafana.sidecar.dashboards.enabled"
+    value = "true"
+  }
 
   values = concat(
     [yamlencode({
@@ -371,6 +381,53 @@ resource "helm_release" "loki" {
   )
 
   depends_on = [terraform_data.observability_backend_validation]
+}
+
+# Prometheus datasource for Grafana, loaded via the same sidecar-ConfigMap
+# mechanism the chart already uses for its own auto-provisioned "Loki"
+# datasource (sidecar.datasources.enabled: true is this chart's default;
+# label key "grafana_datasource" is that sidecar's own default, unchanged).
+resource "kubernetes_config_map" "grafana_prometheus_datasource" {
+  count = local.loki_install_local ? 1 : 0
+
+  metadata {
+    name      = "grafana-prometheus-datasource"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels    = { grafana_datasource = "1" }
+  }
+
+  data = {
+    "prometheus.yaml" = yamlencode({
+      apiVersion = 1
+      datasources = [{
+        name      = "Prometheus"
+        type      = "prometheus"
+        access    = "proxy"
+        url       = "http://prometheus-server.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local:80"
+        isDefault = false
+      }]
+    })
+  }
+}
+
+# OBS-011: the lazy version -- two dashboards total (workspace overview,
+# one $domain/$service-templated service dashboard), not one generated file
+# per domain/service. Adding a new service requires zero Sun-side dashboard
+# changes; Grafana's own template variables (populated from live Prometheus/
+# Loki label values, not a static list Sun maintains) do the scoping.
+resource "kubernetes_config_map" "grafana_dashboards" {
+  count = local.loki_install_local ? 1 : 0
+
+  metadata {
+    name      = "sun-grafana-dashboards"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels    = { grafana_dashboard = "1" }
+  }
+
+  data = {
+    "workspace-overview.json" = file("${path.module}/dashboards/workspace-overview.json")
+    "service-template.json"   = file("${path.module}/dashboards/service-template.json")
+  }
 }
 
 # Grafana Ingress — no local Grafana to expose when shipping to an external

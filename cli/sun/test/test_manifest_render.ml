@@ -1063,7 +1063,8 @@ let test_shape_http_service_deployment_has_ports () =
     ~image:"sun-registry:5000/myapp/charge-svc:abc123"
     ~workspace:"myapp" ~domain:"payments" ~primitive:"svc" () in
   assert_contains "Http_service containerPort"   doc "containerPort: 8080";
-  assert_contains "Http_service readinessProbe"  doc "readinessProbe:"
+  assert_contains "Http_service readinessProbe"  doc "readinessProbe:";
+  assert_contains "Http_service has prometheus.io/scrape (OBS-011)" doc "prometheus.io/scrape: \"true\""
 
 let test_shape_background_worker_deployment_no_ports () =
   let doc = Sun_cli_manifest.deployment_doc
@@ -1073,7 +1074,8 @@ let test_shape_background_worker_deployment_no_ports () =
     ~image:"sun-registry:5000/myapp/notify-worker:abc123"
     ~workspace:"myapp" ~domain:"comms" ~primitive:"worker" () in
   assert_absent "Background_worker no containerPort"  doc "containerPort:";
-  assert_absent "Background_worker no readinessProbe" doc "readinessProbe:"
+  assert_absent "Background_worker no readinessProbe" doc "readinessProbe:";
+  assert_absent "Background_worker no prometheus.io/scrape (no port to scrape yet)" doc "prometheus.io/scrape"
 
 let test_shape_rollout_http_service_has_ports () =
   let doc = Sun_cli_manifest.rollout_doc

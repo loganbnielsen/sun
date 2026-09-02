@@ -87,3 +87,38 @@ it.
 **Known gap:** the full S3-backed path has not been exercised against a live
 cluster. This pass is still static Terraform/Helm validation only; run a real
 AWS deploy before depending on it in production.
+
+## Dashboards (OBS-011)
+
+All three profiles provision the same two Grafana dashboards, loaded via the
+`loki-stack` chart's sidecar ConfigMap-loading (`grafana.sidecar.dashboards`)
+rather than one file per domain/service:
+
+- **Workspace overview** — request rate, 5xx rate, and scraped-target health
+  across every domain at once.
+- **Service template** — one dashboard parameterized by `$domain`/`$service`
+  Grafana template variables (populated live from Prometheus label values,
+  not a list Sun maintains). Selecting values re-scopes every panel,
+  including a Loki logs panel filtered to that domain/service.
+
+A Prometheus datasource is provisioned the same way the chart already
+auto-provisions its own "Loki" datasource (a ConfigMap labeled
+`grafana_datasource: "1"`), since nothing wired Grafana to Prometheus before
+this ticket.
+
+**Known gaps:**
+- Only `-svc` primitives get a `prometheus.io/scrape` annotation today (a
+  containerPort actually exists to scrape). `-worker` has no metrics port
+  wired at the manifest level yet — a pre-existing gap, not introduced or
+  fixed here — so the service template's `$service` dropdown will only ever
+  populate with `-svc` names until that's addressed separately. `-fn` uses
+  Pushgateway, a different ingestion path this ticket doesn't touch.
+- A per-service **logs view** and a **deploy/release timeline** dashboard
+  (both mentioned in `docs/architecture/observability-design.md`) are not
+  built — deferred, not silently dropped.
+- **Not verified against a live Grafana instance.** This pass validated the
+  dashboard JSON is well-formed and the Terraform/Helm wiring
+  (`terraform validate`, chart values checked against `helm show values`),
+  but did not run a real `sun dev up` and confirm the panels/variables
+  actually render and populate. Flagged explicitly — do this before trusting
+  the dashboards in a real review.

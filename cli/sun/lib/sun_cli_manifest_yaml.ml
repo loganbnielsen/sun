@@ -205,6 +205,16 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
   let taxonomy_labels_section =
     render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
   in
+  (* OBS-011: Prometheus's default kubernetes-pods scrape job (see
+     prometheus-community/prometheus's own default scrape_configs) only
+     scrapes pods carrying prometheus.io/scrape=true -- without it, none of
+     this ticket's dashboards would show live per-service metrics. Only
+     Http_service has a port to scrape; Background_worker's own metrics
+     port isn't wired at the manifest level yet (separate, pre-existing
+     gap, not addressed here). *)
+  let prometheus_annotations = if shape = Http_service then
+    "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
+  else "" in
   f {|---
 apiVersion: apps/v1
 kind: Deployment
@@ -225,7 +235,7 @@ spec:
 %s%s
       annotations:
         sun.dev/config-hash: "%s"
-    spec:
+%s    spec:
       serviceAccountName: %s
       securityContext:
         runAsNonRoot: true
@@ -252,7 +262,7 @@ spec:
           limits:
             cpu: %s
             memory: %s
-%s|} name ns replicas strategy_type name name taxonomy_labels_section extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
+%s|} name ns replicas strategy_type name name taxonomy_labels_section extra_labels_section config_hash prometheus_annotations name name image ports_section secret_env_section name name cpu memory cpu memory probe_section
 
 (* ── Argo Rollouts helpers ────────────────────────────────────────────────── *)
 
@@ -312,6 +322,9 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~sh
   let taxonomy_labels_section =
     render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
   in
+  let prometheus_annotations = if shape = Http_service then
+    "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
+  else "" in
   let strategy_block = match pd with
     | Sun_cli_toml.Canary { steps } -> render_canary_strategy steps
     | Sun_cli_toml.Blue_green       -> render_blue_green_strategy name
@@ -334,7 +347,7 @@ spec:
 %s%s
       annotations:
         sun.dev/config-hash: "%s"
-    spec:
+%s    spec:
       serviceAccountName: %s
       securityContext:
         runAsNonRoot: true
@@ -363,7 +376,7 @@ spec:
             memory: %s
 %s
   strategy:
-%s|} name ns replicas name name taxonomy_labels_section extra_labels_section config_hash name name image ports_section secret_env_section name name cpu memory cpu memory probe_section strategy_block
+%s|} name ns replicas name name taxonomy_labels_section extra_labels_section config_hash prometheus_annotations name name image ports_section secret_env_section name name cpu memory cpu memory probe_section strategy_block
 
 (** Two ClusterIP Services required by the blue-green strategy:
     [<name>-active] receives live traffic; [<name>-preview] receives canary traffic.
