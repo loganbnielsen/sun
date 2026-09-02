@@ -1,7 +1,7 @@
 # Minimal-footprint override for live smoke-testing platform/infra/aws/ —
-# NOT for real workspaces. Cuts node cost from ~$0.29/hr (3x m6i.large) to
-# ~$0.02/hr (1x t3.small); EKS control plane's flat $0.10/hr still applies
-# regardless of node sizing.
+# NOT for real workspaces. Two t3.medium nodes are the smallest shape we've
+# found that can run the full base platform stack in EKS; EKS control plane's
+# flat hourly charge still applies regardless of node sizing.
 #
 # Usage:
 #   sun cloud apply dev/aws/us-east-1 \
@@ -16,13 +16,12 @@
 # this value is never read. Placeholder only — no real domain needed.
 base_domain = "smoke-test.invalid"
 
-# One node is enough to prove the cluster comes up and schedules the EKS
-# system add-ons (VPC CNI, kube-proxy, coredns) — this is not sized to run
-# real workloads.
-node_instance_types = ["t3.small"]
-node_min_size       = 1
+# Enough room for EKS system add-ons plus cert-manager, ingress-nginx, Argo CD,
+# Redpanda, Loki/Grafana, Prometheus, and pushgateway.
+node_instance_types = ["t3.medium"]
+node_min_size       = 2
 node_max_size       = 2
-node_desired_size   = 1
+node_desired_size   = 2
 
 # Single NAT gateway is already the default (ha_nat_gateway = false); kept
 # explicit here so this file is a complete picture of the smoke-test shape.
