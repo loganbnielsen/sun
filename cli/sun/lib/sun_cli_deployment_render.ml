@@ -1,6 +1,8 @@
 type common_fields = {
   namespace  : Sun_cli_kubernetes_name.namespace;
   k8s_name   : Sun_cli_kubernetes_name.k8s_name;
+  domain     : string;
+  primitive  : string;
   spec_image : string;
   config     : (string * string) list;
   secrets    : (string * string) list;
@@ -39,9 +41,9 @@ type render_spec_t = {
   workload : render_workload;
 }
 
-let render ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
+let render ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     { common; workload } =
-  let { namespace; k8s_name; spec_image; config; secrets } = common in
+  let { namespace; k8s_name; domain; primitive; spec_image; config; secrets } = common in
   let ns               = Sun_cli_kubernetes_name.namespace_to_string namespace in
   let name             = Sun_cli_kubernetes_name.k8s_name_to_string k8s_name in
   let img              = if image = "" then spec_image else image in
@@ -101,7 +103,7 @@ let render ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
         let memory = Sun_cli_toml.memory_quantity_to_string memory in
         match progressive_delivery with
         | Some pd ->
-          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd () in
+          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd ~workspace ~domain ~primitive () in
           (match pd with
            | Sun_cli_toml.Blue_green ->
              [ rollout
@@ -119,7 +121,7 @@ let render ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
                                    ~default:Sun_cli_toml.RollingUpdate in
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
               ~secret_keys:(List.map fst secrets)
-              ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img () ]
+              ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~workspace ~domain ~primitive () ]
       in
       let resources = match workload with
         | Render_svc { deployment; ingress_host; ingress_path } ->
@@ -142,17 +144,24 @@ let render ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
         | Render_worker { deployment } ->
           deployment_resources ~shape:Background_worker ~ingress_host:"" ~ingress_path:"/" ~deployment
         | Render_fn { schedule } ->
-          [ cronjob_doc ~secret_keys:(List.map fst secrets) ~ns ~name ~image:img ~schedule () ]
+          [ cronjob_doc ~secret_keys:(List.map fst secrets) ~ns ~name ~image:img ~schedule ~workspace ~domain () ]
       in
       (ns_yaml, String.concat "\n" (common_resources @ resources))
     ) secret_resource_result
   )
 
-let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
+let render_spec ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     (s : Sun_cli_deployment_plan.service_spec) =
+  let primitive = match s.primitive with
+    | Sun_cli_deployment_plan.Svc    -> "svc"
+    | Sun_cli_deployment_plan.Worker -> "worker"
+    | Sun_cli_deployment_plan.Fn     -> "fn"
+  in
   let common = {
     namespace  = s.namespace;
     k8s_name   = s.k8s_name;
+    domain     = s.domain;
+    primitive;
     spec_image = s.image;
     config     = s.config;
     secrets    = s.secrets;
@@ -174,4 +183,4 @@ let render_spec ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_liv
       let schedule = Option.value s.schedule ~default:"0 * * * *" in
       Render_fn { schedule }
   in
-  render ~image ~secret_backend { common; workload }
+  render ~workspace ~image ~secret_backend { common; workload }

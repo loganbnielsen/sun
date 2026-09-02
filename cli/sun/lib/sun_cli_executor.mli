@@ -14,7 +14,7 @@ type result = {
 
 type mode = Dry_run | Emit_to of string | Apply
 
-val local : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
+val local : workspace:string -> dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
 (** Apply to the local k3d cluster (current kube context).
     In dry-run mode the rendered YAML is printed to stdout rather than
     applied.  Pass [~image] indirectly via the spec; callers that need to
@@ -22,6 +22,7 @@ val local : dry_run:bool -> Sun_cli_deployment_plan.service_spec -> result
 
 
 val gitops :
+  workspace:string ->
   dir:string ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   Sun_cli_deployment_plan.service_spec ->
@@ -34,6 +35,7 @@ val gitops :
     [image] from the spec. *)
 
 val run_plan :
+  workspace:string ->
   mode:mode ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   Sun_cli_deployment_plan.service_spec list ->

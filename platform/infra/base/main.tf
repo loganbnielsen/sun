@@ -260,6 +260,21 @@ locals {
     { url = "http://loki:3100/loki/api/v1/push" }
   ]
 
+  # OBS-008: promote the label taxonomy (Sun_cli_manifest_yaml's
+  # render_taxonomy_labels) from pod labels into Loki stream labels. The
+  # chart's own default relabel_configs only handle the app.kubernetes.io/*
+  # convention (see helm show values grafana/loki-stack --version 2.10.2) --
+  # these are plain custom label keys, so they need explicit
+  # __meta_kubernetes_pod_label_<name> -> <name> mappings via
+  # extraRelabelConfigs, the documented extension point in the chart's
+  # default scrapeConfigs template.
+  loki_promtail_taxonomy_relabel_configs = [
+    for label in ["workspace", "domain", "service", "primitive", "release"] : {
+      source_labels = ["__meta_kubernetes_pod_label_${label}"]
+      target_label  = label
+    }
+  ]
+
   # Grafana's documented object-storage-backed architecture: chunks + the
   # boltdb-shipper index both in S3. loki_s3_bucket/aws_region come from
   # platform/infra/aws's loki_s3_bucket/loki_irsa_arn outputs (OBS-006).
@@ -342,7 +357,16 @@ resource "helm_release" "loki" {
   }
 
   values = concat(
-    [yamlencode({ promtail = { config = { clients = local.loki_promtail_clients } } })],
+    [yamlencode({
+      promtail = {
+        config = {
+          clients = local.loki_promtail_clients
+          snippets = {
+            extraRelabelConfigs = local.loki_promtail_taxonomy_relabel_configs
+          }
+        }
+      }
+    })],
     var.observability_backend == "self_hosted_durable" ? [yamlencode(local.loki_object_storage_config)] : []
   )
 

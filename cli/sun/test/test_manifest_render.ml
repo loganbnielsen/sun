@@ -8,7 +8,7 @@ let check_bool   = Alcotest.(check bool)
 
 (** Unwrap a [render_spec] result, failing the test on [Error]. *)
 let render_spec_ok ?image ?secret_backend spec =
-  match Sun_cli_deployment_render.render_spec ?image ?secret_backend spec with
+  match Sun_cli_deployment_render.render_spec ~workspace:"myapp" ?image ?secret_backend spec with
   | Ok v    -> v
   | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
 
@@ -407,7 +407,7 @@ let test_svc_render_spec_matches_render () =
   } in
   let (ns1, w1) = render_spec_ok plain_spec in
   let (ns2, w2) = Sun_cli_manifest.render svc
-    ~ns:"myapp-payments" ~name:"charge-svc"
+    ~workspace:"myapp" ~ns:"myapp-payments" ~name:"charge-svc"
     ~image:"sun-registry:5000/myapp/charge-svc:abc123" in
   check_string "render_spec ns == render ns"       ns1 ns2;
   check_string "render_spec workload == render workload" w1 w2
@@ -960,7 +960,7 @@ let test_live_backend_missing_user_secret_returns_error () =
   (try Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "" with _ -> ());
   Unix.putenv "MISSING_SECRET_KEY_FOR_TEST" "__marker__";
   let spec_with_secret = { svc_spec with secrets = [ "MISSING_SECRET_KEY_FOR_TEST", "" ] } in
-  (match Sun_cli_deployment_render.render_spec
+  (match Sun_cli_deployment_render.render_spec ~workspace:"myapp"
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_with_secret with
   | Ok _ -> ()
   | Error e -> Alcotest.fail ("Expected Ok when env var set, got Error: " ^ e));
@@ -968,7 +968,7 @@ let test_live_backend_missing_user_secret_returns_error () =
   (* Unix.putenv cannot unset a var, so use a key that was never set. *)
   let absent_key = "__SUN_TEST_ABSENT_KEY_XQ9Z2__" in
   let spec_missing = { svc_spec with secrets = [ absent_key, "" ] } in
-  (match Sun_cli_deployment_render.render_spec
+  (match Sun_cli_deployment_render.render_spec ~workspace:"myapp"
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec_missing with
   | Error msg ->
     check_bool "error mentions the missing key"
@@ -981,7 +981,7 @@ let test_live_backend_multiple_missing_secrets_all_reported () =
   let absent1 = "__SUN_TEST_ABSENT_A_XQ9Z2__" in
   let absent2 = "__SUN_TEST_ABSENT_B_XQ9Z2__" in
   let spec = { svc_spec with secrets = [ absent1, ""; absent2, "" ] } in
-  (match Sun_cli_deployment_render.render_spec
+  (match Sun_cli_deployment_render.render_spec ~workspace:"myapp"
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
   | Error msg ->
     check_bool "error mentions first absent key"  true (contains msg absent1);
@@ -993,7 +993,7 @@ let test_live_backend_multiple_missing_secrets_all_reported () =
    the platform-default env vars (e.g. POSTGRES_URL) are absent. *)
 let test_live_backend_no_user_secrets_always_succeeds () =
   let spec = { svc_spec with secrets = [] } in
-  (match Sun_cli_deployment_render.render_spec
+  (match Sun_cli_deployment_render.render_spec ~workspace:"myapp"
       ~secret_backend:Sun_cli_manifest.Kubernetes_live spec with
   | Ok (_ns, workload) ->
     assert_contains "kind Secret present" workload "kind: Secret"
@@ -1060,7 +1060,8 @@ let test_shape_http_service_deployment_has_ports () =
     ~shape:Sun_cli_manifest.Http_service
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
     ~ns:"myapp-payments" ~name:"charge-svc"
-    ~image:"sun-registry:5000/myapp/charge-svc:abc123" () in
+    ~image:"sun-registry:5000/myapp/charge-svc:abc123"
+    ~workspace:"myapp" ~domain:"payments" ~primitive:"svc" () in
   assert_contains "Http_service containerPort"   doc "containerPort: 8080";
   assert_contains "Http_service readinessProbe"  doc "readinessProbe:"
 
@@ -1069,7 +1070,8 @@ let test_shape_background_worker_deployment_no_ports () =
     ~shape:Sun_cli_manifest.Background_worker
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
     ~ns:"myapp-comms" ~name:"notify-worker"
-    ~image:"sun-registry:5000/myapp/notify-worker:abc123" () in
+    ~image:"sun-registry:5000/myapp/notify-worker:abc123"
+    ~workspace:"myapp" ~domain:"comms" ~primitive:"worker" () in
   assert_absent "Background_worker no containerPort"  doc "containerPort:";
   assert_absent "Background_worker no readinessProbe" doc "readinessProbe:"
 
@@ -1079,7 +1081,8 @@ let test_shape_rollout_http_service_has_ports () =
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
     ~ns:"myapp-payments" ~name:"charge-svc"
     ~image:"sun-registry:5000/myapp/charge-svc:abc123"
-    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] }) () in
+    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] })
+    ~workspace:"myapp" ~domain:"payments" ~primitive:"svc" () in
   assert_contains "rollout Http_service containerPort"  doc "containerPort: 8080";
   assert_contains "rollout Http_service readinessProbe" doc "readinessProbe:"
 
@@ -1089,9 +1092,49 @@ let test_shape_rollout_background_worker_no_ports () =
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
     ~ns:"myapp-comms" ~name:"notify-worker"
     ~image:"sun-registry:5000/myapp/notify-worker:abc123"
-    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] }) () in
+    ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] })
+    ~workspace:"myapp" ~domain:"comms" ~primitive:"worker" () in
   assert_absent "rollout Background_worker no containerPort"  doc "containerPort:";
   assert_absent "rollout Background_worker no readinessProbe" doc "readinessProbe:"
+
+(* ── OBS-008: label taxonomy ──────────────────────────────────────────────── *)
+
+let test_taxonomy_labels_svc () =
+  let (_, workload) = render_spec_ok svc_spec in
+  assert_contains "workspace label" workload "workspace: myapp";
+  assert_contains "domain label"    workload "domain: payments";
+  assert_contains "service label"   workload "service: charge-svc";
+  assert_contains "primitive label" workload "primitive: svc";
+  assert_contains "release label"   workload "release: abc123"
+
+let test_taxonomy_labels_worker () =
+  let (_, workload) = render_spec_ok worker_spec in
+  assert_contains "workspace label" workload "workspace: myapp";
+  assert_contains "domain label"    workload "domain: comms";
+  assert_contains "service label"   workload "service: notify-worker";
+  assert_contains "primitive label" workload "primitive: worker";
+  assert_contains "release label"   workload "release: abc123"
+
+let test_taxonomy_labels_fn () =
+  let (_, workload) = render_spec_ok fn_spec in
+  assert_contains "workspace label" workload "workspace: myapp";
+  assert_contains "domain label"    workload "domain: billing";
+  assert_contains "service label"   workload "service: invoice-fn";
+  assert_contains "primitive label" workload "primitive: fn";
+  assert_contains "release label"   workload "release: abc123"
+
+(* matchLabels/selector must stay app-only -- changing selector labels would
+   orphan running pods on the next rollout. The taxonomy labels only belong
+   in the pod template's own labels block, rendered separately below this. *)
+let test_taxonomy_labels_not_in_selector () =
+  let (_, workload) = render_spec_ok svc_spec in
+  assert_contains "selector is still exactly app: <name>, nothing else"
+    workload "matchLabels:\n      app: charge-svc\n  template:"
+
+let test_release_of_image_malformed () =
+  let spec = { svc_spec with image = "no-tag-image" } in
+  let (_, workload) = render_spec_ok spec in
+  assert_contains "release falls back to unknown" workload "release: unknown"
 
 let () =
   Alcotest.run "manifest_render"
@@ -1205,5 +1248,12 @@ let () =
       ; Alcotest.test_case "canary rollout satisfies security invariants"  `Quick test_rollout_canary_satisfies_invariants
       ; Alcotest.test_case "blue-green rollout satisfies security invariants" `Quick test_rollout_blue_green_satisfies_invariants
       ; Alcotest.test_case "GitOps mode redacts secret values"             `Quick test_gitops_secret_redacted
+      ]
+    ; "taxonomy_labels", [
+        Alcotest.test_case "svc"                       `Quick test_taxonomy_labels_svc
+      ; Alcotest.test_case "worker"                    `Quick test_taxonomy_labels_worker
+      ; Alcotest.test_case "fn"                        `Quick test_taxonomy_labels_fn
+      ; Alcotest.test_case "not in selector"           `Quick test_taxonomy_labels_not_in_selector
+      ; Alcotest.test_case "malformed image -> unknown" `Quick test_release_of_image_malformed
       ]
     ]

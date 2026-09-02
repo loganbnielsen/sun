@@ -266,13 +266,13 @@ let test_plan_svc_does_not_produce_consumer_group () =
   Alcotest.(check int) "Svc yields no consumer groups" 0 (List.length groups)
 
 let render_ok spec =
-  match Sun_cli_deployment_render.render_spec
+  match Sun_cli_deployment_render.render_spec ~workspace:"myapp"
           ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder spec with
   | Ok (ns_yaml, workload_yaml) -> (ns_yaml, workload_yaml)
   | Error e -> Alcotest.fail ("render_spec failed: " ^ e)
 
 let run_plan_ok ~mode ?secret_backend plan =
-  match Sun_cli_executor.run_plan ~mode ?secret_backend
+  match Sun_cli_executor.run_plan ~workspace:plan.Sun_cli_deployment_plan.workspace ~mode ?secret_backend
           plan.Sun_cli_deployment_plan.services with
   | Ok rs  -> rs
   | Error e -> Alcotest.fail ("run_plan failed: " ^ e)
@@ -392,7 +392,7 @@ let test_gitops_emit_one_file_per_service () =
 (* ── Phase 5: executor commands ─────────────────────────────────────────── *)
 
 let test_local_executor_result_fields () =
-  let r = Sun_cli_executor.local ~dry_run:true svc_spec in
+  let r = Sun_cli_executor.local ~workspace:"myapp" ~dry_run:true svc_spec in
   Alcotest.(check string) "local namespace" "myapp-payments" r.Sun_cli_executor.namespace;
   Alcotest.(check string) "local name"      "charge-svc"     r.Sun_cli_executor.name;
   Alcotest.(check string) "local image"
@@ -400,7 +400,7 @@ let test_local_executor_result_fields () =
     r.Sun_cli_executor.image
 
 let test_direct_executor_result_fields () =
-  let r = Sun_cli_executor.local ~dry_run:true svc_spec in
+  let r = Sun_cli_executor.local ~workspace:"myapp" ~dry_run:true svc_spec in
   Alcotest.(check string) "direct namespace" "myapp-payments" r.Sun_cli_executor.namespace;
   Alcotest.(check string) "direct name"      "charge-svc"     r.Sun_cli_executor.name;
   Alcotest.(check string) "direct image"
@@ -409,7 +409,7 @@ let test_direct_executor_result_fields () =
 
 let test_gitops_executor_result_fields () =
   with_temp_dir (fun dir ->
-    let r = Sun_cli_executor.gitops ~dir svc_spec in
+    let r = Sun_cli_executor.gitops ~workspace:"myapp" ~dir svc_spec in
     Alcotest.(check string) "gitops namespace" "myapp-payments" r.Sun_cli_executor.namespace;
     Alcotest.(check string) "gitops name"      "charge-svc"     r.Sun_cli_executor.name;
     Alcotest.(check string) "gitops image"
@@ -418,12 +418,12 @@ let test_gitops_executor_result_fields () =
   )
 
 let test_local_worker_executor_result_fields () =
-  let r = Sun_cli_executor.local ~dry_run:true worker_spec in
+  let r = Sun_cli_executor.local ~workspace:"myapp" ~dry_run:true worker_spec in
   Alcotest.(check string) "local worker namespace" "myapp-comms"   r.Sun_cli_executor.namespace;
   Alcotest.(check string) "local worker name"      "notify-worker" r.Sun_cli_executor.name
 
 let test_direct_fn_executor_result_fields () =
-  let r = Sun_cli_executor.local ~dry_run:true fn_spec in
+  let r = Sun_cli_executor.local ~workspace:"myapp" ~dry_run:true fn_spec in
   Alcotest.(check string) "direct fn namespace" "myapp-billing" r.Sun_cli_executor.namespace;
   Alcotest.(check string) "direct fn name"      "invoice-fn"    r.Sun_cli_executor.name
 
@@ -471,10 +471,10 @@ let test_state_no_removal_when_stable () =
 let test_local_and_direct_share_plan_type () =
   let plan = make_plan ~env:local_env [svc_spec] in
   let local_results =
-    List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
+    List.map (Sun_cli_executor.local ~workspace:plan.Sun_cli_deployment_plan.workspace ~dry_run:true) plan.Sun_cli_deployment_plan.services
   in
   let direct_results =
-    List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
+    List.map (Sun_cli_executor.local ~workspace:plan.Sun_cli_deployment_plan.workspace ~dry_run:true) plan.Sun_cli_deployment_plan.services
   in
   Alcotest.(check int) "same result count" (List.length local_results) (List.length direct_results);
   let lr = List.hd local_results and dr = List.hd direct_results in
@@ -489,10 +489,10 @@ let test_gitops_shares_plan_type () =
   with_temp_dir (fun dir ->
     let plan = make_plan ~env:customer_env [svc_spec] in
     let gitops_results =
-      List.map (Sun_cli_executor.gitops ~dir) plan.Sun_cli_deployment_plan.services
+      List.map (Sun_cli_executor.gitops ~workspace:plan.Sun_cli_deployment_plan.workspace ~dir) plan.Sun_cli_deployment_plan.services
     in
     let direct_results =
-      List.map (Sun_cli_executor.local ~dry_run:true) plan.Sun_cli_deployment_plan.services
+      List.map (Sun_cli_executor.local ~workspace:plan.Sun_cli_deployment_plan.workspace ~dry_run:true) plan.Sun_cli_deployment_plan.services
     in
     let gr = List.hd gitops_results and dr = List.hd direct_results in
     Alcotest.(check string) "gitops namespace = direct namespace"
