@@ -53,9 +53,14 @@ let ns_exists ns =
   | Ok r -> r.Sun_cli_process.exit_code = 0
   | Error _ -> false
 
+(* The outer process-level timeout must give curl's own [--max-time] room
+   to actually fire, write its [-w] output, and exit before the harness
+   SIGKILLs it -- otherwise a borderline-slow connection races curl's own
+   timeout handling and reports "timed out" instead of "connection failed".
+   Same [timeout_s +. <buffer>] pattern as Sun_cli_loki.query. *)
 let curl_status_code url ~timeout_s : (int, string) result =
   match Sun_cli_process.run
-          (Sun_cli_process.cmd ~timeout_s
+          (Sun_cli_process.cmd ~timeout_s:(timeout_s +. 2.0)
              ["curl"; "-s"; "-o"; "/dev/null"; "-w"; "%{http_code}"; "--max-time";
               string_of_float timeout_s; url]) with
   | Error e -> Error (Sun_cli_process.error_to_string e)
