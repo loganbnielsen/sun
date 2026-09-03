@@ -98,7 +98,8 @@ val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> st
     restarts that's still starting up (no container status yet, or Waiting
     with a benign reason) -- a short-lived run is disproportionately likely
     to be caught mid-startup. A pod with any restart history gets no such
-    leniency. *)
+    leniency, and a [FailedScheduling] event naming the pod overrides the
+    startup leniency too (genuinely unschedulable, not just starting). *)
 val format_active_run_diagnosis
   :  service_name:string
   -> pod_status list

@@ -317,6 +317,15 @@ let test_format_active_run_diagnosis_pending_startup_is_ok () =
   check_bool "a freshly-scheduled pod with no container status yet is not a finding" true
     (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
+(* A Pending pod with no container status is otherwise indistinguishable
+   from a normal startup -- a FailedScheduling event naming it is the
+   signal that it's actually stuck (unschedulable), not just starting. *)
+let test_format_active_run_diagnosis_failed_scheduling_is_flagged () =
+  let pods = D.parse_pods_json pending_no_containers_json in
+  let events = D.parse_events_json events_json in
+  check_bool "a FailedScheduling pod is still a finding despite looking like normal startup" true
+    (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods events))
+
 let test_format_active_run_diagnosis_container_creating_is_ok () =
   let pods = D.parse_pods_json container_creating_json in
   check_bool "ContainerCreating with no restarts is not a finding" true
@@ -396,6 +405,7 @@ let () =
          Alcotest.test_case "succeeded pod -> OK" `Quick test_format_active_run_diagnosis_succeeded_pod_is_ok;
          Alcotest.test_case "stuck pod -> flagged" `Quick test_format_active_run_diagnosis_stuck_pod_is_flagged;
          Alcotest.test_case "pending startup -> OK" `Quick test_format_active_run_diagnosis_pending_startup_is_ok;
+         Alcotest.test_case "failed scheduling -> flagged" `Quick test_format_active_run_diagnosis_failed_scheduling_is_flagged;
          Alcotest.test_case "container creating -> OK" `Quick test_format_active_run_diagnosis_container_creating_is_ok;
          Alcotest.test_case "container creating after restart -> flagged" `Quick test_format_active_run_diagnosis_container_creating_after_restart_is_flagged;
        ]);

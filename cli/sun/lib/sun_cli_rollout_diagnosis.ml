@@ -197,11 +197,17 @@ let format_service_diagnosis ~service_name
      be caught mid-startup compared to a steady-state Deployment. Once a
      pod has restarted even once, this leniency no longer applies -- a
      Waiting pod with restart history needs to actually reach Running or
-     Succeeded, not just look like it's starting up again mid crash-loop. *)
-let is_active_run_pod_ok (p : pod_status) : bool =
+     Succeeded, not just look like it's starting up again mid crash-loop.
+   A pod with no restarts and no container status yet is otherwise
+   indistinguishable from one that's genuinely unschedulable (insufficient
+   resources, no matching node) rather than just starting -- [events] is
+   consulted for a [FailedScheduling] event naming this pod to catch that
+   case rather than reading it as healthy indefinitely. *)
+let is_active_run_pod_ok ~(events : event list) (p : pod_status) : bool =
   is_healthy p
   || p.phase = "Succeeded"
   || (p.restarts = 0 &&
+      not (List.exists (fun e -> e.involved_name = p.name && e.reason = "FailedScheduling") events) &&
       match p.state with
       | Waiting { reason; _ } -> reason = "ContainerCreating" || reason = "PodInitializing"
       | Unknown_state -> p.phase = "Pending"
@@ -213,7 +219,7 @@ let is_active_run_pod_ok (p : pod_status) : bool =
    from. *)
 let format_active_run_diagnosis ~service_name
     (pods : pod_status list) (events : event list) : string option =
-  let unhealthy = List.filter (fun p -> not (is_active_run_pod_ok p)) pods in
+  let unhealthy = List.filter (fun p -> not (is_active_run_pod_ok ~events p)) pods in
   if unhealthy = [] then None
   else Some (render_unhealthy_pods ~service_name unhealthy events)
 
