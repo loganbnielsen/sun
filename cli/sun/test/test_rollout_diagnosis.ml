@@ -57,6 +57,28 @@ let pending_no_containers_json = {|
 ]}
 |}
 
+let container_creating_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-starting"},
+   "status": {"phase": "Pending",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha1",
+        "state": {"waiting": {"reason": "ContainerCreating", "message": null}}}
+     ]}}
+]}
+|}
+
+let container_creating_after_restart_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-retrying"},
+   "status": {"phase": "Pending",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 1, "image": "registry/invoice-fn:sha1",
+        "state": {"waiting": {"reason": "ContainerCreating", "message": null}}}
+     ]}}
+]}
+|}
+
 let missing_status_pod_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-missing-status"}},
@@ -285,6 +307,29 @@ let test_format_active_run_diagnosis_stuck_pod_is_flagged () =
   check_bool "a stuck (ImagePullBackOff) active-run pod is a finding" true
     (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
+(* Every single invocation passes through Pending/no-container-status on
+   its way to Running -- a short-lived Fn is disproportionately likely to
+   be caught here compared to a steady-state Deployment. This must not be
+   a finding, or every diagnosis during a normal startup window would be a
+   false positive. *)
+let test_format_active_run_diagnosis_pending_startup_is_ok () =
+  let pods = D.parse_pods_json pending_no_containers_json in
+  check_bool "a freshly-scheduled pod with no container status yet is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+let test_format_active_run_diagnosis_container_creating_is_ok () =
+  let pods = D.parse_pods_json container_creating_json in
+  check_bool "ContainerCreating with no restarts is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+(* The startup leniency only covers a pod that has never restarted -- once
+   it has, "ContainerCreating" could just as easily be a crash-loop's next
+   retry attempt, not a first-time start. *)
+let test_format_active_run_diagnosis_container_creating_after_restart_is_flagged () =
+  let pods = D.parse_pods_json container_creating_after_restart_json in
+  check_bool "ContainerCreating after a restart is still a finding" true
+    (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
 let test_parse_cronjob_status () =
   let json = {|{"status": {"lastScheduleTime": "2026-09-02T10:00:00Z", "lastSuccessfulTime": "2026-09-02T10:00:05Z", "active": [{"name": "invoice-fn-1"}]}}|} in
   match D.parse_cronjob_status json with
@@ -350,6 +395,9 @@ let () =
        [ Alcotest.test_case "running pod -> OK" `Quick test_format_active_run_diagnosis_running_pod_is_ok;
          Alcotest.test_case "succeeded pod -> OK" `Quick test_format_active_run_diagnosis_succeeded_pod_is_ok;
          Alcotest.test_case "stuck pod -> flagged" `Quick test_format_active_run_diagnosis_stuck_pod_is_flagged;
+         Alcotest.test_case "pending startup -> OK" `Quick test_format_active_run_diagnosis_pending_startup_is_ok;
+         Alcotest.test_case "container creating -> OK" `Quick test_format_active_run_diagnosis_container_creating_is_ok;
+         Alcotest.test_case "container creating after restart -> flagged" `Quick test_format_active_run_diagnosis_container_creating_after_restart_is_flagged;
        ]);
       ("parse_cronjob_status",
        [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;

@@ -92,9 +92,13 @@ val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> st
 
 (** [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly the
     Job(s) named in [cronjob_status.active_job_names] (never a broader or
-    historical pod list). A [Succeeded] pod counts as healthy here (unlike
-    [format_service_diagnosis]): an active run finishing successfully is the
-    expected outcome, not a failure. *)
+    historical pod list). Two states count as healthy here that
+    [format_service_diagnosis] would flag: a [Succeeded] pod (an active run
+    finishing successfully is expected, not a failure), and a pod with no
+    restarts that's still starting up (no container status yet, or Waiting
+    with a benign reason) -- a short-lived run is disproportionately likely
+    to be caught mid-startup. A pod with any restart history gets no such
+    leniency. *)
 val format_active_run_diagnosis
   :  service_name:string
   -> pod_status list

@@ -186,14 +186,26 @@ let format_service_diagnosis ~service_name
     if unhealthy = [] then None
     else Some (render_unhealthy_pods ~service_name unhealthy events)
 
-(* Unlike [is_healthy], a [Succeeded] pod counts as fine here: an active
-   CronJob run's pod is expected to finish and exit 0, and [status.active]
-   can still list the Job for a moment after its pod completes, before the
-   CronJob controller's next reconcile clears it. Only a pod stuck
-   Waiting/Pending, crash-looping, or terminated with a failure is a real
-   finding for an active run. *)
+(* Unlike [is_healthy], two more states count as fine here:
+   - [Succeeded]: an active CronJob run's pod is expected to finish and exit
+     0, and [status.active] can still list the Job for a moment after its
+     pod completes, before the controller's next reconcile clears it.
+   - A pod that has never restarted and is still starting up (no container
+     status yet, or Waiting with a benign reason like ContainerCreating /
+     PodInitializing): every single invocation passes through this on the
+     way to Running, and a short-lived Fn is disproportionately likely to
+     be caught mid-startup compared to a steady-state Deployment. Once a
+     pod has restarted even once, this leniency no longer applies -- a
+     Waiting pod with restart history needs to actually reach Running or
+     Succeeded, not just look like it's starting up again mid crash-loop. *)
 let is_active_run_pod_ok (p : pod_status) : bool =
-  is_healthy p || p.phase = "Succeeded"
+  is_healthy p
+  || p.phase = "Succeeded"
+  || (p.restarts = 0 &&
+      match p.state with
+      | Waiting { reason; _ } -> reason = "ContainerCreating" || reason = "PodInitializing"
+      | Unknown_state -> p.phase = "Pending"
+      | Running | Terminated _ -> false)
 
 (* [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly
    the Job(s) named in [cronjob_status.active_job_names] -- never a
