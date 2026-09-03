@@ -29,7 +29,7 @@ let () =
   let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
-  let prom, _render = Obs_prometheus.create () in
+  let prom, render = Obs_prometheus.create () in
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"pluto-notify-worker" ~mono_clock:env#mono_clock
@@ -43,6 +43,6 @@ let () =
     let ot   = ot
   end) in
   let module WR = Worker.Make(W) in
-  WR.run ~env ~config:kafka_config ~ot ()
+  WR.run ~env ~config:kafka_config ~ot ~metrics_renderer:render ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> failwith msg

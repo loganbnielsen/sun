@@ -756,7 +756,7 @@ let () =
   let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
-  let prom, _render = Obs_prometheus.create () in
+  let prom, render = Obs_prometheus.create () in
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"{{name}}-notify-worker" ~mono_clock:env#mono_clock
@@ -770,7 +770,7 @@ let () =
     let ot   = ot
   end) in
   let module WR = Worker.Make(W) in
-  WR.run ~env ~config:kafka_config ~ot ()
+  WR.run ~env ~config:kafka_config ~ot ~metrics_renderer:render ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -916,8 +916,11 @@ let require_kafka label = function
 
 let () = Eio_main.run @@ fun env ->
   let config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
+  let backend, render = Obs_prometheus.create () in
+  let ot = Obs_eio.create ~service:"{{name}}-worker"
+             ~mono_clock:env#mono_clock ~backend () in
   let module W = Worker.Make({{Mod}}) in
-  W.run ~env ~config ()
+  W.run ~env ~config ~ot ~metrics_renderer:render ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -925,7 +928,7 @@ let () = Eio_main.run @@ fun env ->
 (* Generic worker: bin/dune *)
 let worker_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_worker kafka_eio_service eio_main))
+ (libraries {{lib}} sun_worker kafka_eio_service obs-eio obs-prometheus-eio eio_main))
 |tpl}
 
 (* Generic fn: lib/<name>_fn.ml — satisfies Fn.FN *)

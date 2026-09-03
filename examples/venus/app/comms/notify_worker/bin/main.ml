@@ -42,7 +42,7 @@ let () =
 
   Eio_main.run @@ fun env ->
 
-  let prom_backend, _render = Obs_prometheus.create () in
+  let prom_backend, render = Obs_prometheus.create () in
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let backend = Obs_eio.compose log_backend prom_backend in
   let ot =
@@ -63,6 +63,6 @@ let () =
     let ot   = ot
   end) in
   let module WR = Worker.Make(W) in
-  WR.run ~env ~config:kafka_config ~ot ()
+  WR.run ~env ~config:kafka_config ~ot ~metrics_renderer:render ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> failwith msg

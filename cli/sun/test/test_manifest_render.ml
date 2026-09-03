@@ -331,9 +331,11 @@ let test_worker_no_service_resource () =
   assert_absent "worker no Service resource" workload "kind: Service\n";
   assert_absent "worker no Ingress" workload "kind: Ingress"
 
-let test_worker_no_ports () =
+let test_worker_metrics_port () =
   let (_ns, workload) = render_spec_ok worker_spec in
-  assert_absent "worker no containerPort" workload "containerPort:"
+  assert_contains "worker metrics containerPort" workload "containerPort: 9090";
+  assert_contains "worker prometheus scrape" workload "prometheus.io/scrape: \"true\"";
+  assert_contains "worker prometheus port" workload "prometheus.io/port: \"9090\""
 
 let test_worker_has_deployment () =
   let (_ns, workload) = render_spec_ok worker_spec in
@@ -1066,16 +1068,17 @@ let test_shape_http_service_deployment_has_ports () =
   assert_contains "Http_service readinessProbe"  doc "readinessProbe:";
   assert_contains "Http_service has prometheus.io/scrape (OBS-011)" doc "prometheus.io/scrape: \"true\""
 
-let test_shape_background_worker_deployment_no_ports () =
+let test_shape_background_worker_deployment_has_metrics_port () =
   let doc = Sun_cli_manifest.deployment_doc
     ~shape:Sun_cli_manifest.Background_worker
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
     ~ns:"myapp-comms" ~name:"notify-worker"
     ~image:"sun-registry:5000/myapp/notify-worker:abc123"
     ~workspace:"myapp" ~domain:"comms" ~primitive:"worker" () in
-  assert_absent "Background_worker no containerPort"  doc "containerPort:";
+  assert_contains "Background_worker metrics containerPort" doc "containerPort: 9090";
   assert_absent "Background_worker no readinessProbe" doc "readinessProbe:";
-  assert_absent "Background_worker no prometheus.io/scrape (no port to scrape yet)" doc "prometheus.io/scrape"
+  assert_contains "Background_worker has prometheus.io/scrape" doc "prometheus.io/scrape: \"true\"";
+  assert_contains "Background_worker scrape port" doc "prometheus.io/port: \"9090\""
 
 let test_shape_rollout_http_service_has_ports () =
   let doc = Sun_cli_manifest.rollout_doc
@@ -1088,7 +1091,7 @@ let test_shape_rollout_http_service_has_ports () =
   assert_contains "rollout Http_service containerPort"  doc "containerPort: 8080";
   assert_contains "rollout Http_service readinessProbe" doc "readinessProbe:"
 
-let test_shape_rollout_background_worker_no_ports () =
+let test_shape_rollout_background_worker_metrics_port () =
   let doc = Sun_cli_manifest.rollout_doc
     ~shape:Sun_cli_manifest.Background_worker
     ~replicas:1 ~cpu:"100m" ~memory:"128Mi"
@@ -1096,7 +1099,9 @@ let test_shape_rollout_background_worker_no_ports () =
     ~image:"sun-registry:5000/myapp/notify-worker:abc123"
     ~pd:(Sun_cli_toml.Canary { steps = [ Sun_cli_toml.Weight 50 ] })
     ~workspace:"myapp" ~domain:"comms" ~primitive:"worker" () in
-  assert_absent "rollout Background_worker no containerPort"  doc "containerPort:";
+  assert_contains "rollout Background_worker metrics containerPort" doc "containerPort: 9090";
+  assert_contains "rollout Background_worker prometheus scrape" doc "prometheus.io/scrape: \"true\"";
+  assert_contains "rollout Background_worker prometheus port" doc "prometheus.io/port: \"9090\"";
   assert_absent "rollout Background_worker no readinessProbe" doc "readinessProbe:"
 
 (* ── OBS-008: label taxonomy ──────────────────────────────────────────────── *)
@@ -1261,7 +1266,7 @@ let () =
         Alcotest.test_case "namespace yaml"         `Quick test_worker_namespace
       ; Alcotest.test_case "image"                  `Quick test_worker_image
       ; Alcotest.test_case "no Service/Ingress"     `Quick test_worker_no_service_resource
-      ; Alcotest.test_case "no containerPort"       `Quick test_worker_no_ports
+      ; Alcotest.test_case "metrics containerPort"  `Quick test_worker_metrics_port
       ; Alcotest.test_case "has Deployment"         `Quick test_worker_has_deployment
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_worker_user_secret_key_in_secret_resource
       ]
@@ -1333,9 +1338,9 @@ let () =
       ]
     ; "workload_shape", [
         Alcotest.test_case "Http_service deployment has ports"         `Quick test_shape_http_service_deployment_has_ports
-      ; Alcotest.test_case "Background_worker deployment no ports"     `Quick test_shape_background_worker_deployment_no_ports
+      ; Alcotest.test_case "Background_worker deployment metrics port" `Quick test_shape_background_worker_deployment_has_metrics_port
       ; Alcotest.test_case "Http_service rollout has ports"            `Quick test_shape_rollout_http_service_has_ports
-      ; Alcotest.test_case "Background_worker rollout no ports"        `Quick test_shape_rollout_background_worker_no_ports
+      ; Alcotest.test_case "Background_worker rollout metrics port"    `Quick test_shape_rollout_background_worker_metrics_port
       ]
     ; "artifact_invariants", [
         Alcotest.test_case "svc satisfies security invariants"             `Quick test_svc_satisfies_invariants

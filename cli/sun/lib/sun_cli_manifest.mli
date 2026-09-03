@@ -44,8 +44,9 @@ val configmap_doc       : ?extra_env:(string * string) list -> ns:string -> name
 val secret_doc          : ?base_secrets:(string * string) list -> ?extra_secrets:(string * string) list -> ?redact:bool -> ns:string -> name:string -> unit -> string
 val external_secret_doc : store_ref:string -> store_kind:string -> key_prefix:string -> refresh_interval:string -> secret_keys:string list -> ns:string -> name:string -> string
 type workload_shape = Http_service | Background_worker
-(** Workload shape determines whether a deployment exposes HTTP and uses health
-    probes. [Http_service] enables both; [Background_worker] disables both. *)
+(** Workload shape determines exposed container ports and health probes.
+    [Http_service] exposes app HTTP on 8080 with probes; [Background_worker]
+    exposes metrics on 9090 without probes. *)
 
 val deployment_doc     : ?rollout_strategy:Sun_cli_toml.rollout_strategy -> ?extra_labels:(string * string) list -> ?secret_keys:string list -> ?config_hash:string -> shape:workload_shape -> replicas:int -> cpu:string -> memory:string -> ns:string -> name:string -> image:string -> workspace:string -> domain:string -> primitive:string -> unit -> string
 

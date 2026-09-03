@@ -67,8 +67,11 @@ let install_signal_handler ~sw resolver =
 
 module Make_with_test_seam (W : WORKER) = struct
 
+  let default_metrics_port = 9090
+
   let run ~(env : (_, _, _, _) Sun_env.timed)
-      ~config ?ot ?on_ready ?stop ?max_messages
+      ~config ?ot ?metrics_renderer ?(metrics_port = default_metrics_port)
+      ?on_ready ?stop ?max_messages
       ?(retry_strategy = Kafka_service.default_retry_strategy) ?test_consume_loop () =
     let msg_count, msg_duration =
       match ot with
@@ -98,6 +101,11 @@ module Make_with_test_seam (W : WORKER) = struct
     in
     let result = Eio.Switch.run (fun sw ->
         install_signal_handler ~sw signal_stop_r;
+        Option.iter
+          (fun render ->
+             Obs_prometheus.serve ~sw ~net:env#net
+               (`Tcp (Eio.Net.Ipaddr.V4.any, metrics_port)) render)
+          metrics_renderer;
         let handler msg ~ack ~trace_ctx =
           let limit_reached = match remaining with
             | Some r -> !r <= 0
@@ -187,8 +195,10 @@ end
 module Make (W : WORKER) = struct
   module Impl = Make_with_test_seam(W)
 
-  let run ~env ~config ?ot ?on_ready ?stop ?max_messages ?retry_strategy () =
-    Impl.run ~env ~config ?ot ?on_ready ?stop ?max_messages ?retry_strategy ()
+  let run ~env ~config ?ot ?metrics_renderer ?on_ready ?stop
+      ?max_messages ?retry_strategy () =
+    Impl.run ~env ~config ?ot ?metrics_renderer ?on_ready ?stop
+      ?max_messages ?retry_strategy ()
 end
 
 module For_testing = struct
