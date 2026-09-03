@@ -2393,48 +2393,19 @@
         },
         {
           "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 2.034
+          "commit": "f9efd23",
+          "duration_s": 2.825,
+          "baseline": true
         },
         {
           "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 2.034
+          "commit": "49c6ee1",
+          "duration_s": 2.026
         },
         {
           "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 2.034
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 2.030
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 2.016
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "0a08dcc",
-          "duration_s": 2.034
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "c0ffb93",
-          "duration_s": 2.020
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "878e31c",
-          "duration_s": 2.035
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "5bce64a",
-          "duration_s": 2.016
+          "commit": "c9c82be",
+          "duration_s": 2.028
         }
       ]
     },
@@ -4177,28 +4148,13 @@
         },
         {
           "date": "2026-09-03",
-          "commit": "4cbd989",
-          "duration_s": 1.214
+          "commit": "49c6ee1",
+          "duration_s": 1.089
         },
         {
           "date": "2026-09-03",
-          "commit": "0a08dcc",
-          "duration_s": 1.086
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "c0ffb93",
-          "duration_s": 1.087
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "878e31c",
-          "duration_s": 1.101
-        },
-        {
-          "date": "2026-09-03",
-          "commit": "5bce64a",
-          "duration_s": 1.086
+          "commit": "c9c82be",
+          "duration_s": 1.081
         }
       ]
     },

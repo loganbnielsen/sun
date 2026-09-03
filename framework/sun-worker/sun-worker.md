@@ -149,13 +149,13 @@ end
 
 let () =
   Eio_main.run @@ fun env ->
-    let backend, _render = Obs_prometheus.create () in
+    let backend, render = Obs_prometheus.create () in
     let ot = Obs_eio.create ~service:BroadcastWorker.group_id
                ~mono_clock:env#mono_clock ~backend in
     match Kafka_service.config_of_env () with
     | Error e -> failwith (Kafka_service.error_to_string e)
     | Ok config ->
-      Worker.Make(BroadcastWorker).run ~env ~config ~ot ()
+      Worker.Make(BroadcastWorker).run ~env ~config ~ot ~metrics_renderer:render ()
       |> Result.map_error Worker.run_error_to_string
       |> function Ok () -> () | Error msg -> failwith msg
 ```

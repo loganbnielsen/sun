@@ -193,9 +193,13 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ~shape ~replicas ~cpu ~memory ~ns ~name ~image
                    ~workspace ~domain ~primitive () =
   let ports_section =
-    if shape = Http_service then {|        ports:
+    match shape with
+    | Http_service -> {|        ports:
         - containerPort: 8080
-|} else ""
+|}
+    | Background_worker -> {|        ports:
+        - containerPort: 9090
+|}
   in
   let probe_section =
     if shape = Http_service then {|        livenessProbe:
@@ -224,16 +228,12 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
   let taxonomy_labels_section =
     render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
   in
-  (* OBS-011: Prometheus's default kubernetes-pods scrape job (see
-     prometheus-community/prometheus's own default scrape_configs) only
-     scrapes pods carrying prometheus.io/scrape=true -- without it, none of
-     this ticket's dashboards would show live per-service metrics. Only
-     Http_service has a port to scrape; Background_worker's own metrics
-     port isn't wired at the manifest level yet (separate, pre-existing
-     gap, not addressed here). *)
-  let prometheus_annotations = if shape = Http_service then
-    "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
-  else "" in
+  let prometheus_annotations = match shape with
+    | Http_service ->
+      "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
+    | Background_worker ->
+      "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"9090\"\n"
+  in
   f {|---
 apiVersion: apps/v1
 kind: Deployment
@@ -314,9 +314,13 @@ let render_blue_green_strategy name =
     [Some _] — callers in [render_spec] only invoke this when it is set. *)
 let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd ~workspace ~domain ~primitive () =
   let ports_section =
-    if shape = Http_service then {|        ports:
+    match shape with
+    | Http_service -> {|        ports:
         - containerPort: 8080
-|} else ""
+|}
+    | Background_worker -> {|        ports:
+        - containerPort: 9090
+|}
   in
   let probe_section =
     if shape = Http_service then {|        livenessProbe:
@@ -341,9 +345,12 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~sh
   let taxonomy_labels_section =
     render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
   in
-  let prometheus_annotations = if shape = Http_service then
-    "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
-  else "" in
+  let prometheus_annotations = match shape with
+    | Http_service ->
+      "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"8080\"\n"
+    | Background_worker ->
+      "        prometheus.io/scrape: \"true\"\n        prometheus.io/port: \"9090\"\n"
+  in
   let strategy_block = match pd with
     | Sun_cli_toml.Canary { steps } -> render_canary_strategy steps
     | Sun_cli_toml.Blue_green       -> render_blue_green_strategy name

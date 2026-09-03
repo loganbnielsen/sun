@@ -159,6 +159,42 @@ let test_metrics_duration () =
               if String.sub output i n = needle then found := true
             done; !found))
 
+let test_metrics_endpoint_served () =
+  Eio_main.run (fun env ->
+    Eio.Switch.run @@ fun sw ->
+    match Eio.Net.listen ~backlog:1 ~sw env#net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0)) with
+    | exception Unix.Unix_error (Unix.EPERM, "bind", _) ->
+      Printf.printf "[skip] sandboxed environment forbids binding a local socket\n%!"
+    | socket ->
+      let port = Eio.Net.listening_addr socket |> function
+        | `Tcp (_, p) -> p
+        | _ -> failwith "unexpected address family"
+      in
+      Eio.Flow.close socket;
+      let backend, render = Obs_prometheus.create () in
+      let ot = Obs_eio.create ~service:"test-worker"
+                 ~mono_clock:env#mono_clock ~backend () in
+      let msg = TestMsg.{ id = "msg-http-metrics" } in
+      let module W = Worker.For_testing.Make(OkWorker) in
+      W.run ~env ~config:fake_config ~ot ~metrics_renderer:render ~metrics_port:port
+        ~test_consume_loop:(fun ~handler () ->
+          ignore (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None);
+          let client = Cohttp_eio.Client.make ~https:None env#net in
+          Eio.Switch.run @@ fun sw ->
+          let uri = Uri.of_string (Printf.sprintf "http://127.0.0.1:%d/metrics" port) in
+          let resp, body = Cohttp_eio.Client.call client ~sw `GET uri in
+          let body = Eio.Buf_read.(parse_exn take_all) body ~max_size:(64 * 1024) in
+          Alcotest.(check int) "GET /metrics status" 200
+            (Http.Status.to_int (Http.Response.status resp));
+          Alcotest.(check bool) "serves worker metric" true
+            (let needle = "sun_worker_messages_total" in
+             let n = String.length needle and s = String.length body in
+             let found = ref false in
+             for i = 0 to s - n do
+               if String.sub body i n = needle then found := true
+             done; !found))
+        () |> run_ok)
+
 let test_stop_flag_stops_after_current_message () =
   Eio_main.run (fun env ->
     (* Two messages: first is processed, second should get Stop from the flag.
@@ -281,5 +317,6 @@ let () =
       Alcotest.test_case "ok counter emitted"          `Quick test_metrics_ok_counter;
       Alcotest.test_case "error counter emitted"       `Quick test_metrics_error_counter;
       Alcotest.test_case "duration histogram emitted"  `Quick test_metrics_duration;
+      Alcotest.test_case "metrics endpoint served"     `Quick test_metrics_endpoint_served;
     ];
   ]

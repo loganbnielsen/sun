@@ -71,6 +71,9 @@ module Make (W : WORKER) : sig
         Escalates to [Error] (stopping the worker) only when the commit
         failure is [Kafka.Error.is_fatal] — a broken consumer, not a
         transient hiccup — logged at [Error] in that case. *)
+    -> ?metrics_renderer:(unit -> string)
+    (** Renderer from [Obs_prometheus.create ()]. When provided, the worker
+        exposes [GET /metrics] on port 9090 for Prometheus scraping. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
     -> ?stop:unit Eio.Promise.t
@@ -91,6 +94,8 @@ module For_testing : sig
       :  env:(_, _, _, _) Sun_env.timed
       -> config:Kafka_service.config
       -> ?ot:Obs_eio.t
+      -> ?metrics_renderer:(unit -> string)
+      -> ?metrics_port:int
       -> ?on_ready:(unit -> unit)
       -> ?stop:unit Eio.Promise.t
       -> ?max_messages:int
