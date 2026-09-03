@@ -163,13 +163,11 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
-(* An empty pod list is itself a finding, not silence (OBS-024): it means
-   "never started" just as much as an unhealthy pod does -- the whole
-   point of this diagnosis, per its call sites, is to catch that case.
-   [Continuous] only -- see [format_cronjob_diagnosis] for [Ephemeral].
-   Only meaningful when [pods] reflects a *confirmed* kubectl result;
-   callers must not pass an empty list for "couldn't check" (see
-   fetch_pod_statuses/diagnose_service_live below). *)
+(* An empty pod list is itself a finding, not silence -- "never started"
+   is as much a failure as an unhealthy pod. [Continuous] only (see
+   [format_cronjob_diagnosis] for [Ephemeral]); [pods] must be a
+   *confirmed* kubectl result, never an empty list standing in for
+   "couldn't check". *)
 let format_service_diagnosis ~service_name
     (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
@@ -213,11 +211,9 @@ let parse_cronjob_status (s : string) : cronjob_status option =
       Some { last_schedule_time; last_successful_time; active_count }
   with _ -> None
 
-(* Result of trying to fetch a CronJob's status -- distinguishes "the
-   resource genuinely doesn't exist" from "the kubectl call itself
-   failed": a Fn whose CronJob was never created (deploy failed partway,
-   or deleted) must not report healthy just because nothing could be
-   fetched. *)
+(* Distinguishes "confirmed absent" from "the kubectl call failed": a Fn
+   whose CronJob was never created must not read as healthy just because
+   nothing could be fetched. *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing
