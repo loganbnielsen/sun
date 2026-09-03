@@ -79,6 +79,11 @@ the actual diff — don't just skim and assume it's fine.
   the branch is missing later `main` commits, which makes a raw diff show
   main-only additions as if the PR deleted them. Fix by merging `main` into
   the branch, not by explaining away the finding.
+- `git status --short --branch` on `main` itself, not just the PR branch:
+  ticket/doc commits made directly on `main` during a review round are
+  easy to leave unpushed. An unpushed `main` is *why* a PR branch stays
+  BEHIND even after merging `origin/main` into it once already — merging
+  a stale `origin/main` just re-creates the same gap next round.
 
 ## 7. Test coverage
 
