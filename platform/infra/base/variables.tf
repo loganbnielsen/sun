@@ -188,3 +188,33 @@ variable "thanos_irsa_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "prometheus_raw_retention_days" {
+  description = "Retention in days for raw Prometheus samples in Thanos compactor."
+  type        = number
+  default     = 90
+  validation {
+    condition     = var.prometheus_raw_retention_days >= 1 && floor(var.prometheus_raw_retention_days) == var.prometheus_raw_retention_days
+    error_message = "prometheus_raw_retention_days must be a whole number of days >= 1."
+  }
+}
+
+variable "thanos_retention_5m_days" {
+  description = "Retention in days for Thanos 5m downsampled blocks."
+  type        = number
+  default     = 90
+  validation {
+    condition     = var.thanos_retention_5m_days >= 1 && floor(var.thanos_retention_5m_days) == var.thanos_retention_5m_days
+    error_message = "thanos_retention_5m_days must be a whole number of days >= 1."
+  }
+}
+
+variable "thanos_retention_1h_days" {
+  description = "Retention in days for Thanos 1h downsampled blocks."
+  type        = number
+  default     = 90
+  validation {
+    condition     = var.thanos_retention_1h_days >= 1 && floor(var.thanos_retention_1h_days) == var.thanos_retention_1h_days
+    error_message = "thanos_retention_1h_days must be a whole number of days >= 1."
+  }
+}

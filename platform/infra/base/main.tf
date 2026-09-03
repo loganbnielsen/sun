@@ -639,6 +639,18 @@ resource "helm_release" "thanos" {
     value = "true"
   }
   set {
+    name  = "compactor.retentionResolutionRaw"
+    value = "${var.prometheus_raw_retention_days}d"
+  }
+  set {
+    name  = "compactor.retentionResolution5m"
+    value = "${var.thanos_retention_5m_days}d"
+  }
+  set {
+    name  = "compactor.retentionResolution1h"
+    value = "${var.thanos_retention_1h_days}d"
+  }
+  set {
     name  = "storegateway.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = var.thanos_irsa_role_arn
   }
