@@ -57,6 +57,28 @@ let pending_no_containers_json = {|
 ]}
 |}
 
+let container_creating_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-starting"},
+   "status": {"phase": "Pending",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha1",
+        "state": {"waiting": {"reason": "ContainerCreating", "message": null}}}
+     ]}}
+]}
+|}
+
+let container_creating_after_restart_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-retrying"},
+   "status": {"phase": "Pending",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 1, "image": "registry/invoice-fn:sha1",
+        "state": {"waiting": {"reason": "ContainerCreating", "message": null}}}
+     ]}}
+]}
+|}
+
 let missing_status_pod_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-missing-status"}},
@@ -188,32 +210,33 @@ let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous ()
 (* ── format_cronjob_diagnosis (Ephemeral/Fn) ────────────────────────────── *)
 
 let never_scheduled : D.cronjob_status =
-  { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+  { last_schedule_time = None; last_successful_time = None; active_count = 0;
+    active_job_names = [] }
 
 let idle_last_run_succeeded : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = Some "2026-09-02T10:00:05Z";
-    active_count = 0 }
+    active_count = 0; active_job_names = [] }
 
 let idle_last_run_failed : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = Some "2026-09-01T10:00:05Z" (* stale, from an earlier run *);
-    active_count = 0 }
+    active_count = 0; active_job_names = [] }
 
 let idle_success_at_schedule_boundary : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = Some "2026-09-02T10:00:00Z";
-    active_count = 0 }
+    active_count = 0; active_job_names = [] }
 
 let idle_never_succeeded : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = None;
-    active_count = 0 }
+    active_count = 0; active_job_names = [] }
 
 let run_currently_active : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = None;
-    active_count = 1 }
+    active_count = 1; active_job_names = ["invoice-fn-29384710-abcde"] }
 
 let test_format_cronjob_diagnosis_never_scheduled_is_ok () =
   check_bool "never scheduled -> no diagnosis" true
@@ -262,6 +285,52 @@ let test_format_cronjob_diagnosis_unavailable_stays_silent () =
   check_bool "an unavailable (transient failure) fetch is not a diagnosis" true
     (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Unavailable))
 
+(* ── format_active_run_diagnosis (Ephemeral/Fn active run) ──────────────── *)
+
+let test_format_active_run_diagnosis_running_pod_is_ok () =
+  let pods = D.parse_pods_json healthy_pod_json in
+  check_bool "a Running, ready pod is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+(* Unlike a Continuous pod, Succeeded is expected here: an active run
+   finishing is not a failure. *)
+let test_format_active_run_diagnosis_succeeded_pod_is_ok () =
+  let pods = D.parse_pods_json succeeded_pod_json in
+  check_bool "a Succeeded active-run pod is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+let test_format_active_run_diagnosis_stuck_pod_is_flagged () =
+  let pods = D.parse_pods_json image_pull_backoff_json in
+  check_bool "a stuck (ImagePullBackOff) active-run pod is a finding" true
+    (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+(* Every invocation passes through this state en route to Running; it must
+   not be a finding or every startup would false-positive. *)
+let test_format_active_run_diagnosis_pending_startup_is_ok () =
+  let pods = D.parse_pods_json pending_no_containers_json in
+  check_bool "a freshly-scheduled pod with no container status yet is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+(* Otherwise indistinguishable from normal startup -- FailedScheduling is
+   the signal that it's actually stuck. *)
+let test_format_active_run_diagnosis_failed_scheduling_is_flagged () =
+  let pods = D.parse_pods_json pending_no_containers_json in
+  let events = D.parse_events_json events_json in
+  check_bool "a FailedScheduling pod is still a finding despite looking like normal startup" true
+    (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods events))
+
+let test_format_active_run_diagnosis_container_creating_is_ok () =
+  let pods = D.parse_pods_json container_creating_json in
+  check_bool "ContainerCreating with no restarts is not a finding" true
+    (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
+(* Leniency covers zero restarts only -- after a restart, the same state
+   could be a crash-loop retry. *)
+let test_format_active_run_diagnosis_container_creating_after_restart_is_flagged () =
+  let pods = D.parse_pods_json container_creating_after_restart_json in
+  check_bool "ContainerCreating after a restart is still a finding" true
+    (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
+
 let test_parse_cronjob_status () =
   let json = {|{"status": {"lastScheduleTime": "2026-09-02T10:00:00Z", "lastSuccessfulTime": "2026-09-02T10:00:05Z", "active": [{"name": "invoice-fn-1"}]}}|} in
   match D.parse_cronjob_status json with
@@ -271,7 +340,9 @@ let test_parse_cronjob_status () =
       (Option.value ~default:"" status.last_schedule_time);
     check_string "lastSuccessfulTime" "2026-09-02T10:00:05Z"
       (Option.value ~default:"" status.last_successful_time);
-    check_int "active_count" 1 status.active_count
+    check_int "active_count" 1 status.active_count;
+    check_string "active_job_names" "invoice-fn-1"
+      (match status.active_job_names with [ name ] -> name | _ -> "")
 
 let test_parse_cronjob_status_never_scheduled () =
   match D.parse_cronjob_status {|{"status": {}}|} with
@@ -320,6 +391,15 @@ let () =
          Alcotest.test_case "active run -> OK" `Quick test_format_cronjob_diagnosis_active_run_is_ok;
          Alcotest.test_case "missing CronJob -> flagged" `Quick test_format_cronjob_diagnosis_missing_is_flagged;
          Alcotest.test_case "unavailable fetch stays silent" `Quick test_format_cronjob_diagnosis_unavailable_stays_silent;
+       ]);
+      ("format_active_run_diagnosis",
+       [ Alcotest.test_case "running pod -> OK" `Quick test_format_active_run_diagnosis_running_pod_is_ok;
+         Alcotest.test_case "succeeded pod -> OK" `Quick test_format_active_run_diagnosis_succeeded_pod_is_ok;
+         Alcotest.test_case "stuck pod -> flagged" `Quick test_format_active_run_diagnosis_stuck_pod_is_flagged;
+         Alcotest.test_case "pending startup -> OK" `Quick test_format_active_run_diagnosis_pending_startup_is_ok;
+         Alcotest.test_case "failed scheduling -> flagged" `Quick test_format_active_run_diagnosis_failed_scheduling_is_flagged;
+         Alcotest.test_case "container creating -> OK" `Quick test_format_active_run_diagnosis_container_creating_is_ok;
+         Alcotest.test_case "container creating after restart -> flagged" `Quick test_format_active_run_diagnosis_container_creating_after_restart_is_flagged;
        ]);
       ("parse_cronjob_status",
        [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;
