@@ -57,6 +57,18 @@ let pending_no_containers_json = {|
 ]}
 |}
 
+let missing_status_pod_json = {|
+{"items": [
+  {"metadata": {"name": "charge-svc-missing-status"}},
+  {"metadata": {"name": "charge-svc-abc"},
+   "status": {"phase": "Running",
+     "containerStatuses": [
+       {"ready": true, "restartCount": 0, "image": "registry/charge-svc:sha1",
+        "state": {"running": {"startedAt": "2026-09-01T00:00:00Z"}}}
+     ]}}
+]}
+|}
+
 let events_json = {|
 {"items": [
   {"type": "Warning", "reason": "FailedPull", "message": "rpc error: pull access denied",
@@ -109,6 +121,16 @@ let test_parse_pod_with_no_container_statuses () =
     check_string "phase" "Pending" p.phase;
     check_bool "is_healthy" false (D.is_healthy p)
   | _ -> Alcotest.fail "expected exactly one pod"
+
+let test_parse_pod_with_missing_status_keeps_list () =
+  match D.parse_pods_json missing_status_pod_json with
+  | [ missing; healthy ] ->
+    check_string "missing name" "charge-svc-missing-status" missing.name;
+    check_string "missing phase" "Unknown" missing.phase;
+    check_bool "missing is unhealthy" false (D.is_healthy missing);
+    check_string "healthy name" "charge-svc-abc" healthy.name;
+    check_bool "healthy still parsed" true (D.is_healthy healthy)
+  | pods -> Alcotest.failf "expected two pods, got %d" (List.length pods)
 
 (* ── parse_events_json / events_for_pod ─────────────────────────────── *)
 
@@ -277,6 +299,7 @@ let () =
          Alcotest.test_case "image pull backoff" `Quick test_parse_image_pull_backoff;
          Alcotest.test_case "crash loop last termination" `Quick test_parse_crash_loop_last_termination;
          Alcotest.test_case "pod with no container statuses" `Quick test_parse_pod_with_no_container_statuses;
+         Alcotest.test_case "pod with missing status keeps list" `Quick test_parse_pod_with_missing_status_keeps_list;
        ]);
       ("events",
        [ Alcotest.test_case "filters and orders by pod" `Quick test_events_for_pod_filters_and_orders;
