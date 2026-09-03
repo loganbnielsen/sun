@@ -166,6 +166,15 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
+let render_unhealthy_pods ~service_name (pods : pod_status list) (events : event list) : string =
+  let buf = Buffer.create 512 in
+  Buffer.add_string buf (Printf.sprintf "%s rollout failed\n\n" service_name);
+  List.iter (fun p ->
+    Buffer.add_string buf (format_pod_diagnosis p (events_for_pod ~pod_name:p.name events));
+    Buffer.add_char buf '\n'
+  ) pods;
+  Buffer.contents buf
+
 (* Continuous workloads should always have a pod; an empty confirmed pod
    list means the workload never started. *)
 let format_service_diagnosis ~service_name
@@ -175,36 +184,55 @@ let format_service_diagnosis ~service_name
   else
     let unhealthy = List.filter (fun p -> not (is_healthy p)) pods in
     if unhealthy = [] then None
-    else begin
-      let buf = Buffer.create 512 in
-      Buffer.add_string buf (Printf.sprintf "%s rollout failed\n\n" service_name);
-      List.iter (fun p ->
-        Buffer.add_string buf (format_pod_diagnosis p (events_for_pod ~pod_name:p.name events));
-        Buffer.add_char buf '\n'
-      ) unhealthy;
-      Some (Buffer.contents buf)
-    end
+    else Some (render_unhealthy_pods ~service_name unhealthy events)
+
+(* Unlike [is_healthy], a [Succeeded] pod counts as fine here: an active
+   CronJob run's pod is expected to finish and exit 0, and [status.active]
+   can still list the Job for a moment after its pod completes, before the
+   CronJob controller's next reconcile clears it. Only a pod stuck
+   Waiting/Pending, crash-looping, or terminated with a failure is a real
+   finding for an active run. *)
+let is_active_run_pod_ok (p : pod_status) : bool =
+  is_healthy p || p.phase = "Succeeded"
+
+(* [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly
+   the Job(s) named in [cronjob_status.active_job_names] -- never a
+   broader/historical pod list, which is the ambiguity OBS-026 moved away
+   from. *)
+let format_active_run_diagnosis ~service_name
+    (pods : pod_status list) (events : event list) : string option =
+  let unhealthy = List.filter (fun p -> not (is_active_run_pod_ok p)) pods in
+  if unhealthy = [] then None
+  else Some (render_unhealthy_pods ~service_name unhealthy events)
 
 type cronjob_status = {
   last_schedule_time   : string option;
   last_successful_time : string option;
   active_count         : int;
+  active_job_names     : string list;
 }
 
 let parse_cronjob_status (s : string) : cronjob_status option =
   try
     let j = Yojson.Safe.from_string s in
     match J.member "status" j with
-    | `Null -> Some { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+    | `Null ->
+      Some {
+        last_schedule_time = None;
+        last_successful_time = None;
+        active_count = 0;
+        active_job_names = [];
+      }
     | status ->
       let last_schedule_time = J.member "lastScheduleTime" status |> to_string_opt in
       let last_successful_time = J.member "lastSuccessfulTime" status |> to_string_opt in
-      let active_count =
+      let active_count, active_job_names =
         match member_opt "active" status with
-        | Some (`List l) -> List.length l
-        | _ -> 0
+        | Some (`List l) ->
+          List.length l, List.filter_map (fun item -> J.member "name" item |> to_string_opt) l
+        | _ -> 0, []
       in
-      Some { last_schedule_time; last_successful_time; active_count }
+      Some { last_schedule_time; last_successful_time; active_count; active_job_names }
   with _ -> None
 
 type cronjob_fetch_result =
@@ -256,6 +284,24 @@ let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
+let fetch_job_pod_statuses ~ns ~job_name : pod_status list option =
+  match Sun_cli_kubectl.get_raw
+          ~args:["get"; "pods"; "-n"; ns; "-l"; "job-name=" ^ job_name; "-o"; "json"] with
+  | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
+  | _ -> None
+
+(* Best-effort across job_names: a fetch failure for one active Job doesn't
+   block reporting on the others. Only when every fetch fails does this
+   read as "couldn't check" ([None]) rather than "confirmed these pods". *)
+let fetch_active_cronjob_pods ~ns job_names : pod_status list option =
+  let fetched =
+    job_names
+    |> List.filter_map (fun job_name -> fetch_job_pod_statuses ~ns ~job_name)
+  in
+  match fetched with
+  | [] when job_names <> [] -> None
+  | _ -> Some (List.concat fetched)
+
 let fetch_cronjob_status ~ns ~k8s_name : cronjob_fetch_result =
   match Sun_cli_kubectl.get_raw ~args:["get"; "cronjob"; k8s_name; "-n"; ns; "-o"; "json"] with
   | Error _ -> Unavailable
@@ -276,4 +322,12 @@ let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : stri
        let events = fetch_namespace_events ~ns in
        format_service_diagnosis ~service_name pods events)
   | Ephemeral ->
-    format_cronjob_diagnosis ~service_name (fetch_cronjob_status ~ns ~k8s_name)
+    let cronjob = fetch_cronjob_status ~ns ~k8s_name in
+    match cronjob with
+    | Found { active_job_names = _ :: _ as job_names; _ } ->
+      (match fetch_active_cronjob_pods ~ns job_names with
+       | Some (_ :: _ as pods) ->
+         let events = fetch_namespace_events ~ns in
+         format_active_run_diagnosis ~service_name pods events
+       | Some [] | None -> format_cronjob_diagnosis ~service_name cronjob)
+    | _ -> format_cronjob_diagnosis ~service_name cronjob
