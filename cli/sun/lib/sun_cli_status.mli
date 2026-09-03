@@ -51,7 +51,8 @@ type observability_signal = Loki | Prometheus
     [--loki-base-url]/[--prometheus-base-url] flag was given and [backend]
     isn't [Local], so there's no default URL to guess at. Explains why, and
     gives the exact `kubectl port-forward` command plus the flag needed to
-    point the CLI at a real cluster. *)
+    point the CLI at a real cluster. No trailing period, like
+    [unreachable_message] -- the caller owns the surrounding sentence. *)
 val not_configured_message
   :  signal:observability_signal
   -> backend:Sun_cli_observability_url.backend

@@ -96,6 +96,11 @@ let test_not_configured_message_prometheus_signal () =
     (let re = Str.regexp_string "svc/prometheus-server 9090:80" in
      try ignore (Str.search_forward re msg 0); true with Not_found -> false)
 
+let test_not_configured_message_has_no_trailing_period () =
+  let msg = S.not_configured_message ~signal:S.Loki ~backend:O.Self_hosted_durable in
+  check_bool "caller owns the closing sentence, not the builder" true
+    (String.length msg > 0 && msg.[String.length msg - 1] <> '.')
+
 let test_not_configured_message_distinct_from_unreachable_message () =
   let not_configured = S.not_configured_message ~signal:S.Loki ~backend:O.External in
   let unreachable = S.unreachable_message ~url:"http://x" ~error:"connection failed" in
@@ -183,6 +188,8 @@ let () =
         `Quick test_not_configured_message_names_backend_and_flag;
       Alcotest.test_case "prometheus signal uses prometheus flag/port-forward"
         `Quick test_not_configured_message_prometheus_signal;
+      Alcotest.test_case "no trailing period"
+        `Quick test_not_configured_message_has_no_trailing_period;
       Alcotest.test_case "distinct from unreachable_message"
         `Quick test_not_configured_message_distinct_from_unreachable_message;
       Alcotest.test_case "names url and error"

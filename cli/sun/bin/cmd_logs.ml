@@ -146,7 +146,7 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
     | None ->
       (* OBS-031: no --loki-base-url and backend isn't Local -- nothing to
          guess at, distinct from the query-failed case below. *)
-      Printf.printf "(%s Showing Kubernetes logs.)\n%!"
+      Printf.printf "(%s. Showing Kubernetes logs.)\n%!"
         (Sun_cli_status.not_configured_message ~signal:Sun_cli_status.Loki ~backend);
       fallback_to_kubectl ()
     | Some loki_base_url ->

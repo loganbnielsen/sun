@@ -78,10 +78,11 @@ let signal_port_forward = function
 (** Message for the "no URL configured" case: no [--loki-base-url]/
     [--prometheus-base-url] flag was given and [backend] isn't [Local], so
     there's no default URL to guess at. States why, and exactly what to
-    run to point the CLI at a real cluster. *)
+    run to point the CLI at a real cluster. No trailing period -- like
+    [unreachable_message] below, callers own the surrounding sentence. *)
 let not_configured_message ~signal ~backend =
   Printf.sprintf
-    "not checked: %s has no default %s URL. Run '%s', then pass %s <url>."
+    "not checked: %s has no default %s URL. Run '%s', then pass %s <url>"
     (Sun_cli_observability_url.backend_to_string backend)
     (signal_label signal)
     (signal_port_forward signal)

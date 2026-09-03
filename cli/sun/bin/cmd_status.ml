@@ -53,21 +53,38 @@ let ns_exists ns =
   | Ok r -> r.Sun_cli_process.exit_code = 0
   | Error _ -> false
 
-let http_reachable url : (unit, string) result =
+let curl_status_code url ~timeout_s : (int, string) result =
   match Sun_cli_process.run
-          (Sun_cli_process.cmd ~timeout_s:3.0
-             ["curl"; "-s"; "-o"; "/dev/null"; "-w"; "%{http_code}"; "--max-time"; "2"; url]) with
+          (Sun_cli_process.cmd ~timeout_s
+             ["curl"; "-s"; "-o"; "/dev/null"; "-w"; "%{http_code}"; "--max-time";
+              string_of_float timeout_s; url]) with
   | Error e -> Error (Sun_cli_process.error_to_string e)
   | Ok r ->
-    (* OBS-031: only 2xx counts as healthy -- these are health-check
-       endpoints (Loki's /ready, Prometheus's /-/healthy) that return 200
-       when genuinely up, so a 4xx (wrong path, auth required) or 3xx is a
-       real problem to surface via unreachable_message, not "healthy". *)
     (match int_of_string_opt (String.trim r.Sun_cli_process.stdout) with
-     | Some code when code >= 200 && code < 300 -> Ok ()
-     | Some 0 -> Error "connection failed"
-     | Some code -> Error (Printf.sprintf "HTTP %d" code)
+     | Some code -> Ok code
      | None -> Error "curl returned an unexpected response")
+
+(* Any 1xx-4xx response means *something* answered at this URL -- used for
+   the dashboard link, a general Grafana base URL that may legitimately 3xx
+   (e.g. to a login page) or 4xx (no default route at "/"); only "no
+   response at all" (curl's "000") or a 5xx server error count as down. *)
+let http_reachable url : (unit, string) result =
+  match curl_status_code url ~timeout_s:2.0 with
+  | Error e -> Error e
+  | Ok code when code > 0 && code < 500 -> Ok ()
+  | Ok 0 -> Error "connection failed"
+  | Ok code -> Error (Printf.sprintf "HTTP %d" code)
+
+(* OBS-031: Loki's /ready and Prometheus's /-/healthy return 200
+   specifically when genuinely up -- unlike the dashboard's generic
+   base-URL probe above, a 4xx (wrong path, auth required) or 3xx here is a
+   real problem to surface via unreachable_message, not "healthy". *)
+let health_check_reachable url : (unit, string) result =
+  match curl_status_code url ~timeout_s:2.0 with
+  | Error e -> Error e
+  | Ok code when code >= 200 && code < 300 -> Ok ()
+  | Ok 0 -> Error "connection failed"
+  | Ok code -> Error (Printf.sprintf "HTTP %d" code)
 
 (* ── Observability reachability ─────────────────────────────────────────── *)
 
@@ -87,7 +104,8 @@ let dashboard_reachability ~backend ~base_domain =
 let print_signal_line ~label ~signal ~backend ~explicit_url ~default_local_url ~probe_path =
   let probe_url = Sun_cli_status.probe_url ~backend ~explicit_url ~default_local_url ~probe_path in
   Printf.printf "  %-8s %s\n" label
-    (Sun_cli_status.reachability_line ~signal ~backend ~probe_url ~is_reachable:http_reachable)
+    (Sun_cli_status.reachability_line ~signal ~backend ~probe_url
+       ~is_reachable:health_check_reachable)
 
 let print_observability_lines ~backend ~explicit_loki_url ~explicit_prometheus_url =
   print_signal_line ~label:"logs" ~signal:Sun_cli_status.Loki ~backend
