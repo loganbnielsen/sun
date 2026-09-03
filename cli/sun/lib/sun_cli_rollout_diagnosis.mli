@@ -41,9 +41,10 @@ val events_for_pod : ?limit:int -> pod_name:string -> event list -> event list
 val is_healthy : pod_status -> bool
 
 (** Workload health model. [Continuous] services should always have current
-    pods. [Ephemeral] functions can leave several historical run-pods behind,
-    with no reliable way to identify the latest run from pod state alone, so
-    they are diagnosed from CronJob status instead. *)
+    pods. [Ephemeral] functions leave historical run-pods behind with no
+    reliable way to pick the latest run from pod state alone, so they're
+    diagnosed from CronJob status instead -- except a currently active run,
+    identified unambiguously via [status.active]'s Job names. *)
 type pod_expectation = Continuous | Ephemeral
 
 (** Render one pod's diagnosis block: state/reason, restarts, last
@@ -65,6 +66,9 @@ type cronjob_status = {
   last_successful_time  : string option;
   active_count          : int;
   (** Number of currently-running Jobs for this CronJob. *)
+  active_job_names      : string list;
+  (** Active Job names from [status.active], for targeting current-run pods
+      without scanning history. *)
 }
 
 (** Parse [kubectl get cronjob <name> -n <ns> -o json]. A CronJob with no
@@ -79,14 +83,26 @@ type cronjob_fetch_result =
   | Missing
   | Unavailable
 
-(** [Ephemeral] diagnosis from CronJob status. A run is healthy when no run has
-    ever been scheduled, a run is currently active, or
-    [lastSuccessfulTime >= lastScheduleTime]. This does not inspect active-run
-    pods; active failures surface after the CronJob reaches backoff/failure
-    state. *)
+(** [Ephemeral] diagnosis of the CronJob's last *completed* run: healthy when
+    no run has ever been scheduled or [lastSuccessfulTime >= lastScheduleTime].
+    A currently-active run is never a finding here regardless of its pod's
+    state -- see [format_active_run_diagnosis] for that. *)
 val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
 
-(** Live diagnosis for a deployed workload. *)
+(** [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly
+    the Job(s) in [cronjob_status.active_job_names]. More lenient than
+    [format_service_diagnosis]: a [Succeeded] pod, or one merely starting up
+    with no restart history, is not a finding. *)
+val format_active_run_diagnosis
+  :  service_name:string
+  -> pod_status list
+  -> event list
+  -> string option
+
+(** Live diagnosis for a deployed workload. [Ephemeral] tries
+    [format_active_run_diagnosis] first when a run is currently active and its
+    pod(s) can be fetched, falling back to [format_cronjob_diagnosis]
+    otherwise (no active run, or the active pod fetch itself failed). *)
 val diagnose_service_live
   :  pod_expectation:pod_expectation
   -> ns:string
