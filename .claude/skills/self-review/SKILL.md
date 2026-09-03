@@ -32,6 +32,15 @@ the actual diff — don't just skim and assume it's fine.
   with the real type (`Ptime.of_rfc3339`, etc.) and compare parsed values.
 - When a parse can fail, fail toward *surfacing* a finding, not silently
   treating it as OK.
+- `Yojson.Safe.Util.member key j` returns `` `Null `` when `key` is absent
+  from an object, but `member` called *on* `` `Null `` itself raises. Code
+  that does `let x = J.member "k" j in J.member "inner" x` without checking
+  `x` for `` `Null `` first will raise on a wholly-absent key and get
+  silently swallowed by an outer catch-all `with _ -> ...`, returning the
+  wrong result instead of the documented one. Match `` `Null `` explicitly
+  before descending further, and test the case where the key is missing
+  entirely (not just present-but-empty, e.g. `"{}"` vs `` `{"k": {}}` ``
+  — they hit different code paths).
 
 ## 3. Public API surface (`.mli`)
 
@@ -79,6 +88,10 @@ the actual diff — don't just skim and assume it's fine.
 - When a function's contract changes (new required param, split return
   type), update every existing test to the new shape; don't leave stale
   callers passing by accident.
+- Check that no two tests in the same group pass an identical fixture into
+  an identical call. A test named for one scenario but copy-pasted from its
+  neighbor's fixture asserts nothing beyond what the neighbor already
+  covers — it looks like coverage without being any.
 
 ## 8. Scope discipline
 
