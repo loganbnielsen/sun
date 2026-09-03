@@ -91,6 +91,11 @@ resource "terraform_data" "observability_backend_validation" {
       )
       error_message = "observability_backend = \"self_hosted_durable\" requires loki_s3_bucket, loki_irsa_role_arn, thanos_s3_bucket, and thanos_irsa_role_arn."
     }
+
+    precondition {
+      condition     = var.observability_backend != "self_hosted_durable" || var.cloud_provider == "aws"
+      error_message = "observability_backend = \"self_hosted_durable\" is currently supported only on AWS/EKS because it uses IRSA. GCP support requires Workload Identity wiring."
+    }
   }
 }
 
