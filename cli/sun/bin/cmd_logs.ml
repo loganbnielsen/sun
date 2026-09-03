@@ -87,7 +87,8 @@ let exec_kubectl_logs ~ns ~target ~follow ~tail =
   Unix.execvp "kubectl" (Array.of_list argv)
 
 let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
-    ~target ~explicit_loki_url ?grafana_base_url () : unit =
+    ~target ~explicit_loki_url ~explicit_loki_username ~explicit_loki_password
+    ?grafana_base_url () : unit =
   let workspace = workspace_name () in
   let (domain, name) = match resolve_service service_arg with
     | Some p -> p
@@ -148,7 +149,17 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
         (Sun_cli_observability_url.backend_to_string backend);
       fallback_to_kubectl ()
     | Some loki_base_url ->
-      match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
+      let credentials =
+        match Sun_cli_loki.resolve_credentials
+                ~flag_username:explicit_loki_username
+                ~flag_password:explicit_loki_password
+                ~env_username:(Sys.getenv_opt "SUN_LOKI_USERNAME")
+                ~env_password:(Sys.getenv_opt "SUN_LOKI_PASSWORD") with
+        | Ok credentials -> credentials
+        | Error msg -> Printf.eprintf "error: %s\n" msg; exit 1
+      in
+      match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name
+              ?credentials ~limit:tail () with
       | Ok [] ->
         Printf.printf "(no log lines found in Loki for %s; showing Kubernetes logs)\n%!" name;
         fallback_to_kubectl ()
@@ -227,6 +238,27 @@ let loki_base_url_arg =
                snapshot (--no-follow) and falls back to 'kubectl logs' if \
                the query fails, times out, or finds nothing.")
 
+let loki_username_arg =
+  Arg.(value & opt (some string) None &
+       info ["loki-username"] ~docv:"USERNAME"
+         ~doc:"Basic-auth username for the Loki query request (e.g. a \
+               Grafana Cloud stack's instance ID) -- the read-side \
+               counterpart of promtail's external_loki_username \
+               (platform/infra/base). Falls back to SUN_LOKI_USERNAME; \
+               the flag wins when both are set. Must be paired with \
+               --loki-password (or SUN_LOKI_PASSWORD).")
+
+let loki_password_arg =
+  Arg.(value & opt (some string) None &
+       info ["loki-password"] ~docv:"PASSWORD"
+         ~doc:"Basic-auth password/API key for the Loki query request -- \
+               the read-side counterpart of promtail's \
+               external_loki_password (platform/infra/base). Falls back to \
+               SUN_LOKI_PASSWORD; the flag wins when both are set. Must \
+               be paired with --loki-username (or SUN_LOKI_USERNAME). Prefer \
+               SUN_LOKI_PASSWORD on shared hosts because command-line flags \
+               can be visible in shell history and process listings.")
+
 let follow_term =
   let combine follow no_follow = match follow, no_follow with
     | true,  true  ->
@@ -255,10 +287,13 @@ let cmd =
              Wraps 'kubectl logs' with Sun's namespace convention \
              (<workspace>-<domain>).")
     Term.(const (fun service_arg follow tail observability_backend base_domain
-                     target grafana_base_url loki_base_url ->
+                     target grafana_base_url loki_base_url loki_username loki_password ->
         let explicit_backend = backend_of_arg observability_backend in
         run ~service_arg ~follow ~tail ~explicit_backend
           ~explicit_base_domain:base_domain ~target
-          ~explicit_loki_url:loki_base_url ?grafana_base_url ())
+          ~explicit_loki_url:loki_base_url
+          ~explicit_loki_username:loki_username ~explicit_loki_password:loki_password
+          ?grafana_base_url ())
       $ service_arg $ follow_term $ tail_arg $ observability_backend_arg $ base_domain_arg
-      $ target_arg $ grafana_base_url_arg $ loki_base_url_arg)
+      $ target_arg $ grafana_base_url_arg $ loki_base_url_arg
+      $ loki_username_arg $ loki_password_arg)

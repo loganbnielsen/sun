@@ -4,10 +4,18 @@
 
 module U = Yojson.Safe.Util
 
-let query_range_argv ~base_url ~ns ~k8s_name ~limit ~timeout_s : string list =
+type credentials = { username : string; password : string }
+
+let query_range_argv ~base_url ~ns ~k8s_name ~limit ~timeout_s ?curl_config ()
+    : string list =
   let logql = Printf.sprintf {|{namespace="%s",app="%s"}|} ns k8s_name in
-  [ "curl"; "-sS"; "--max-time"; string_of_float timeout_s;
-    "-w"; "\n%{http_code}";
+  let auth_args = match curl_config with
+    | None -> []
+    | Some path -> [ "--config"; path ]
+  in
+  [ "curl"; "-sS"; "--max-time"; string_of_float timeout_s ]
+  @ auth_args @
+  [ "-w"; "\n%{http_code}";
     "--get"; base_url ^ "/loki/api/v1/query_range";
     "--data-urlencode"; "query=" ^ logql;
     "--data-urlencode"; "limit=" ^ string_of_int limit;
@@ -71,10 +79,80 @@ let classify_process_error (e : Sun_cli_process.error) : fetch_error =
   | Sun_cli_process.Non_zero { exit_code; stderr } ->
     Other (Printf.sprintf "curl exit %d: %s" exit_code stderr)
 
-let query ~base_url ~ns ~k8s_name ?(limit = 100) ?(timeout_s = 5.0) ()
+(* OBS-032: resolves the same read-side basic-auth credentials
+   platform/infra/base/main.tf already collects for promtail's write side
+   (external_loki_username/external_loki_password), mirroring
+   --loki-base-url's own flag-wins-over-nothing-else shape but as a
+   flag/env pair like Kafka_security.config_of_env()'s KAFKA_SASL_* --
+   flag wins over env var, field-by-field. [Error] when exactly one of
+   username/password ends up set: Loki basic auth needs both together,
+   same as main.tf's precondition on the write side. [Ok None] when
+   neither is set -- existing unauthenticated behavior is unchanged. *)
+let resolve_credentials
+    ~flag_username ~flag_password ~env_username ~env_password
+    : (credentials option, string) result =
+  let nonempty = function
+    | None -> None
+    | Some s ->
+      let s = String.trim s in
+      if s = "" then None else Some s
+  in
+  let pick flag env = match nonempty flag with Some _ as v -> v | None -> nonempty env in
+  match pick flag_username env_username, pick flag_password env_password with
+  | None, None -> Ok None
+  | Some username, Some password -> Ok (Some { username; password })
+  | Some _, None ->
+    Error "--loki-username (or SUN_LOKI_USERNAME) is set without a password \
+           -- pass --loki-password or set SUN_LOKI_PASSWORD too"
+  | None, Some _ ->
+    Error "--loki-password (or SUN_LOKI_PASSWORD) is set without a username \
+           -- pass --loki-username or set SUN_LOKI_USERNAME too"
+
+let curl_config_quote s =
+  let buf = Buffer.create (String.length s) in
+  String.iter (function
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | '"' -> Buffer.add_string buf "\\\""
+    | '\n' -> Buffer.add_string buf "\\n"
+    | '\r' -> Buffer.add_string buf "\\r"
+    | '\t' -> Buffer.add_string buf "\\t"
+    | c -> Buffer.add_char buf c
+  ) s;
+  Buffer.contents buf
+
+let write_curl_auth_config { username; password } =
+  let path = Filename.temp_file "sun-loki-curl-" ".conf" in
+  try
+    Unix.chmod path 0o600;
+    let user = curl_config_quote (username ^ ":" ^ password) in
+    Out_channel.with_open_text path (fun oc ->
+      output_string oc ("user = \"" ^ user ^ "\"\n"));
+    Ok path
+  with exn ->
+    (try Sys.remove path with _ -> ());
+    Error (Printexc.to_string exn)
+
+let query ~base_url ~ns ~k8s_name ?credentials ?(limit = 100) ?(timeout_s = 5.0) ()
     : (line list, fetch_error) result =
-  let argv = query_range_argv ~base_url ~ns ~k8s_name ~limit ~timeout_s in
-  match Sun_cli_process.run (Sun_cli_process.cmd ~timeout_s:(timeout_s +. 2.0) argv) with
+  let curl_config =
+    match credentials with
+    | None -> Ok None
+    | Some credentials -> Result.map Option.some (write_curl_auth_config credentials)
+  in
+  match curl_config with
+  | Error msg -> Error (Other ("could not prepare Loki credentials: " ^ msg))
+  | Ok curl_config ->
+    Fun.protect ~finally:(fun () ->
+      match curl_config with
+      | None -> ()
+      | Some path -> (try Sys.remove path with _ -> ()))
+    @@ fun () ->
+  let argv = query_range_argv ~base_url ~ns ~k8s_name ~limit ~timeout_s ?curl_config () in
+  let redact = match credentials with
+    | None -> []
+    | Some { password; _ } -> [ password ]
+  in
+  match Sun_cli_process.run (Sun_cli_process.cmd ~timeout_s:(timeout_s +. 2.0) ~redact argv) with
   | Error e -> Error (classify_process_error e)
   | Ok r when r.Sun_cli_process.exit_code <> 0 ->
     Error (Other (Printf.sprintf "curl exit %d: %s" r.Sun_cli_process.exit_code r.Sun_cli_process.stderr))
