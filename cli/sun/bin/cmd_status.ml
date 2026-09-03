@@ -33,14 +33,11 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
-(* Services actually declared under a domain (source name, k8s name,
-   primitive), independent of any kubectl call -- used both to drive
-   diagnosis below and, at service scope, to reject a service that was
-   never declared (OBS-022) before reporting any health status for it.
-   Keeps [primitive] (dropped by an earlier version of this function) so
-   diagnosis can tell a Deployment/Rollout-backed service (Svc/Worker,
-   expected to have a continuously running pod) from a CronJob-backed one
-   (Fn, idle between runs by design -- see service_diagnoses_named). *)
+(* Services declared under a domain, independent of any kubectl call --
+   drives diagnosis below and rejects an undeclared service before
+   reporting any health for it. Keeps [primitive] so diagnosis can tell a
+   continuously-running service (Svc/Worker) from a CronJob-backed one
+   (Fn, idle between runs by design). *)
 let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) list =
   Sun_cli_manifest.discover_services ~filter_path:None
   |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)

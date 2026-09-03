@@ -88,9 +88,8 @@ val parse_cronjob_status : string -> cronjob_status option
 (** Distinguishes "the CronJob genuinely doesn't exist" ([Missing],
     confirmed via kubectl's NotFound response) from "the kubectl call
     itself failed or its output couldn't be parsed" ([Unavailable],
-    transient -- stays silent). Conflating the two used to mean a
-    declared [Fn] whose CronJob was never created reported healthy with
-    no diagnosis at all (OBS-026). *)
+    transient -- stays silent). A [Fn] whose CronJob was never created
+    must not report healthy just because nothing could be fetched. *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing

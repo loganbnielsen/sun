@@ -219,10 +219,9 @@ let parse_cronjob_status (s : string) : cronjob_status option =
 
 (* Result of trying to fetch a CronJob's status -- distinguishes "the
    resource genuinely doesn't exist" from "the kubectl call itself
-   failed," which used to be conflated into one [None] (OBS-026): a
-   declared Fn in a namespace that exists, but whose CronJob was never
-   actually created (deploy failed partway, or it was deleted), reported
-   healthy with no diagnosis at all. *)
+   failed": a Fn whose CronJob was never created (deploy failed partway,
+   or deleted) must not report healthy just because nothing could be
+   fetched. *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing
@@ -233,25 +232,21 @@ type cronjob_fetch_result =
       (transient error, timeout, RBAC, ...) -- stays silent, same as
       other transient-failure handling in this module. *)
 
-(* [Ephemeral] diagnoses the CronJob's last *completed* run, not an
-   in-progress one's pod health: a currently-active run (active_count >
-   0) is never a finding here, even if its pod is stuck Pending or
-   crash-looping -- backoffLimit: 3 bounds how long that can last before
-   the run terminates, but a truly stuck active run won't be caught until
-   then. Diagnosing an active run's own pod state is a separate,
-   not-yet-done piece of work.
-   Idle between runs, the most recently scheduled run is a finding unless
-   it has since been recorded as successful. Timestamps compare via Ptime
-   (see [is_at_or_after]), not as raw strings -- RFC3339 timestamps aren't
-   always the same width (fractional seconds vary), so string comparison
-   can sort them wrong. [Missing] is always a finding regardless. *)
+(* Timestamps compare via parsed Ptime values, not raw strings: RFC3339
+   timestamps aren't always the same width (fractional seconds vary), so
+   string comparison can sort them wrong. A timestamp that fails to parse
+   fails toward surfacing a finding, not hiding one. *)
 let is_at_or_after ~reference candidate =
   match Ptime.of_rfc3339 candidate, Ptime.of_rfc3339 reference with
   | Ok (t_candidate, _, _), Ok (t_reference, _, _) -> Ptime.compare t_candidate t_reference >= 0
   | _ -> false
-  (* A timestamp that fails to parse fails toward surfacing a finding,
-     not hiding one. *)
 
+(* [Ephemeral] diagnosis covers only the CronJob's last *completed* run:
+   an active run (active_count > 0) is never flagged here even if its pod
+   is stuck -- bounded by backoffLimit, not indefinite; diagnosing an
+   active run's own pod health is separate work. Idle between runs, the
+   most recently scheduled run needs a later-or-equal recorded success,
+   or it's a finding. [Missing] is always a finding. *)
 let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : string option =
   match result with
   | Unavailable -> None
