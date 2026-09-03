@@ -41,11 +41,10 @@ val events_for_pod : ?limit:int -> pod_name:string -> event list -> event list
 val is_healthy : pod_status -> bool
 
 (** Workload health model. [Continuous] services should always have current
-    pods. [Ephemeral] functions can leave several historical run-pods behind,
-    with no reliable way to identify the latest run from pod state alone, so
-    they are diagnosed from CronJob status instead -- except a currently
-    active run, whose pod(s) are identified unambiguously via the CronJob's
-    own [status.active] Job names. *)
+    pods. [Ephemeral] functions leave historical run-pods behind with no
+    reliable way to pick the latest run from pod state alone, so they're
+    diagnosed from CronJob status instead -- except a currently active run,
+    identified unambiguously via [status.active]'s Job names. *)
 type pod_expectation = Continuous | Ephemeral
 
 (** Render one pod's diagnosis block: state/reason, restarts, last
@@ -68,8 +67,8 @@ type cronjob_status = {
   active_count          : int;
   (** Number of currently-running Jobs for this CronJob. *)
   active_job_names      : string list;
-  (** Active Job names from [status.active]. Used to inspect current run pods
-      without scanning historical CronJob pods. *)
+  (** Active Job names from [status.active], for targeting current-run pods
+      without scanning history. *)
 }
 
 (** Parse [kubectl get cronjob <name> -n <ns> -o json]. A CronJob with no
@@ -90,16 +89,10 @@ type cronjob_fetch_result =
     state -- see [format_active_run_diagnosis] for that. *)
 val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
 
-(** [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly the
-    Job(s) named in [cronjob_status.active_job_names] (never a broader or
-    historical pod list). Two states count as healthy here that
-    [format_service_diagnosis] would flag: a [Succeeded] pod (an active run
-    finishing successfully is expected, not a failure), and a pod with no
-    restarts that's still starting up (no container status yet, or Waiting
-    with a benign reason) -- a short-lived run is disproportionately likely
-    to be caught mid-startup. A pod with any restart history gets no such
-    leniency, and a [FailedScheduling] event naming the pod overrides the
-    startup leniency too (genuinely unschedulable, not just starting). *)
+(** [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly
+    the Job(s) in [cronjob_status.active_job_names]. More lenient than
+    [format_service_diagnosis]: a [Succeeded] pod, or one merely starting up
+    with no restart history, is not a finding. *)
 val format_active_run_diagnosis
   :  service_name:string
   -> pod_status list

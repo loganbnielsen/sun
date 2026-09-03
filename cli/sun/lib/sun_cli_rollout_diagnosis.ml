@@ -186,23 +186,12 @@ let format_service_diagnosis ~service_name
     if unhealthy = [] then None
     else Some (render_unhealthy_pods ~service_name unhealthy events)
 
-(* Unlike [is_healthy], two more states count as fine here:
-   - [Succeeded]: an active CronJob run's pod is expected to finish and exit
-     0, and [status.active] can still list the Job for a moment after its
-     pod completes, before the controller's next reconcile clears it.
-   - A pod that has never restarted and is still starting up (no container
-     status yet, or Waiting with a benign reason like ContainerCreating /
-     PodInitializing): every single invocation passes through this on the
-     way to Running, and a short-lived Fn is disproportionately likely to
-     be caught mid-startup compared to a steady-state Deployment. Once a
-     pod has restarted even once, this leniency no longer applies -- a
-     Waiting pod with restart history needs to actually reach Running or
-     Succeeded, not just look like it's starting up again mid crash-loop.
-   A pod with no restarts and no container status yet is otherwise
-   indistinguishable from one that's genuinely unschedulable (insufficient
-   resources, no matching node) rather than just starting -- [events] is
-   consulted for a [FailedScheduling] event naming this pod to catch that
-   case rather than reading it as healthy indefinitely. *)
+(* Beyond [is_healthy]: [Succeeded] is OK (a finishing run is expected, and
+   status.active can lag one reconcile behind). A pod with zero restarts
+   that's merely starting (Pending, or Waiting on ContainerCreating /
+   PodInitializing) is also OK -- unless a [FailedScheduling] event names it
+   (genuinely unschedulable) or it has already restarted (no longer a first
+   start). *)
 let is_active_run_pod_ok ~(events : event list) (p : pod_status) : bool =
   is_healthy p
   || p.phase = "Succeeded"
@@ -213,10 +202,8 @@ let is_active_run_pod_ok ~(events : event list) (p : pod_status) : bool =
       | Unknown_state -> p.phase = "Pending"
       | Running | Terminated _ -> false)
 
-(* [Ephemeral] diagnosis of an active run's own pod(s), scoped to exactly
-   the Job(s) named in [cronjob_status.active_job_names] -- never a
-   broader/historical pod list, which is the ambiguity OBS-026 moved away
-   from. *)
+(* Scoped to exactly the Job(s) in [cronjob_status.active_job_names] -- never
+   a broader/historical pod list. *)
 let format_active_run_diagnosis ~service_name
     (pods : pod_status list) (events : event list) : string option =
   let unhealthy = List.filter (fun p -> not (is_active_run_pod_ok ~events p)) pods in
@@ -308,9 +295,8 @@ let fetch_job_pod_statuses ~ns ~job_name : pod_status list option =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
-(* Best-effort across job_names: a fetch failure for one active Job doesn't
-   block reporting on the others. Only when every fetch fails does this
-   read as "couldn't check" ([None]) rather than "confirmed these pods". *)
+(* Best-effort per job: one failed fetch doesn't block the others. [None]
+   only when every fetch fails. *)
 let fetch_active_cronjob_pods ~ns job_names : pod_status list option =
   let fetched =
     job_names

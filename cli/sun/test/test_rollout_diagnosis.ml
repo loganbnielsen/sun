@@ -292,11 +292,8 @@ let test_format_active_run_diagnosis_running_pod_is_ok () =
   check_bool "a Running, ready pod is not a finding" true
     (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
-(* The bug this whole ticket exists to avoid reintroducing: an active run's
-   pod naturally reaches Succeeded when it finishes, and status.active can
-   still list the Job for a moment after that. A Succeeded active-run pod
-   must read as fine, not as a failure -- unlike a Continuous service's pod
-   reaching Succeeded, which format_service_diagnosis still flags. *)
+(* Unlike a Continuous pod, Succeeded is expected here: an active run
+   finishing is not a failure. *)
 let test_format_active_run_diagnosis_succeeded_pod_is_ok () =
   let pods = D.parse_pods_json succeeded_pod_json in
   check_bool "a Succeeded active-run pod is not a finding" true
@@ -307,19 +304,15 @@ let test_format_active_run_diagnosis_stuck_pod_is_flagged () =
   check_bool "a stuck (ImagePullBackOff) active-run pod is a finding" true
     (Option.is_some (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
-(* Every single invocation passes through Pending/no-container-status on
-   its way to Running -- a short-lived Fn is disproportionately likely to
-   be caught here compared to a steady-state Deployment. This must not be
-   a finding, or every diagnosis during a normal startup window would be a
-   false positive. *)
+(* Every invocation passes through this state en route to Running; it must
+   not be a finding or every startup would false-positive. *)
 let test_format_active_run_diagnosis_pending_startup_is_ok () =
   let pods = D.parse_pods_json pending_no_containers_json in
   check_bool "a freshly-scheduled pod with no container status yet is not a finding" true
     (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
-(* A Pending pod with no container status is otherwise indistinguishable
-   from a normal startup -- a FailedScheduling event naming it is the
-   signal that it's actually stuck (unschedulable), not just starting. *)
+(* Otherwise indistinguishable from normal startup -- FailedScheduling is
+   the signal that it's actually stuck. *)
 let test_format_active_run_diagnosis_failed_scheduling_is_flagged () =
   let pods = D.parse_pods_json pending_no_containers_json in
   let events = D.parse_events_json events_json in
@@ -331,9 +324,8 @@ let test_format_active_run_diagnosis_container_creating_is_ok () =
   check_bool "ContainerCreating with no restarts is not a finding" true
     (Option.is_none (D.format_active_run_diagnosis ~service_name:"invoice-fn" pods []))
 
-(* The startup leniency only covers a pod that has never restarted -- once
-   it has, "ContainerCreating" could just as easily be a crash-loop's next
-   retry attempt, not a first-time start. *)
+(* Leniency covers zero restarts only -- after a restart, the same state
+   could be a crash-loop retry. *)
 let test_format_active_run_diagnosis_container_creating_after_restart_is_flagged () =
   let pods = D.parse_pods_json container_creating_after_restart_json in
   check_bool "ContainerCreating after a restart is still a finding" true
