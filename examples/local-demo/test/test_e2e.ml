@@ -32,6 +32,14 @@ let loki_port url =
     let s = match String.index_opt s '/' with Some j -> String.sub s 0 j | None -> s in
     Option.value ~default:3100 (int_of_string_opt s)
 
+let free_tcp_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect ~finally:(fun () -> Unix.close sock) (fun () ->
+    Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+    match Unix.getsockname sock with
+    | Unix.ADDR_INET (_, port) -> port
+    | Unix.ADDR_UNIX _ -> assert false)
+
 let http_get env ~sw ~port ~path () =
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
   let flow = Eio.Net.connect ~sw env#net addr in
@@ -82,7 +90,9 @@ module FulfilledOrders = Pg_table.Make(FulfilledOrderSchema)
 type result = {
   http_statuses : int list;
   metrics_text  : string;
+  worker_metrics_http : string option;
   loki_resp     : string option;
+  loki_cli_lines : int option;
   db_rows       : int;
 }
 
@@ -91,6 +101,13 @@ let run_golden_path () =
   let loki_url     = Sys.getenv_opt "LOKI_URL" in
   let postgres_url = Sys.getenv_opt "POSTGRES_URL" in
   let orders_count = 3 in
+  let worker_metrics_port = free_tcp_port () in
+  let module OrderPlaced = struct
+    include Events.OrderPlaced
+    let topic_name =
+      Kafka_service.topic_name_exn
+        (Printf.sprintf "sun-demo-orders-e2e-%d" (Unix.getpid ()))
+  end in
 
   let kafka_config : Kafka_service.config =
     let config =
@@ -138,7 +155,7 @@ let run_golden_path () =
   in
   let topic =
     match Kafka_service.register svc ~net:env#net ~clock:env#clock
-            (module Events.OrderPlaced) with
+            (module OrderPlaced) with
     | Ok t    -> t
     | Error e -> failwith ("Kafka register: " ^ Kafka_service.error_to_string e)
   in
@@ -148,29 +165,31 @@ let run_golden_path () =
   let worker_done_p,  worker_done_r  = Eio.Promise.create () in
 
   let module W = struct
-    module Message = Events.OrderPlaced
+    module Message = OrderPlaced
     let group_id = "sun-e2e-test-worker"
 
     let handle msg ~trace_ctx:_ =
-      (match db_pool with
-       | None -> ()
-       | Some pool ->
-         let row = FulfilledOrderSchema.{
-           order_id = msg.Message.order_id; item = msg.Message.item;
-           quantity = msg.Message.quantity; correlation_id = msg.Message.correlation_id;
-         } in
-         (match FulfilledOrders.insert pool row with
-          | Ok () | Error _ -> ()));
+      if msg.Message.order_id <> "order-e2e-stop" then
+        (match db_pool with
+         | None -> ()
+         | Some pool ->
+           let row = FulfilledOrderSchema.{
+             order_id = msg.Message.order_id; item = msg.Message.item;
+             quantity = msg.Message.quantity; correlation_id = msg.Message.correlation_id;
+           } in
+           (match FulfilledOrders.insert pool row with
+            | Ok () | Error _ -> ()));
       Ok ()
   end in
 
   Eio.Fiber.fork ~sw (fun () ->
     (try
-      let module WR = Worker.Make(W) in
+      let module WR = Worker.For_testing.Make(W) in
       WR.run ~env ~config:kafka_config ~ot:worker_ot
+        ~metrics_renderer:render ~metrics_port:worker_metrics_port
         ~on_ready:(fun () ->
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
-        ~max_messages:orders_count
+        ~max_messages:(orders_count + 1)
         ()
       |> Result.map_error Worker.run_error_to_string
       |> function Ok () -> () | Error msg -> failwith msg
@@ -188,7 +207,7 @@ let run_golden_path () =
       | `Assoc fs -> (match List.assoc_opt k fs with Some (`String s) -> s | _ -> "") | _ -> "" in
     let i k = match body_j with
       | `Assoc fs -> (match List.assoc_opt k fs with Some (`Int n) -> n | _ -> 0) | _ -> 0 in
-    let msg = Events.OrderPlaced.{
+    let msg = OrderPlaced.{
       order_id = s "order_id"; item = s "item"; quantity = i "quantity";
       correlation_id = corr_id;
     } in
@@ -232,6 +251,28 @@ let run_golden_path () =
       ~body ()
   ) orders in
 
+  let worker_metrics_http =
+    match Eio.Time.with_timeout env#clock 5.0 (fun () ->
+      let rec loop () =
+        match
+          try Some (http_get env ~sw ~port:worker_metrics_port ~path:"/metrics" ())
+          with _ -> None
+        with
+        | Some resp when metric_nonzero resp "sun_worker_messages_total" -> resp
+        | _ -> Eio.Time.sleep env#clock 0.05; loop ()
+      in
+      Ok (loop ())) with
+    | Ok resp -> Some resp
+    | Error `Timeout -> None
+  in
+
+  let stop_body =
+    {|{"order_id":"order-e2e-stop","item":"stop","quantity":0}|}
+  in
+  ignore (http_post env ~sw ~port ~path:"/orders"
+            ~headers:[("x-correlation-id", "test-order-e2e-stop")]
+            ~body:stop_body ());
+
   (* Wait for worker done *)
   (match Eio.Time.with_timeout env#clock 20.0 (fun () ->
      Ok (Eio.Promise.await worker_done_p)) with
@@ -247,6 +288,37 @@ let run_golden_path () =
       let path = "/loki/api/v1/query?query=%7Bservice%3D%22order-svc%22%7D&limit=5" in
       (try Some (http_get env ~sw ~port:p ~path ()) with _ -> None)
   in
+  let loki_cli_lines = match loki_url with
+    | None -> None
+    | Some url ->
+      let p = loki_port url in
+      let ts_ns =
+        Int64.to_string
+          (Int64.of_float (Unix.gettimeofday () *. 1_000_000_000.))
+      in
+      let body =
+        Printf.sprintf
+          {|{"streams":[{"stream":{"namespace":"sun-e2e","app":"auth-read"},"values":[[%S,%S]]}]}|}
+          ts_ns "sun logs authenticated read e2e"
+      in
+      let pushed =
+        http_post env ~sw ~port:p ~path:"/loki/api/v1/push" ~body () = 204
+      in
+      if not pushed then None else
+        let credentials =
+          match Sun_cli_loki.resolve_credentials
+                  ~flag_username:None ~flag_password:None
+                  ~env_username:(Sys.getenv_opt "SUN_LOKI_USERNAME")
+                  ~env_password:(Sys.getenv_opt "SUN_LOKI_PASSWORD") with
+          | Ok (Some c) -> Some c
+          | Ok None -> Some Sun_cli_loki.{ username = "sun-e2e"; password = "sun-e2e" }
+          | Error msg -> failwith msg
+        in
+        (match Sun_cli_loki.query ~base_url:url ~ns:"sun-e2e" ~k8s_name:"auth-read"
+                 ?credentials ~limit:5 ~timeout_s:5.0 () with
+         | Ok lines -> Some (List.length lines)
+         | Error _ -> Some 0)
+  in
   let db_rows = match db_pool with
     | None      -> 0
     | Some pool ->
@@ -254,7 +326,7 @@ let run_golden_path () =
       | Error _ -> 0
       | Ok rows -> List.length rows
   in
-  { http_statuses; metrics_text; loki_resp; db_rows }
+  { http_statuses; metrics_text; worker_metrics_http; loki_resp; loki_cli_lines; db_rows }
 
 (* ── Tests ────────────────────────────────────────────────────────────────── *)
 let () =
@@ -274,6 +346,12 @@ let () =
       Alcotest.test_case "sun_worker_messages_total > 0" `Quick (fun () ->
         if not (metric_nonzero r.metrics_text "sun_worker_messages_total") then
           Alcotest.fail "metric absent or zero");
+      Alcotest.test_case "worker /metrics serves metrics" `Quick (fun () ->
+        match r.worker_metrics_http with
+        | None -> Alcotest.fail "worker /metrics was not reachable"
+        | Some resp ->
+          if not (metric_nonzero resp "sun_worker_messages_total") then
+            Alcotest.fail "worker /metrics did not include worker metrics");
     ];
     "loki", [
       Alcotest.test_case "logs received for service=order-svc" `Quick (fun () ->
@@ -282,6 +360,12 @@ let () =
         | Some resp ->
           if not (str_contains resp {|"values":[[|}) then
             Alcotest.fail "no log streams in Loki response");
+      Alcotest.test_case "sun logs Loki query path reads pushed logs" `Quick (fun () ->
+        match r.loki_cli_lines with
+        | None -> ()  (* LOKI_URL not set — skip *)
+        | Some n ->
+          if n = 0 then
+            Alcotest.fail "Sun_cli_loki.query returned no pushed log lines");
     ];
     "postgres", [
       Alcotest.test_case "fulfilled orders persisted" `Quick (fun () ->

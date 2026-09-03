@@ -5,7 +5,7 @@
   eio eio_main eio.unix
   obs-eio obs-loki-eio obs-prometheus-eio
   kafka_eio_service
-  sun_svc sun_worker
+  sun_cli sun_svc sun_worker
   pg-eio
   caqti caqti-eio caqti-eio.unix caqti-driver-postgresql
   unix
