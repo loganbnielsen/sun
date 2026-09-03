@@ -31,11 +31,23 @@ external_prometheus_username         = "123456"
 external_prometheus_password         = "<api key>"
 ```
 
-**Known gap:** `sun logs`'s Loki client (`Sun_cli_loki`, OBS-002) sends
-unauthenticated queries. If your `external` target requires an API key on
-reads (most hosted Loki services do), `sun logs` will fail through to its
-`kubectl logs` fallback rather than actually querying your external Loki.
-Not fixed in this pass — file a follow-up if you need it.
+For read-side log snapshots, pass a Loki query URL and credentials to
+`sun logs --no-follow`:
+
+```bash
+export SUN_LOKI_USERNAME="123456"
+export SUN_LOKI_PASSWORD="<api key>"
+
+sun logs payments/charge_svc \
+  --no-follow \
+  --observability-backend external \
+  --loki-base-url https://logs-prod-000.grafana.net
+```
+
+`--loki-username`/`--loki-password` are also supported for one-off use, and
+flags win over `SUN_LOKI_USERNAME`/`SUN_LOKI_PASSWORD` when both are set. Prefer
+`SUN_LOKI_PASSWORD` on shared hosts because command-line flags can be visible in
+shell history and process listings.
 
 ## `self_hosted_durable` (AWS only)
 
@@ -67,7 +79,10 @@ durable observability enabled, read its outputs, then pass them into
 
 ```bash
 # platform/infra/aws
-terraform apply -var=enable_durable_observability=true ...
+terraform apply \
+  -var=enable_durable_observability=true \
+  -var=loki_retention_days=90 \
+  ...
 
 terraform output loki_s3_bucket      # -> loki_s3_bucket
 terraform output loki_irsa_arn       # -> loki_irsa_role_arn
@@ -84,11 +99,20 @@ loki_s3_bucket        = "<from loki_s3_bucket output>"
 loki_irsa_role_arn    = "<from loki_irsa_arn output>"
 thanos_s3_bucket      = "<from thanos_s3_bucket output>"
 thanos_irsa_role_arn  = "<from thanos_irsa_arn output>"
+
+prometheus_raw_retention_days = 90
+thanos_retention_5m_days      = 90
+thanos_retention_1h_days      = 90
 ```
 
 **What it costs:** S3 storage plus the in-cluster Loki, Prometheus, Thanos
-Query, storegateway, and compactor pods. Both buckets have a 90-day expiration
-lifecycle rule by default; change it if you need longer retention.
+Query, storegateway, and compactor pods. The Loki bucket has a 90-day
+expiration lifecycle rule by default; set `loki_retention_days` in
+`platform/infra/aws` to change log retention. Thanos metric retention is owned
+by the compactor, not an S3 lifecycle rule. Set
+`prometheus_raw_retention_days`, `thanos_retention_5m_days`, and
+`thanos_retention_1h_days` in `platform/infra/base` to change metric
+retention.
 
 **Teardown:** the Loki and Thanos S3 buckets use Terraform `prevent_destroy`
 so retained logs and metrics are not deleted as part of a cluster teardown.
