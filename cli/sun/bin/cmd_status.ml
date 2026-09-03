@@ -59,8 +59,12 @@ let http_reachable url : (unit, string) result =
              ["curl"; "-s"; "-o"; "/dev/null"; "-w"; "%{http_code}"; "--max-time"; "2"; url]) with
   | Error e -> Error (Sun_cli_process.error_to_string e)
   | Ok r ->
+    (* OBS-031: only 2xx counts as healthy -- these are health-check
+       endpoints (Loki's /ready, Prometheus's /-/healthy) that return 200
+       when genuinely up, so a 4xx (wrong path, auth required) or 3xx is a
+       real problem to surface via unreachable_message, not "healthy". *)
     (match int_of_string_opt (String.trim r.Sun_cli_process.stdout) with
-     | Some code when code > 0 && code < 500 -> Ok ()
+     | Some code when code >= 200 && code < 300 -> Ok ()
      | Some 0 -> Error "connection failed"
      | Some code -> Error (Printf.sprintf "HTTP %d" code)
      | None -> Error "curl returned an unexpected response")
@@ -291,16 +295,20 @@ let loki_base_url_arg =
        info ["loki-base-url"] ~docv:"URL"
          ~doc:"Base URL of the Loki instance to check for the \
                Observability block's reachability line. When omitted: \
-               checked at http://localhost:3100 for the local backend, \
-               otherwise printed as \"not checked\" rather than guessed.")
+               checked at http://localhost:3100 for the local backend; \
+               for any other backend, nothing is guessed and the line \
+               instead explains why and prints the exact \
+               'kubectl port-forward' command to run.")
 
 let prometheus_base_url_arg =
   Arg.(value & opt (some string) None &
        info ["prometheus-base-url"] ~docv:"URL"
          ~doc:"Base URL of the Prometheus instance to check for the \
                Observability block's reachability line. When omitted: \
-               checked at http://localhost:9090 for the local backend, \
-               otherwise printed as \"not checked\" rather than guessed.")
+               checked at http://localhost:9090 for the local backend; \
+               for any other backend, nothing is guessed and the line \
+               instead explains why and prints the exact \
+               'kubectl port-forward' command to run.")
 
 let backend_of_arg = function
   | None -> None
