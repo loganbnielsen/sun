@@ -39,3 +39,17 @@ let explore_url ~base_url ~logql =
    Returns a URL the operator can paste directly into a browser. *)
 let grafana_explore_url ~base_url ~ns ~k8s_name =
   explore_url ~base_url ~logql:(Printf.sprintf {|{namespace="%s",app="%s"}|} ns k8s_name)
+
+type kubectl_log_target =
+  | Deployment of string
+  | App_selector of string
+
+let kubectl_logs_argv ~ns ~target ~follow ~tail =
+  let target_args = match target with
+    | Deployment name -> ["deployment/" ^ name]
+    | App_selector app -> ["-l"; "app=" ^ app; "--all-containers=true"]
+  in
+  ["kubectl"; "logs"; "-n"; ns]
+  @ target_args
+  @ (if follow then ["--follow"] else [])
+  @ ["--tail=" ^ string_of_int tail]

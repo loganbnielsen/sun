@@ -52,9 +52,21 @@ let resolve_service arg =
       exit 1
   end
 
-let deployment_exists ns k8s_name =
+let declared_service ~domain ~k8s_name =
+  Sun_cli_manifest.discover_services ~filter_path:None
+  |> List.find_opt (fun (s : Sun_cli_manifest.service) ->
+       s.domain = domain &&
+       match Sun_cli_deployment_plan.k8s_name_result s.name with
+       | Ok name -> Sun_cli_deployment_plan.k8s_name_to_string name = k8s_name
+       | Error _ -> false)
+
+let workload_exists ~ns ~primitive ~k8s_name =
+  let kind = match (primitive : Sun_cli_manifest.primitive) with
+    | Fn -> "cronjob"
+    | Svc | Worker -> "deployment"
+  in
   match Sun_cli_process.run
-      (Sun_cli_process.cmd ["kubectl"; "get"; "deployment"; k8s_name; "-n"; ns]) with
+      (Sun_cli_process.cmd ["kubectl"; "get"; kind; k8s_name; "-n"; ns]) with
   | Ok r -> r.Sun_cli_process.exit_code = 0
   | Error _ -> false
 
@@ -65,12 +77,13 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
-let exec_kubectl_logs ~ns ~k8s_name ~follow ~tail =
-  let argv =
-    ["kubectl"; "logs"; "-n"; ns; "deployment/" ^ k8s_name]
-    @ (if follow then ["--follow"] else [])
-    @ ["--tail=" ^ string_of_int tail]
-  in
+let kubectl_log_target ~primitive ~k8s_name : Sun_cli_logs.kubectl_log_target =
+  match (primitive : Sun_cli_manifest.primitive) with
+  | Fn -> App_selector k8s_name
+  | Svc | Worker -> Deployment k8s_name
+
+let exec_kubectl_logs ~ns ~target ~follow ~tail =
+  let argv = Sun_cli_logs.kubectl_logs_argv ~ns ~target ~follow ~tail in
   Unix.execvp "kubectl" (Array.of_list argv)
 
 let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
@@ -89,18 +102,13 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
       exit 1
   in
 
-  if not (deployment_exists ns k8s_name) then begin
-    Printf.eprintf "Service %s not found in namespace %s.\n" name ns;
-    Printf.eprintf "Run 'sun status' to see deployed services.\n";
-    exit 1
-  end;
-
-  (* Diagnose before Loki: a pod that never started has no runtime logs. *)
-  (match Sun_cli_rollout_diagnosis.diagnose_service_live
-           ~pod_expectation:Sun_cli_rollout_diagnosis.Continuous
-           ~ns ~service_name:name ~k8s_name () with
-   | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
-   | None -> ());
+  let primitive =
+    match declared_service ~domain ~k8s_name with
+    | Some service -> service.Sun_cli_manifest.primitive
+    | None ->
+      Printf.eprintf "Service '%s' not found in domain '%s'.\n" name domain;
+      exit 1
+  in
 
   let (backend, base_domain) =
     match Sun_cli_observability_url.effective_backend_and_base_domain
@@ -113,29 +121,43 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
    | Sun_cli_observability_url.Url base_url ->
      let url = Sun_cli_logs.grafana_explore_url ~base_url ~ns ~k8s_name in
      Printf.printf "Grafana logs: %s\n%!" url
-   | Sun_cli_observability_url.No_url reason ->
+  | Sun_cli_observability_url.No_url reason ->
      Printf.printf "Grafana logs: (%s)\n%!" reason);
 
+  let kubectl_target = kubectl_log_target ~primitive ~k8s_name in
+  let fallback_to_kubectl () =
+    if not (workload_exists ~ns ~primitive ~k8s_name) then begin
+      Printf.eprintf "Service %s not found in namespace %s.\n" name ns;
+      Printf.eprintf "Run 'sun status' to see deployed services.\n";
+      exit 1
+    end;
+    (match Sun_cli_rollout_diagnosis.diagnose_service_live
+             ~pod_expectation:(Sun_cli_status.pod_expectation_of_primitive primitive)
+             ~ns ~service_name:name ~k8s_name () with
+     | Some diagnosis -> Printf.printf "%s\n%!" diagnosis
+     | None -> ());
+    exec_kubectl_logs ~ns ~target:kubectl_target ~follow ~tail
+  in
   if follow then
-    exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+    fallback_to_kubectl ()
   else
     match Sun_cli_status.probe_url ~backend ~explicit_url:explicit_loki_url
             ~default_local_url:"http://localhost:3100" ~probe_path:"" with
     | None ->
       Printf.printf "(Loki not checked for backend %s; showing Kubernetes logs)\n%!"
         (Sun_cli_observability_url.backend_to_string backend);
-      exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+      fallback_to_kubectl ()
     | Some loki_base_url ->
       match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
       | Ok [] ->
         Printf.printf "(no log lines found in Loki for %s; showing Kubernetes logs)\n%!" name;
-        exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+        fallback_to_kubectl ()
       | Ok lines ->
         List.iter (fun (l : Sun_cli_loki.line) -> print_endline l.text) lines
       | Error e ->
         Printf.printf "Loki unavailable: %s.\nFalling back to Kubernetes logs for %s...\n%!"
           (Sun_cli_loki.fetch_error_to_string e) name;
-        exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
+        fallback_to_kubectl ()
 
 (* ── Cmdliner Terms ─────────────────────────────────────────────────────── *)
 
