@@ -129,6 +129,8 @@ let events_for_pod ?(limit = 5) ~pod_name (events : event list) : event list =
 let is_healthy (p : pod_status) : bool =
   p.phase = "Running" && p.ready && (p.state = Running)
 
+type pod_expectation = Continuous | Ephemeral
+
 let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   let buf = Buffer.create 256 in
   let headline = match p.state with
@@ -160,13 +162,10 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
-(* An empty pod list is itself a finding, not silence: it means "never
-   started" just as much as an unhealthy pod does (OBS-024) -- the whole
-   point of this diagnosis, per its call sites, is to catch that case.
-   Only meaningful when [pods] reflects a *confirmed* kubectl result;
-   callers must not pass an empty list for "couldn't check" (see
-   fetch_pod_statuses/diagnose_service_live below). *)
-let format_service_diagnosis ~service_name (pods : pod_status list) (events : event list) : string option =
+(* Continuous workloads should always have a pod; an empty confirmed pod
+   list means the workload never started. *)
+let format_service_diagnosis ~service_name
+    (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
     Some (Printf.sprintf "%s rollout failed\n\nNo pods found for this service.\n" service_name)
   else
@@ -182,25 +181,95 @@ let format_service_diagnosis ~service_name (pods : pod_status list) (events : ev
       Some (Buffer.contents buf)
     end
 
+type cronjob_status = {
+  last_schedule_time   : string option;
+  last_successful_time : string option;
+  active_count         : int;
+}
+
+let parse_cronjob_status (s : string) : cronjob_status option =
+  try
+    let j = Yojson.Safe.from_string s in
+    match J.member "status" j with
+    | `Null -> Some { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+    | status ->
+      let last_schedule_time = J.member "lastScheduleTime" status |> to_string_opt in
+      let last_successful_time = J.member "lastSuccessfulTime" status |> to_string_opt in
+      let active_count =
+        match member_opt "active" status with
+        | Some (`List l) -> List.length l
+        | _ -> 0
+      in
+      Some { last_schedule_time; last_successful_time; active_count }
+  with _ -> None
+
+type cronjob_fetch_result =
+  | Found of cronjob_status
+  | Missing
+  (** Confirmed via kubectl's own NotFound response -- not a transient
+      failure. *)
+  | Unavailable
+  (** The kubectl call itself failed, or its output couldn't be parsed
+      (transient error, timeout, RBAC, ...) -- stays silent, same as
+      other transient-failure handling in this module. *)
+
+let is_at_or_after ~reference candidate =
+  match Ptime.of_rfc3339 candidate, Ptime.of_rfc3339 reference with
+  | Ok (t_candidate, _, _), Ok (t_reference, _, _) -> Ptime.compare t_candidate t_reference >= 0
+  | _ -> false
+
+(* Ephemeral diagnosis uses CronJob status, not historical pod lists.
+   Active-run pod health is tracked separately. *)
+let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : string option =
+  match result with
+  | Unavailable -> None
+  | Missing ->
+    Some (Printf.sprintf "%s rollout failed\n\nCronJob not found for this service.\n" service_name)
+  | Found status ->
+    if status.active_count > 0 then None
+    else
+      match status.last_schedule_time with
+      | None -> None
+      | Some scheduled ->
+        let succeeded_since = match status.last_successful_time with
+          | Some succeeded -> is_at_or_after ~reference:scheduled succeeded
+          | None -> false
+        in
+        if succeeded_since then None
+        else
+          Some (Printf.sprintf
+                  "%s rollout failed\n\nMost recently scheduled run (%s) did not complete successfully.\n"
+                  service_name scheduled)
+
 let fetch_namespace_events ~ns : event list =
   match Sun_cli_kubectl.get_raw ~args:["get"; "events"; "-n"; ns; "-o"; "json"] with
   | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_events_json r.Sun_cli_process.stdout
   | _ -> []
 
-(* [None] means the kubectl call itself failed (transient error, timeout,
-   ...) -- distinct from [Some []], a confirmed zero pods. Conflating the
-   two used to mean a transient failure and "no pods deployed" looked
-   identical to callers; format_service_diagnosis now treats a confirmed
-   empty list as a real finding, so this distinction matters. *)
 let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   match Sun_cli_kubectl.get_raw
           ~args:["get"; "pods"; "-n"; ns; "-l"; "app=" ^ k8s_name; "-o"; "json"] with
   | Ok r when r.Sun_cli_process.exit_code = 0 -> Some (parse_pods_json r.Sun_cli_process.stdout)
   | _ -> None
 
-let diagnose_service_live ~ns ~service_name ~k8s_name : string option =
-  match fetch_pod_statuses ~ns ~k8s_name with
-  | None -> None
-  | Some pods ->
-    let events = fetch_namespace_events ~ns in
-    format_service_diagnosis ~service_name pods events
+let fetch_cronjob_status ~ns ~k8s_name : cronjob_fetch_result =
+  match Sun_cli_kubectl.get_raw ~args:["get"; "cronjob"; k8s_name; "-n"; ns; "-o"; "json"] with
+  | Error _ -> Unavailable
+  | Ok r when r.Sun_cli_process.exit_code = 0 ->
+    (match parse_cronjob_status r.Sun_cli_process.stdout with
+     | Some status -> Found status
+     | None -> Unavailable)
+  | Ok r ->
+    if Sun_cli_port_forward.string_contains ~needle:"NotFound" r.Sun_cli_process.stderr
+    then Missing else Unavailable
+
+let diagnose_service_live ~pod_expectation ~ns ~service_name ~k8s_name () : string option =
+  match pod_expectation with
+  | Continuous ->
+    (match fetch_pod_statuses ~ns ~k8s_name with
+     | None -> None
+     | Some pods ->
+       let events = fetch_namespace_events ~ns in
+       format_service_diagnosis ~service_name pods events)
+  | Ephemeral ->
+    format_cronjob_diagnosis ~service_name (fetch_cronjob_status ~ns ~k8s_name)

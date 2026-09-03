@@ -40,32 +40,57 @@ val events_for_pod : ?limit:int -> pod_name:string -> event list -> event list
     also Running (not stuck Waiting/Terminated with a stale ready flag). *)
 val is_healthy : pod_status -> bool
 
+(** Workload health model. [Continuous] services should always have current
+    pods. [Ephemeral] functions can leave several historical run-pods behind,
+    with no reliable way to identify the latest run from pod state alone, so
+    they are diagnosed from CronJob status instead. *)
+type pod_expectation = Continuous | Ephemeral
+
 (** Render one pod's diagnosis block: state/reason, restarts, last
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [format_service_diagnosis ~service_name pods events] returns [None] when
-    every pod is healthy, or a rendered "<service_name> rollout failed" block
-    otherwise -- covering every unhealthy pod, or, when [pods] is empty,
-    a "no pods found for this service" finding (OBS-024): an empty pod
-    list for a namespace that exists means the service never started,
-    which this diagnosis exists to catch. Only pass a confirmed pod list
-    here (see [fetch_pod_statuses]) -- an empty list always reads as
-    "confirmed zero pods," never "couldn't check." *)
-val format_service_diagnosis : service_name:string -> pod_status list -> event list -> string option
+(** [Continuous] diagnosis over a confirmed pod list. Pass only a real pod
+    list from a successful kubectl fetch: [] means confirmed zero pods, not
+    "could not check." [None] means every pod is healthy. *)
+val format_service_diagnosis
+  :  service_name:string
+  -> pod_status list
+  -> event list
+  -> string option
 
-(** [kubectl get events -n <ns> -o json], parsed. Empty list on any kubectl
-    failure — diagnosis degrades gracefully rather than erroring. *)
-val fetch_namespace_events : ns:string -> event list
+(** CronJob status fields used for [Ephemeral] diagnosis. *)
+type cronjob_status = {
+  last_schedule_time    : string option;
+  last_successful_time  : string option;
+  active_count          : int;
+  (** Number of currently-running Jobs for this CronJob. *)
+}
 
-(** [kubectl get pods -n <ns> -l app=<k8s_name> -o json], parsed. [None] if
-    the kubectl call itself failed (transient error, timeout, ...) --
-    distinct from [Some []], a confirmed zero pods. *)
-val fetch_pod_statuses : ns:string -> k8s_name:string -> pod_status list option
+(** Parse [kubectl get cronjob <name> -n <ns> -o json]. A CronJob with no
+    [status] object parses to defaults, not [None]. *)
+val parse_cronjob_status : string -> cronjob_status option
 
-(** Live, I/O-performing version of [format_service_diagnosis]: fetches pods
-    and events for the given service and returns its diagnosis, if any.
-    [None] both when every pod is healthy and when the pod fetch itself
-    failed -- a transient kubectl failure stays silent rather than being
-    reported as "no pods found." *)
-val diagnose_service_live : ns:string -> service_name:string -> k8s_name:string -> string option
+(** CronJob fetch result. [Missing] is confirmed NotFound and should be
+    reported; [Unavailable] is a transient fetch/parse failure and should stay
+    silent. *)
+type cronjob_fetch_result =
+  | Found of cronjob_status
+  | Missing
+  | Unavailable
+
+(** [Ephemeral] diagnosis from CronJob status. A run is healthy when no run has
+    ever been scheduled, a run is currently active, or
+    [lastSuccessfulTime >= lastScheduleTime]. This does not inspect active-run
+    pods; active failures surface after the CronJob reaches backoff/failure
+    state. *)
+val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
+
+(** Live diagnosis for a deployed workload. *)
+val diagnose_service_live
+  :  pod_expectation:pod_expectation
+  -> ns:string
+  -> service_name:string
+  -> k8s_name:string
+  -> unit
+  -> string option

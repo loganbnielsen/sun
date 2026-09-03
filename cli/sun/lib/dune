@@ -1,7 +1,7 @@
 (library
  (name sun_cli)
  (wrapped false)
- (libraries unix yojson cmdliner otoml sun_process)
+ (libraries unix yojson cmdliner otoml sun_process ptime)
  (modules
   Sun_cli_process
   Sun_cli_scaffold

@@ -15,6 +15,17 @@ let healthy_pod_json = {|
 ]}
 |}
 
+let succeeded_pod_json = {|
+{"items": [
+  {"metadata": {"name": "invoice-fn-abc"},
+   "status": {"phase": "Succeeded",
+     "containerStatuses": [
+       {"ready": false, "restartCount": 0, "image": "registry/invoice-fn:sha1",
+        "state": {"terminated": {"reason": "Completed", "exitCode": 0}}}
+     ]}}
+]}
+|}
+
 let image_pull_backoff_json = {|
 {"items": [
   {"metadata": {"name": "charge-svc-xyz"},
@@ -135,11 +146,8 @@ let test_format_service_diagnosis_includes_events_and_reason () =
       (try ignore (Str.search_forward (Str.regexp_string "FailedPull") diagnosis 0); true
        with Not_found -> false)
 
-(* OBS-024: an empty pod list is itself a finding ("never started"), not
-   silence -- a declared service with a missing/scaled-to-zero/broken
-   Deployment used to vacuously look healthy since "no unhealthy pods"
-   trivially held for an empty list too. *)
 let test_format_service_diagnosis_reports_empty_pod_list () =
+  (* Empty here means kubectl confirmed zero pods, not a fetch failure. *)
   match D.format_service_diagnosis ~service_name:"charge-svc" [] [] with
   | None -> Alcotest.fail "expected a diagnosis for zero pods, got None (looks healthy)"
   | Some diagnosis ->
@@ -149,6 +157,118 @@ let test_format_service_diagnosis_reports_empty_pod_list () =
     check_bool "mentions no pods found" true
       (try ignore (Str.search_forward (Str.regexp_string "No pods found") diagnosis 0); true
        with Not_found -> false)
+
+let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous () =
+  let pods = D.parse_pods_json succeeded_pod_json in
+  check_bool "a Succeeded pod is still a finding for Continuous (Svc/Worker)" true
+    (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
+
+(* ── format_cronjob_diagnosis (Ephemeral/Fn) ────────────────────────────── *)
+
+let never_scheduled : D.cronjob_status =
+  { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+
+let idle_last_run_succeeded : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-02T10:00:05Z";
+    active_count = 0 }
+
+let idle_last_run_failed : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-01T10:00:05Z" (* stale, from an earlier run *);
+    active_count = 0 }
+
+let idle_success_at_schedule_boundary : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-02T10:00:00Z";
+    active_count = 0 }
+
+let idle_never_succeeded : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = None;
+    active_count = 0 }
+
+let run_currently_active : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = None;
+    active_count = 1 }
+
+let test_format_cronjob_diagnosis_never_scheduled_is_ok () =
+  check_bool "never scheduled -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found never_scheduled)))
+
+let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
+  check_bool "most recent run succeeded -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
+
+let test_format_cronjob_diagnosis_success_at_schedule_boundary_is_ok () =
+  check_bool "success at the same instant as the schedule trigger -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_success_at_schedule_boundary)))
+
+let test_format_cronjob_diagnosis_last_run_failed_is_flagged () =
+  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_failed) with
+  | None -> Alcotest.fail "expected a diagnosis for a most-recent-run failure, got None (looks healthy)"
+  | Some diagnosis ->
+    check_bool "mentions rollout failed" true
+      (try ignore (Str.search_forward (Str.regexp_string "invoice-fn rollout failed") diagnosis 0); true
+       with Not_found -> false);
+    check_bool "mentions the schedule time" true
+      (try ignore (Str.search_forward (Str.regexp_string "2026-09-02T10:00:00Z") diagnosis 0); true
+       with Not_found -> false)
+
+let test_format_cronjob_diagnosis_never_succeeded_is_flagged () =
+  check_bool "scheduled but never once succeeded -> flagged" true
+    (Option.is_some (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_never_succeeded)))
+
+let test_format_cronjob_diagnosis_active_run_is_ok () =
+  (* Active-run pod failures are bounded by the CronJob backoff/failure state. *)
+  check_bool "a currently-active run is not (yet) a diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found run_currently_active)))
+
+let test_format_cronjob_diagnosis_missing_is_flagged () =
+  match D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Missing with
+  | None -> Alcotest.fail "expected a diagnosis for a missing CronJob, got None (looks healthy)"
+  | Some diagnosis ->
+    check_bool "mentions rollout failed" true
+      (try ignore (Str.search_forward (Str.regexp_string "invoice-fn rollout failed") diagnosis 0); true
+       with Not_found -> false);
+    check_bool "mentions not found" true
+      (try ignore (Str.search_forward (Str.regexp_string "not found") diagnosis 0); true
+       with Not_found -> false)
+
+let test_format_cronjob_diagnosis_unavailable_stays_silent () =
+  check_bool "an unavailable (transient failure) fetch is not a diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Unavailable))
+
+let test_parse_cronjob_status () =
+  let json = {|{"status": {"lastScheduleTime": "2026-09-02T10:00:00Z", "lastSuccessfulTime": "2026-09-02T10:00:05Z", "active": [{"name": "invoice-fn-1"}]}}|} in
+  match D.parse_cronjob_status json with
+  | None -> Alcotest.fail "expected Some cronjob_status"
+  | Some (status : D.cronjob_status) ->
+    check_string "lastScheduleTime" "2026-09-02T10:00:00Z"
+      (Option.value ~default:"" status.last_schedule_time);
+    check_string "lastSuccessfulTime" "2026-09-02T10:00:05Z"
+      (Option.value ~default:"" status.last_successful_time);
+    check_int "active_count" 1 status.active_count
+
+let test_parse_cronjob_status_never_scheduled () =
+  match D.parse_cronjob_status {|{"status": {}}|} with
+  | None -> Alcotest.fail "expected Some cronjob_status"
+  | Some (status : D.cronjob_status) ->
+    check_bool "no lastScheduleTime" true (status.last_schedule_time = None);
+    check_int "active_count defaults to 0" 0 status.active_count
+
+(* Yojson.Safe.Util.member returns `Null for an absent key rather than
+   raising, but member on `Null itself raises -- a CronJob JSON with no
+   "status" key at all (not even an empty object) must still parse to
+   Some with the "never happened" defaults, not fall through the raise
+   into None (Unavailable). *)
+let test_parse_cronjob_status_status_key_absent () =
+  match D.parse_cronjob_status {|{}|} with
+  | None -> Alcotest.fail "expected Some cronjob_status, got None (Unavailable)"
+  | Some (status : D.cronjob_status) ->
+    check_bool "no lastScheduleTime" true (status.last_schedule_time = None);
+    check_int "active_count defaults to 0" 0 status.active_count
 
 let () =
   Alcotest.run "rollout_diagnosis"
@@ -166,5 +286,21 @@ let () =
        [ Alcotest.test_case "none when healthy" `Quick test_format_service_diagnosis_none_when_healthy;
          Alcotest.test_case "includes events and reason" `Quick test_format_service_diagnosis_includes_events_and_reason;
          Alcotest.test_case "reports empty pod list, not healthy" `Quick test_format_service_diagnosis_reports_empty_pod_list;
+         Alcotest.test_case "succeeded pod still flagged when Continuous" `Quick test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous;
+       ]);
+      ("format_cronjob_diagnosis",
+       [ Alcotest.test_case "never scheduled -> OK" `Quick test_format_cronjob_diagnosis_never_scheduled_is_ok;
+         Alcotest.test_case "last run succeeded -> OK" `Quick test_format_cronjob_diagnosis_last_run_succeeded_is_ok;
+         Alcotest.test_case "success at schedule boundary -> OK" `Quick test_format_cronjob_diagnosis_success_at_schedule_boundary_is_ok;
+         Alcotest.test_case "last run failed -> flagged" `Quick test_format_cronjob_diagnosis_last_run_failed_is_flagged;
+         Alcotest.test_case "never succeeded -> flagged" `Quick test_format_cronjob_diagnosis_never_succeeded_is_flagged;
+         Alcotest.test_case "active run -> OK" `Quick test_format_cronjob_diagnosis_active_run_is_ok;
+         Alcotest.test_case "missing CronJob -> flagged" `Quick test_format_cronjob_diagnosis_missing_is_flagged;
+         Alcotest.test_case "unavailable fetch stays silent" `Quick test_format_cronjob_diagnosis_unavailable_stays_silent;
+       ]);
+      ("parse_cronjob_status",
+       [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;
+         Alcotest.test_case "never scheduled defaults" `Quick test_parse_cronjob_status_never_scheduled;
+         Alcotest.test_case "status key absent entirely" `Quick test_parse_cronjob_status_status_key_absent;
        ]);
     ]
