@@ -72,7 +72,11 @@ let parse_pod (item : Yojson.Safe.t) : pod_status =
     J.member "metadata" item |> J.member "name" |> to_string_opt
     |> Option.value ~default:"unknown"
   in
-  let status = J.member "status" item in
+  let status =
+    match member_opt "status" item with
+    | Some (`Assoc _ as status) -> status
+    | _ -> `Assoc []
+  in
   let phase = J.member "phase" status |> to_string_opt |> Option.value ~default:"Unknown" in
   let container_statuses =
     match member_opt "containerStatuses" status with
