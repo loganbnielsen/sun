@@ -2396,6 +2396,11 @@
           "commit": "f9efd23",
           "duration_s": 2.825,
           "baseline": true
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "58a325f",
+          "duration_s": 2.015
         }
       ]
     },
@@ -4135,6 +4140,11 @@
           "commit": "0377255",
           "duration_s": 1.087,
           "baseline": true
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "58a325f",
+          "duration_s": 1.079
         }
       ]
     },

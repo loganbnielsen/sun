@@ -35,11 +35,47 @@ val probe_url
 
 (** [reachability_of_probe ~probe_url ~is_reachable] classifies the result
     of [probe_url]: [Not_checked] when there's nothing to check, otherwise
-    [is_reachable url ? Healthy : Unreachable]. *)
+    [Healthy]/[Unreachable] per [is_reachable url]. *)
 val reachability_of_probe
   :  probe_url:string option
-  -> is_reachable:(string -> bool)
+  -> is_reachable:(string -> (unit, string) result)
   -> reachability
+
+(* OBS-031: distinguishes "no URL configured" from "URL configured but the
+   request failed" -- shared message builders for `sun status` and
+   `sun logs` so both commands say the same thing for the same failure. *)
+
+type observability_signal = Loki | Prometheus
+
+(** Message for the "no URL configured" case: no
+    [--loki-base-url]/[--prometheus-base-url] flag was given and [backend]
+    isn't [Local], so there's no default URL to guess at. Explains why, and
+    gives the exact `kubectl port-forward` command plus the flag needed to
+    point the CLI at a real cluster. *)
+val not_configured_message
+  :  signal:observability_signal
+  -> backend:Sun_cli_observability_url.backend
+  -> string
+
+(** Message for the "URL configured but the request failed" case --
+    deliberately distinct text from [not_configured_message] so a real
+    outage or a wrong URL doesn't hide behind wording that looks like the
+    normal unconfigured case. *)
+val unreachable_message : url:string -> error:string -> string
+
+(** [reachability_line ~signal ~backend ~probe_url ~is_reachable] renders
+    the full message body for one observability signal's status-line entry:
+    [not_configured_message] when [probe_url] is [None], ["healthy"] when
+    [is_reachable url] succeeds, otherwise [unreachable_message]. [is_reachable]
+    is injected (as in [reachability_of_probe] above) so this is directly
+    unit-testable without a real curl call -- the I/O stays in
+    [cmd_status.ml]. *)
+val reachability_line
+  :  signal:observability_signal
+  -> backend:Sun_cli_observability_url.backend
+  -> probe_url:string option
+  -> is_reachable:(string -> (unit, string) result)
+  -> string
 
 (** [service_is_declared ~k8s_name declared_k8s_names] is [true] when
     [k8s_name] is one of [declared_k8s_names] -- the pure decision behind

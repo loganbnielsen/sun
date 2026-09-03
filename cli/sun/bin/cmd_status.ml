@@ -53,22 +53,19 @@ let ns_exists ns =
   | Ok r -> r.Sun_cli_process.exit_code = 0
   | Error _ -> false
 
-let http_reachable url =
+let http_reachable url : (unit, string) result =
   match Sun_cli_process.run
           (Sun_cli_process.cmd ~timeout_s:3.0
              ["curl"; "-s"; "-o"; "/dev/null"; "-w"; "%{http_code}"; "--max-time"; "2"; url]) with
+  | Error e -> Error (Sun_cli_process.error_to_string e)
   | Ok r ->
     (match int_of_string_opt (String.trim r.Sun_cli_process.stdout) with
-     | Some code -> code > 0 && code < 500
-     | None -> false)
-  | Error _ -> false
+     | Some code when code > 0 && code < 500 -> Ok ()
+     | Some 0 -> Error "connection failed"
+     | Some code -> Error (Printf.sprintf "HTTP %d" code)
+     | None -> Error "curl returned an unexpected response")
 
 (* ── Observability reachability ─────────────────────────────────────────── *)
-
-let probe ~backend ~explicit_url ~default_local_url ~probe_path =
-  Sun_cli_status.reachability_of_probe
-    ~probe_url:(Sun_cli_status.probe_url ~backend ~explicit_url ~default_local_url ~probe_path)
-    ~is_reachable:http_reachable
 
 let dashboard_reachability ~backend ~base_domain =
   match Sun_cli_observability_url.resolve ~backend ?base_domain () with
@@ -76,13 +73,26 @@ let dashboard_reachability ~backend ~base_domain =
     Sun_cli_status.reachability_of_probe ~probe_url:(Some url) ~is_reachable:http_reachable
   | Sun_cli_observability_url.No_url _ -> Sun_cli_status.Not_checked
 
+(* OBS-031: prints the "not configured"/"unreachable" detail message
+   in-line rather than the plain reachability word, so a self_hosted_durable/
+   external target says why it isn't checking and what to pass instead of
+   silently reading as the same "not checked" as everything else. The
+   message selection itself ([Sun_cli_status.reachability_line]) is a pure
+   function of [probe_url] and the injected [is_reachable] result -- only
+   deciding the probe URL and running curl stays here. *)
+let print_signal_line ~label ~signal ~backend ~explicit_url ~default_local_url ~probe_path =
+  let probe_url = Sun_cli_status.probe_url ~backend ~explicit_url ~default_local_url ~probe_path in
+  Printf.printf "  %-8s %s\n" label
+    (Sun_cli_status.reachability_line ~signal ~backend ~probe_url ~is_reachable:http_reachable)
+
 let print_observability_lines ~backend ~explicit_loki_url ~explicit_prometheus_url =
-  let logs = probe ~backend ~explicit_url:explicit_loki_url
-      ~default_local_url:"http://localhost:3100" ~probe_path:"/ready" in
-  let metrics = probe ~backend ~explicit_url:explicit_prometheus_url
-      ~default_local_url:"http://localhost:9090" ~probe_path:"/-/healthy" in
-  Printf.printf "  logs     %s\n" (Sun_cli_status.reachability_to_string logs);
-  Printf.printf "  metrics  %s\n%!" (Sun_cli_status.reachability_to_string metrics)
+  print_signal_line ~label:"logs" ~signal:Sun_cli_status.Loki ~backend
+    ~explicit_url:explicit_loki_url
+    ~default_local_url:"http://localhost:3100" ~probe_path:"/ready";
+  print_signal_line ~label:"metrics" ~signal:Sun_cli_status.Prometheus ~backend
+    ~explicit_url:explicit_prometheus_url
+    ~default_local_url:"http://localhost:9090" ~probe_path:"/-/healthy";
+  flush stdout
 
 let print_observability_block ~backend ~base_domain
     ~explicit_loki_url ~explicit_prometheus_url =
