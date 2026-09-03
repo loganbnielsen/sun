@@ -15,6 +15,16 @@ variable "ingress_service_type" {
   default     = "LoadBalancer"
 }
 
+variable "cloud_provider" {
+  description = "Cloud provider for provider-specific Kubernetes integrations."
+  type        = string
+  default     = "aws"
+  validation {
+    condition     = contains(["aws", "gcp"], var.cloud_provider)
+    error_message = "cloud_provider must be one of: aws, gcp."
+  }
+}
+
 # Redpanda
 variable "redpanda_replicas" {
   description = "Number of Redpanda broker replicas."

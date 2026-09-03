@@ -155,7 +155,15 @@ let query ~base_url ~ns ~k8s_name ?credentials ?(limit = 100) ?(timeout_s = 5.0)
   match Sun_cli_process.run (Sun_cli_process.cmd ~timeout_s:(timeout_s +. 2.0) ~redact argv) with
   | Error e -> Error (classify_process_error e)
   | Ok r when r.Sun_cli_process.exit_code <> 0 ->
-    Error (Other (Printf.sprintf "curl exit %d: %s" r.Sun_cli_process.exit_code r.Sun_cli_process.stderr))
+    (* OBS-031: route a nonzero curl exit through the same classifier used
+       for [Sun_cli_process.run]'s own [Non_zero] error, so connection
+       failures/timeouts get "connection failed"/"query timed out" instead
+       of a raw curl stderr dump -- [Sun_cli_process.run] (unlike [run_ok])
+       never itself produces [Non_zero], so without this the classifier's
+       6/7/56/28 handling was unreachable dead code from this call site. *)
+    Error (classify_process_error
+             (Sun_cli_process.Non_zero
+                { exit_code = r.Sun_cli_process.exit_code; stderr = r.Sun_cli_process.stderr }))
   | Ok r ->
     let (body, code) = split_body_and_status r.Sun_cli_process.stdout in
     (match code with
