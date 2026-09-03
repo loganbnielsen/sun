@@ -12,6 +12,7 @@
   test_process
   test_tool_adapters
   test_deployment_state
+  test_dev_observability
   test_change_set
   test_deployment_phases
   test_rollback

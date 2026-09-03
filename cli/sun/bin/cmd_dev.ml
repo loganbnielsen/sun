@@ -27,6 +27,25 @@ let helm_install release chart ~namespace ?(values = []) () =
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
+let apply_yaml yaml =
+  let tmp = Sun_cli_manifest.write_tmp yaml in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove tmp with _ -> ())
+    (fun () ->
+       match Sun_cli_kubectl.apply ~file:tmp with
+       | Ok () -> ()
+       | Error e ->
+         Printf.eprintf "error: kubectl apply failed: %s\n"
+           (Sun_cli_process.error_to_string e);
+         exit 1)
+
+let install_local_grafana_config ~prometheus =
+  apply_yaml (Sun_cli_dev_observability.dashboard_configmap_yaml ~namespace:"monitoring");
+  if prometheus then
+    apply_yaml
+      (Sun_cli_dev_observability.prometheus_datasource_configmap_yaml
+         ~namespace:"monitoring")
+
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
 
 let dev_up () =
@@ -106,14 +125,19 @@ let dev_up () =
   end;
 
   let need_grafana = req.loki || req.prometheus in
-  if req.loki then begin
-    Printf.printf "\n  Installing Loki...\n%!";
+  if need_grafana then begin
+    Printf.printf "\n  Installing Loki/Grafana...\n%!";
     (* promtail.enabled: true — explicit, not just the chart default. Scrapes
        every pod's stdout/stderr so 'sun logs' can fall back to real log
        content even for a pod that crashed before it could push its own logs
        (OBS-004). Matches platform/infra/base/main.tf's helm_release.loki. *)
     let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
-      ~values:[("grafana.enabled", Bool need_grafana); ("promtail.enabled", Bool true)] ()
+      ~values:[
+        ("grafana.enabled", Bool true);
+        ("grafana.sidecar.dashboards.enabled", Bool true);
+        ("grafana.sidecar.datasources.enabled", Bool true);
+        ("promtail.enabled", Bool true);
+      ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1)
   end;
@@ -131,6 +155,8 @@ let dev_up () =
     in
     if rc <> 0 then (Printf.eprintf "error: Prometheus install failed\n"; exit 1)
   end;
+
+  if need_grafana then install_local_grafana_config ~prometheus:req.prometheus;
 
   (* 4. Port-forwards *)
   Printf.printf "\n[4/4] Starting port-forwards...\n%!";
@@ -153,12 +179,15 @@ let dev_up () =
   if req.postgres then
     pf { name = "postgres"; namespace = "postgresql";
          target = "svc/postgresql"; local_port = 5432; remote_port = 5432 };
-  if req.loki then
+  if need_grafana then
     pf { name = "loki"; namespace = "monitoring";
          target = "svc/loki"; local_port = 3100; remote_port = 3100 };
   if need_grafana then
     pf { name = "grafana"; namespace = "monitoring";
          target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
+  if req.prometheus then
+    pf { name = "prometheus"; namespace = "monitoring";
+         target = "svc/prometheus-server"; local_port = 9090; remote_port = 80 };
   if req.prometheus then
     pf { name = "pushgateway"; namespace = "monitoring";
          target = "svc/prometheus-prometheus-pushgateway";
@@ -171,8 +200,9 @@ let dev_up () =
   if req.kafka    then Printf.printf "  kafka        ✓  localhost:9092  (port-forwarded)\n";
   if req.kafka    then Printf.printf "  schema-reg   ✓  http://localhost:8081\n";
   if req.postgres then Printf.printf "  postgres     ✓  postgresql://postgres:dev@localhost:5432/dev  (port-forwarded)\n";
-  if req.loki     then Printf.printf "  loki         ✓  http://localhost:3100  (port-forwarded)\n";
+  if need_grafana then Printf.printf "  loki         ✓  http://localhost:3100  (port-forwarded)\n";
   if need_grafana then Printf.printf "  grafana      ✓  http://localhost:3000  (port-forwarded)\n";
+  if req.prometheus then Printf.printf "  prometheus   ✓  http://localhost:9090  (port-forwarded)\n";
   if req.prometheus then Printf.printf "  pushgateway  ✓  http://localhost:9091  (port-forwarded)\n";
   Printf.printf "\n"
 
