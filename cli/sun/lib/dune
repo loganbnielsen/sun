@@ -23,6 +23,7 @@
   Sun_cli_cmd_new
   Sun_cli_logs
   Sun_cli_deployment_state
+  Sun_cli_dev_observability
   Sun_cli_state
   Sun_cli_port_forward
   Sun_cli_command_request
