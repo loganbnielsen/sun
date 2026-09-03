@@ -43,7 +43,22 @@ Production self-hosted observability in the user's AWS account.
 Object-storage-backed Loki keeps logs in S3. Prometheus writes blocks through
 a Thanos sidecar; Thanos Query reads current blocks from the sidecar and
 historical blocks from storegateway, with compactor managing object-store
-block growth. GCP is a deliberate gap, not an oversight.
+block growth. GCP is a deliberate gap, not an oversight: it uses AWS IRSA to
+grant Loki/Thanos access to S3, which has no meaning on a non-EKS cluster.
+
+`platform/infra/base`'s `cloud_provider` variable (default `"aws"`) makes
+this explicit and enforced. Applying `self_hosted_durable` with
+`cloud_provider = "gcp"` fails fast at `terraform apply` with a clear
+`self_hosted_durable`-is-AWS-only error instead of silently installing a
+meaningless IRSA annotation on a GKE cluster. GCS bucket + Workload Identity
+support is tracked separately in INFRA-003, not built speculatively here.
+
+The gate only protects you if `cloud_provider` truthfully reflects your
+cluster — since it defaults to `"aws"`, an unset value looks identical to
+actually being on AWS. A GKE (or any non-EKS) cluster operator should
+always pass `cloud_provider = "gcp"` explicitly, regardless of which
+`observability_backend` profile they pick, so this check (and any future
+provider-specific one) actually applies to their cluster.
 
 This is two Terraform states with no automatic link between them (same as
 `cert_manager_irsa_role_arn` already works): apply `platform/infra/aws` with
@@ -63,11 +78,12 @@ terraform output thanos_irsa_arn     # -> thanos_irsa_role_arn
 ```hcl
 # platform/infra/base
 observability_backend = "self_hosted_durable"
-aws_region             = "us-east-1"
-loki_s3_bucket         = "<from loki_s3_bucket output>"
-loki_irsa_role_arn     = "<from loki_irsa_arn output>"
-thanos_s3_bucket       = "<from thanos_s3_bucket output>"
-thanos_irsa_role_arn   = "<from thanos_irsa_arn output>"
+cloud_provider        = "aws" # required to stay "aws" for this profile
+aws_region            = "us-east-1"
+loki_s3_bucket        = "<from loki_s3_bucket output>"
+loki_irsa_role_arn    = "<from loki_irsa_arn output>"
+thanos_s3_bucket      = "<from thanos_s3_bucket output>"
+thanos_irsa_role_arn  = "<from thanos_irsa_arn output>"
 ```
 
 **What it costs:** S3 storage plus the in-cluster Loki, Prometheus, Thanos
