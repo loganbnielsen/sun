@@ -129,10 +129,6 @@ let events_for_pod ?(limit = 5) ~pod_name (events : event list) : event list =
 let is_healthy (p : pod_status) : bool =
   p.phase = "Running" && p.ready && (p.state = Running)
 
-(* Which health model a service follows -- kept local to this module
-   rather than taking Sun_cli_manifest.primitive directly, so rollout
-   diagnosis doesn't couple to manifest concepts; cmd_status.ml
-   translates from primitive to this. *)
 (* See the .mli for what Continuous/Ephemeral mean and why. *)
 type pod_expectation = Continuous | Ephemeral
 
@@ -204,9 +200,9 @@ type cronjob_status = {
 let parse_cronjob_status (s : string) : cronjob_status option =
   try
     let j = Yojson.Safe.from_string s in
-    match member_opt "status" j with
-    | None -> Some { last_schedule_time = None; last_successful_time = None; active_count = 0 }
-    | Some status ->
+    match J.member "status" j with
+    | `Null -> Some { last_schedule_time = None; last_successful_time = None; active_count = 0 }
+    | status ->
       let last_schedule_time = J.member "lastScheduleTime" status |> to_string_opt in
       let last_successful_time = J.member "lastSuccessfulTime" status |> to_string_opt in
       let active_count =

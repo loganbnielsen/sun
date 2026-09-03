@@ -181,6 +181,11 @@ let idle_last_run_failed : D.cronjob_status =
     last_successful_time = Some "2026-09-01T10:00:05Z" (* stale, from an earlier run *);
     active_count = 0 }
 
+let idle_success_at_schedule_boundary : D.cronjob_status =
+  { last_schedule_time = Some "2026-09-02T10:00:00Z";
+    last_successful_time = Some "2026-09-02T10:00:00Z";
+    active_count = 0 }
+
 let idle_never_succeeded : D.cronjob_status =
   { last_schedule_time = Some "2026-09-02T10:00:00Z";
     last_successful_time = None;
@@ -199,12 +204,12 @@ let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
   check_bool "most recent run succeeded -> no diagnosis" true
     (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
 
-(* An old failed run must not keep an Ephemeral service DEGRADED once a
-   later run has succeeded -- this only compares the two CronJob-level
-   timestamps, no historical Job/pod list to misread. *)
-let test_format_cronjob_diagnosis_stale_failure_does_not_linger () =
-  check_bool "an old failure superseded by a newer success is not a diagnosis" true
-    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
+(* is_at_or_after is a >=, not a strict >: a success recorded at exactly
+   the same instant as the schedule trigger must still read as
+   succeeded, not flagged. *)
+let test_format_cronjob_diagnosis_success_at_schedule_boundary_is_ok () =
+  check_bool "success at the same instant as the schedule trigger -> no diagnosis" true
+    (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_success_at_schedule_boundary)))
 
 (* The most recently scheduled run not having succeeded -- failed
    outright, or simply never succeeded -- must still be flagged. *)
@@ -266,6 +271,18 @@ let test_parse_cronjob_status_never_scheduled () =
     check_bool "no lastScheduleTime" true (status.last_schedule_time = None);
     check_int "active_count defaults to 0" 0 status.active_count
 
+(* Yojson.Safe.Util.member returns `Null for an absent key rather than
+   raising, but member on `Null itself raises -- a CronJob JSON with no
+   "status" key at all (not even an empty object) must still parse to
+   Some with the "never happened" defaults, not fall through the raise
+   into None (Unavailable). *)
+let test_parse_cronjob_status_status_key_absent () =
+  match D.parse_cronjob_status {|{}|} with
+  | None -> Alcotest.fail "expected Some cronjob_status, got None (Unavailable)"
+  | Some (status : D.cronjob_status) ->
+    check_bool "no lastScheduleTime" true (status.last_schedule_time = None);
+    check_int "active_count defaults to 0" 0 status.active_count
+
 let () =
   Alcotest.run "rollout_diagnosis"
     [ ("parse_pods_json",
@@ -287,7 +304,7 @@ let () =
       ("format_cronjob_diagnosis",
        [ Alcotest.test_case "never scheduled -> OK" `Quick test_format_cronjob_diagnosis_never_scheduled_is_ok;
          Alcotest.test_case "last run succeeded -> OK" `Quick test_format_cronjob_diagnosis_last_run_succeeded_is_ok;
-         Alcotest.test_case "stale failure doesn't linger" `Quick test_format_cronjob_diagnosis_stale_failure_does_not_linger;
+         Alcotest.test_case "success at schedule boundary -> OK" `Quick test_format_cronjob_diagnosis_success_at_schedule_boundary_is_ok;
          Alcotest.test_case "last run failed -> flagged" `Quick test_format_cronjob_diagnosis_last_run_failed_is_flagged;
          Alcotest.test_case "never succeeded -> flagged" `Quick test_format_cronjob_diagnosis_never_succeeded_is_flagged;
          Alcotest.test_case "active run -> OK" `Quick test_format_cronjob_diagnosis_active_run_is_ok;
@@ -297,5 +314,6 @@ let () =
       ("parse_cronjob_status",
        [ Alcotest.test_case "parses full status" `Quick test_parse_cronjob_status;
          Alcotest.test_case "never scheduled defaults" `Quick test_parse_cronjob_status_never_scheduled;
+         Alcotest.test_case "status key absent entirely" `Quick test_parse_cronjob_status_status_key_absent;
        ]);
     ]
