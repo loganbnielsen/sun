@@ -144,8 +144,10 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
     match Sun_cli_status.probe_url ~backend ~explicit_url:explicit_loki_url
             ~default_local_url:"http://localhost:3100" ~probe_path:"" with
     | None ->
-      Printf.printf "(Loki not checked for backend %s; showing Kubernetes logs)\n%!"
-        (Sun_cli_observability_url.backend_to_string backend);
+      (* OBS-031: no --loki-base-url and backend isn't Local -- nothing to
+         guess at, distinct from the query-failed case below. *)
+      Printf.printf "(%s. Showing Kubernetes logs.)\n%!"
+        (Sun_cli_status.not_configured_message ~signal:Sun_cli_status.Loki ~backend);
       fallback_to_kubectl ()
     | Some loki_base_url ->
       match Sun_cli_loki.query ~base_url:loki_base_url ~ns ~k8s_name ~limit:tail () with
@@ -155,8 +157,13 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
       | Ok lines ->
         List.iter (fun (l : Sun_cli_loki.line) -> print_endline l.text) lines
       | Error e ->
-        Printf.printf "Loki unavailable: %s.\nFalling back to Kubernetes logs for %s...\n%!"
-          (Sun_cli_loki.fetch_error_to_string e) name;
+        (* OBS-031: a URL was configured and the request itself failed
+           (connection refused, timeout, non-2xx) -- a real outage or a
+           wrong URL, not the "nothing to check" case above. *)
+        Printf.printf "(%s. Falling back to Kubernetes logs for %s...)\n%!"
+          (Sun_cli_status.unreachable_message ~url:loki_base_url
+             ~error:(Sun_cli_loki.fetch_error_to_string e))
+          name;
         fallback_to_kubectl ()
 
 (* ── Cmdliner Terms ─────────────────────────────────────────────────────── *)
