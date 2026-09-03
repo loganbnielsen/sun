@@ -1,19 +1,11 @@
 open Cmdliner
 
-(* Resolve the workspace root (OBS-013) and chdir there before any
-   app/-relative scanning below -- scoped to this command only (OBS-017),
-   not a global chdir in main.ml, so it doesn't change relative-path
-   resolution for other commands' flags (sun deploy --emit-to, sun migrate
-   --dir, sun cloud tf --var-file, ...). sun open reuses this via
-   Cmd_logs.workspace_name. *)
 let workspace_name () =
   (match Sun_cli_workspace.find_root ~dir:(Sys.getcwd ()) with
    | Some root -> Sys.chdir root
    | None -> ());
   Filename.basename (Sys.getcwd ())
 
-(* Scan app/ to find which domain owns a bare service name.
-   Returns a list of matching (domain, name) pairs. *)
 let find_service_by_name name =
   let app_dir = "app" in
   if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then []
@@ -38,11 +30,6 @@ let find_service_by_name name =
     List.rev !matches
   end
 
-(* Parse a service argument in one of these forms:
-   - "domain/name_svc"  → (domain, name_svc)
-   - "domain/name"      → (domain, name)
-   - "name_svc"         → scan app/ for domain
-   - "name"             → scan app/ for domain *)
 let resolve_service arg =
   if String.contains arg '/' then begin
     match String.split_on_char '/' arg with
@@ -108,10 +95,7 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
     exit 1
   end;
 
-  (* Kubernetes-derived diagnosis first, independent of Loki: the pod may
-     never have started, in which case Loki has nothing either. Always
-     Continuous: sun logs doesn't look up the target's primitive, and
-     Fn can't be tailed here yet (OBS-027). *)
+  (* Diagnose before Loki: a pod that never started has no runtime logs. *)
   (match Sun_cli_rollout_diagnosis.diagnose_service_live
            ~pod_expectation:Sun_cli_rollout_diagnosis.Continuous
            ~ns ~service_name:name ~k8s_name () with
@@ -133,19 +117,8 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
      Printf.printf "Grafana logs: (%s)\n%!" reason);
 
   if follow then
-    (* Loki tailing isn't implemented yet (would need its /tail websocket
-       endpoint or a polling loop); kubectl --follow already streams
-       reliably, so v1 always uses it for live tailing. *)
     exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
   else
-    (* OBS-025: only query Loki at a URL that's actually meaningful -- an
-       explicit --loki-base-url, or the Local backend's hardcoded default.
-       Any other backend with no explicit URL would otherwise query
-       localhost (almost certainly not where that backend's Loki lives)
-       and silently "fall back" as if that had been a real check. Reuses
-       Sun_cli_status's probe_url decision (an empty probe_path yields the
-       base URL unchanged) rather than duplicating the same three-way
-       branch. *)
     match Sun_cli_status.probe_url ~backend ~explicit_url:explicit_loki_url
             ~default_local_url:"http://localhost:3100" ~probe_path:"" with
     | None ->
@@ -164,7 +137,7 @@ let run ~service_arg ~follow ~tail ~explicit_backend ~explicit_base_domain
           (Sun_cli_loki.fetch_error_to_string e) name;
         exec_kubectl_logs ~ns ~k8s_name ~follow ~tail
 
-(* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
+(* ── Cmdliner Terms ─────────────────────────────────────────────────────── *)
 
 let service_arg =
   Arg.(required & pos 0 (some string) None &

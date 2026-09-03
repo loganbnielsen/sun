@@ -1,10 +1,5 @@
 open Cmdliner
 
-(* Resolve the workspace root (OBS-013) and chdir there before any
-   app/-relative scanning below -- scoped to this command only (OBS-017),
-   not a global chdir in main.ml, so it doesn't change relative-path
-   resolution for other commands' flags (sun deploy --emit-to, sun migrate
-   --dir, sun cloud tf --var-file, ...). *)
 let workspace_name () =
   (match Sun_cli_workspace.find_root ~dir:(Sys.getcwd ()) with
    | Some root -> Sys.chdir root
@@ -33,11 +28,6 @@ let namespace_or_exit ~workspace ~domain =
     Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
     exit 1
 
-(* Services declared under a domain, independent of any kubectl call --
-   drives diagnosis below and rejects an undeclared service before
-   reporting any health for it. Keeps [primitive] so diagnosis can tell a
-   continuously-running service (Svc/Worker) from a CronJob-backed one
-   (Fn, idle between runs by design). *)
 let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) list =
   Sun_cli_manifest.discover_services ~filter_path:None
   |> List.filter (fun (s : Sun_cli_manifest.service) -> s.domain = domain)
@@ -47,13 +37,6 @@ let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) l
        | Ok k8s_name ->
          Some (s.name, Sun_cli_deployment_plan.k8s_name_to_string k8s_name, s.primitive))
 
-(* Kubernetes-derived rollout diagnosis: works even when the app never
-   started and Loki has nothing, so it's used unconditionally, not as a
-   fallback behind Loki health. One entry per checkable service in the
-   domain ([None] = healthy, [Some diagnosis] = rollout failed); services
-   whose name fails Sun's k8s-naming rules are skipped, same as before.
-   Keyed by k8s (hyphenated) name -- the same form 'sun open'/'sun logs'
-   scope arguments use. *)
 let service_diagnoses_named ~ns ~domain : (string * string option) list =
   declared_services ~domain
   |> List.map (fun (service_name, k8s_name, primitive) ->
@@ -80,10 +63,7 @@ let http_reachable url =
      | None -> false)
   | Error _ -> false
 
-(* ── Observability reachability (OBS-018) ───────────────────────────────── *)
-(* The decision logic (which URL, if any, to check) lives in
-   Sun_cli_status so it's testable without a real curl call; only the
-   actual I/O stays here. *)
+(* ── Observability reachability ─────────────────────────────────────────── *)
 
 let probe ~backend ~explicit_url ~default_local_url ~probe_path =
   Sun_cli_status.reachability_of_probe
@@ -96,9 +76,6 @@ let dashboard_reachability ~backend ~base_domain =
     Sun_cli_status.reachability_of_probe ~probe_url:(Some url) ~is_reachable:http_reachable
   | Sun_cli_observability_url.No_url _ -> Sun_cli_status.Not_checked
 
-(* Just the logs/metrics reachability lines, no header -- callers print
-   their own "Observability" header (and, at workspace scope, a leading
-   "backend" line first). *)
 let print_observability_lines ~backend ~explicit_loki_url ~explicit_prometheus_url =
   let logs = probe ~backend ~explicit_url:explicit_loki_url
       ~default_local_url:"http://localhost:3100" ~probe_path:"/ready" in
@@ -107,9 +84,6 @@ let print_observability_lines ~backend ~explicit_loki_url ~explicit_prometheus_u
   Printf.printf "  logs     %s\n" (Sun_cli_status.reachability_to_string logs);
   Printf.printf "  metrics  %s\n%!" (Sun_cli_status.reachability_to_string metrics)
 
-(* Domain/service scope's Observability block: header + logs/metrics +
-   dashboard (workspace scope omits the dashboard line -- see
-   print_workspace_index). *)
 let print_observability_block ~backend ~base_domain
     ~explicit_loki_url ~explicit_prometheus_url =
   Printf.printf "\nObservability\n";
@@ -124,11 +98,8 @@ let print_open_block ~scope =
   Printf.printf "  metrics    sun open metrics%s\n" suffix;
   Printf.printf "  dashboard  sun open dashboard%s\n%!" suffix
 
-(* ── Raw kubectl-derived diagnostics, shared by domain/service scope ────── *)
+(* ── Raw Kubernetes Diagnostics ─────────────────────────────────────────── *)
 
-(* [only_k8s_name] restricts the pod dump, rollout diagnosis, and
-   port-forward hint to one service -- used at service scope; [None]
-   covers the whole domain, unchanged from pre-OBS-018 behavior. *)
 let print_raw_diagnostics ~ns ~domain ~only_k8s_name =
   Printf.printf "\nNamespace: %s\n%!" ns;
   if ns_exists ns then begin
@@ -181,7 +152,7 @@ let print_raw_diagnostics ~ns ~domain ~only_k8s_name =
     Printf.printf "  (not deployed — run 'sun up')\n%!";
   Printf.printf "\n%!"
 
-(* ── Workspace scope (OBS-009) ───────────────────────────────────────────── *)
+(* ── Workspace Scope ────────────────────────────────────────────────────── *)
 
 let print_workspace_index ~workspace ~domains ~backend
     ~explicit_loki_url ~explicit_prometheus_url =
@@ -193,16 +164,12 @@ let print_workspace_index ~workspace ~domains ~backend
     let status = Sun_cli_status.rollup_domain_status ~ns_exists:exists diagnoses in
     Printf.printf "  %-12s %s\n" domain (Sun_cli_status.domain_status_to_string status)
   ) domains;
-  (* No dashboard line at workspace scope, per
-     docs/architecture/observability-design.md's workspace-scope example --
-     only domain/service scope show it. The "backend" line is printed
-     first since it's specific to this scope. *)
   Printf.printf "\nObservability\n";
   Printf.printf "  backend  %s\n" (Sun_cli_observability_url.backend_to_string backend);
   print_observability_lines ~backend ~explicit_loki_url ~explicit_prometheus_url;
   print_open_block ~scope:""
 
-(* ── Domain scope ─────────────────────────────────────────────────────────── *)
+(* ── Domain Scope ───────────────────────────────────────────────────────── *)
 
 let print_domain_status ~workspace ~domain ~backend ~base_domain
     ~explicit_loki_url ~explicit_prometheus_url =
@@ -225,7 +192,7 @@ let print_domain_status ~workspace ~domain ~backend ~base_domain
   print_open_block ~scope:domain;
   print_raw_diagnostics ~ns ~domain ~only_k8s_name:None
 
-(* ── Service scope ────────────────────────────────────────────────────────── *)
+(* ── Service Scope ──────────────────────────────────────────────────────── *)
 
 let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
     ~explicit_loki_url ~explicit_prometheus_url =
@@ -237,19 +204,12 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
       Printf.eprintf "error: %s\n" (Sun_cli_deployment_plan.plan_error_to_string err);
       exit 1
   in
-  (* OBS-022/024: an undeclared service has no pods, so diagnose_service_live
-     would report it as "no pods found" the same as a declared-but-not-running
-     one -- reject it up front instead of reporting any status for something
-     that was never scaffolded. The decision itself lives in Sun_cli_status
-     so it's directly unit-tested. *)
   let declared = declared_services ~domain in
   let declared_k8s_names = List.map (fun (_, k, _) -> k) declared in
   if not (Sun_cli_status.service_is_declared ~k8s_name declared_k8s_names) then begin
     Printf.eprintf "Service '%s' not found in domain '%s'.\n" service_name domain;
     exit 1
   end;
-  (* Fn has no pod between scheduled runs by design (OBS-024/026 follow-up)
-     -- found above, so this List.find can't raise. *)
   let (_, _, primitive) = List.find (fun (_, k, _) -> k = k8s_name) declared in
   let pod_expectation = Sun_cli_status.pod_expectation_of_primitive primitive in
   let exists = ns_exists ns in

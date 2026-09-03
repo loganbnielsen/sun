@@ -129,7 +129,6 @@ let events_for_pod ?(limit = 5) ~pod_name (events : event list) : event list =
 let is_healthy (p : pod_status) : bool =
   p.phase = "Running" && p.ready && (p.state = Running)
 
-(* See the .mli for what Continuous/Ephemeral mean and why. *)
 type pod_expectation = Continuous | Ephemeral
 
 let format_pod_diagnosis (p : pod_status) (events : event list) : string =
@@ -163,11 +162,8 @@ let format_pod_diagnosis (p : pod_status) (events : event list) : string =
   end;
   Buffer.contents buf
 
-(* An empty pod list is itself a finding, not silence -- "never started"
-   is as much a failure as an unhealthy pod. [Continuous] only (see
-   [format_cronjob_diagnosis] for [Ephemeral]); [pods] must be a
-   *confirmed* kubectl result, never an empty list standing in for
-   "couldn't check". *)
+(* Continuous workloads should always have a pod; an empty confirmed pod
+   list means the workload never started. *)
 let format_service_diagnosis ~service_name
     (pods : pod_status list) (events : event list) : string option =
   if pods = [] then
@@ -185,10 +181,6 @@ let format_service_diagnosis ~service_name
       Some (Buffer.contents buf)
     end
 
-(* CronJob status, as Kubernetes itself tracks it -- the authoritative
-   source for "did the most recently scheduled run succeed," which pod
-   inspection can't answer reliably once more than one historical pod is
-   retained (OBS-026). *)
 type cronjob_status = {
   last_schedule_time   : string option;
   last_successful_time : string option;
@@ -211,9 +203,6 @@ let parse_cronjob_status (s : string) : cronjob_status option =
       Some { last_schedule_time; last_successful_time; active_count }
   with _ -> None
 
-(* Distinguishes "confirmed absent" from "the kubectl call failed": a Fn
-   whose CronJob was never created must not read as healthy just because
-   nothing could be fetched. *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing
@@ -224,21 +213,13 @@ type cronjob_fetch_result =
       (transient error, timeout, RBAC, ...) -- stays silent, same as
       other transient-failure handling in this module. *)
 
-(* Timestamps compare via parsed Ptime values, not raw strings: RFC3339
-   timestamps aren't always the same width (fractional seconds vary), so
-   string comparison can sort them wrong. A timestamp that fails to parse
-   fails toward surfacing a finding, not hiding one. *)
 let is_at_or_after ~reference candidate =
   match Ptime.of_rfc3339 candidate, Ptime.of_rfc3339 reference with
   | Ok (t_candidate, _, _), Ok (t_reference, _, _) -> Ptime.compare t_candidate t_reference >= 0
   | _ -> false
 
-(* [Ephemeral] diagnosis covers only the CronJob's last *completed* run:
-   an active run (active_count > 0) is never flagged here even if its pod
-   is stuck -- bounded by backoffLimit, not indefinite; diagnosing an
-   active run's own pod health is separate work. Idle between runs, the
-   most recently scheduled run needs a later-or-equal recorded success,
-   or it's a finding. [Missing] is always a finding. *)
+(* Ephemeral diagnosis uses CronJob status, not historical pod lists.
+   Active-run pod health is tracked separately. *)
 let format_cronjob_diagnosis ~service_name (result : cronjob_fetch_result) : string option =
   match result with
   | Unavailable -> None
@@ -265,11 +246,6 @@ let fetch_namespace_events ~ns : event list =
   | Ok r when r.Sun_cli_process.exit_code = 0 -> parse_events_json r.Sun_cli_process.stdout
   | _ -> []
 
-(* [None] means the kubectl call itself failed (transient error, timeout,
-   ...) -- distinct from [Some []], a confirmed zero pods. Conflating the
-   two used to mean a transient failure and "no pods deployed" looked
-   identical to callers; format_service_diagnosis now treats a confirmed
-   empty list as a real finding, so this distinction matters. *)
 let fetch_pod_statuses ~ns ~k8s_name : pod_status list option =
   match Sun_cli_kubectl.get_raw
           ~args:["get"; "pods"; "-n"; ns; "-l"; "app=" ^ k8s_name; "-o"; "json"] with

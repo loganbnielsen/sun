@@ -40,38 +40,26 @@ val events_for_pod : ?limit:int -> pod_name:string -> event list -> event list
     also Running (not stuck Waiting/Terminated with a stale ready flag). *)
 val is_healthy : pod_status -> bool
 
-(** Which health model a service follows. Kept local to this module
-    rather than taking [Sun_cli_manifest.primitive] directly, so rollout
-    diagnosis doesn't couple to manifest concepts -- callers translate
-    from primitive to this.
-    - [Continuous] (Svc, Worker): a pod should always be running;
-      diagnosed from the live pod list ([format_service_diagnosis]).
-    - [Ephemeral] (Fn): several historical run pods can coexist with no
-      reliable way to tell which is "the latest" from pod state alone;
-      diagnosed instead from the CronJob's own status
-      ([format_cronjob_diagnosis]), which only covers its last
-      *completed* run -- an in-progress run's pod health isn't inspected. *)
+(** Workload health model. [Continuous] services should always have current
+    pods. [Ephemeral] functions can leave several historical run-pods behind,
+    with no reliable way to identify the latest run from pod state alone, so
+    they are diagnosed from CronJob status instead. *)
 type pod_expectation = Continuous | Ephemeral
 
 (** Render one pod's diagnosis block: state/reason, restarts, last
     termination reason, image, and recent events. *)
 val format_pod_diagnosis : pod_status -> event list -> string
 
-(** [Continuous] diagnosis: [None] when every pod is [is_healthy] or
-    (OBS-024) when [pods] is empty for a namespace that exists (a
-    declared service with no pod at all means it never started); a
-    rendered "<service_name> rollout failed" finding otherwise. Pass a
-    confirmed pod list only -- an empty list always reads as "confirmed
-    zero pods," never "couldn't check." *)
+(** [Continuous] diagnosis over a confirmed pod list. Pass only a real pod
+    list from a successful kubectl fetch: [] means confirmed zero pods, not
+    "could not check." [None] means every pod is healthy. *)
 val format_service_diagnosis
   :  service_name:string
   -> pod_status list
   -> event list
   -> string option
 
-(** A CronJob's own status -- the authoritative source for "did the most
-    recently scheduled run succeed," which pod inspection can't answer
-    reliably once more than one historical pod is retained (OBS-026). *)
+(** CronJob status fields used for [Ephemeral] diagnosis. *)
 type cronjob_status = {
   last_schedule_time    : string option;
   last_successful_time  : string option;
@@ -79,35 +67,26 @@ type cronjob_status = {
   (** Number of currently-running Jobs for this CronJob. *)
 }
 
-(** Parse the output of [kubectl get cronjob <name> -n <ns> -o json].
-    [None] only on a JSON parse failure -- a CronJob with no [status] at
-    all yet (e.g. brand new) parses to [Some] with every field at its
-    "never happened" default, not [None]. *)
+(** Parse [kubectl get cronjob <name> -n <ns> -o json]. A CronJob with no
+    [status] object parses to defaults, not [None]. *)
 val parse_cronjob_status : string -> cronjob_status option
 
-(** Distinguishes "the CronJob genuinely doesn't exist" ([Missing],
-    confirmed via kubectl's NotFound response) from "the kubectl call
-    itself failed or its output couldn't be parsed" ([Unavailable],
-    transient -- stays silent). A [Fn] whose CronJob was never created
-    must not report healthy just because nothing could be fetched. *)
+(** CronJob fetch result. [Missing] is confirmed NotFound and should be
+    reported; [Unavailable] is a transient fetch/parse failure and should stay
+    silent. *)
 type cronjob_fetch_result =
   | Found of cronjob_status
   | Missing
   | Unavailable
 
-(** [Ephemeral] counterpart to [format_service_diagnosis]: [Unavailable]
-    is [None]; [Missing] is always a finding; [Found status] is [None]
-    when no run has been scheduled yet, a run is currently active (not
-    inspected further -- see [pod_expectation]), or the most recently
-    scheduled run has a later-or-equal successful completion recorded,
-    and a finding otherwise. *)
+(** [Ephemeral] diagnosis from CronJob status. A run is healthy when no run has
+    ever been scheduled, a run is currently active, or
+    [lastSuccessfulTime >= lastScheduleTime]. This does not inspect active-run
+    pods; active failures surface after the CronJob reaches backoff/failure
+    state. *)
 val format_cronjob_diagnosis : service_name:string -> cronjob_fetch_result -> string option
 
-(** Live, I/O-performing diagnosis, dispatching on [pod_expectation]:
-    [Continuous] fetches pods+events and calls
-    [format_service_diagnosis]; [Ephemeral] fetches CronJob status and
-    calls [format_cronjob_diagnosis]. [None] both when the target is OK
-    and when the underlying kubectl fetch itself failed. *)
+(** Live diagnosis for a deployed workload. *)
 val diagnose_service_live
   :  pod_expectation:pod_expectation
   -> ns:string

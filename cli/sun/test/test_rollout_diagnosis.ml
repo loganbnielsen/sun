@@ -146,11 +146,8 @@ let test_format_service_diagnosis_includes_events_and_reason () =
       (try ignore (Str.search_forward (Str.regexp_string "FailedPull") diagnosis 0); true
        with Not_found -> false)
 
-(* OBS-024: an empty pod list is itself a finding ("never started"), not
-   silence -- a declared service with a missing/scaled-to-zero/broken
-   Deployment used to vacuously look healthy since "no unhealthy pods"
-   trivially held for an empty list too. *)
 let test_format_service_diagnosis_reports_empty_pod_list () =
+  (* Empty here means kubectl confirmed zero pods, not a fetch failure. *)
   match D.format_service_diagnosis ~service_name:"charge-svc" [] [] with
   | None -> Alcotest.fail "expected a diagnosis for zero pods, got None (looks healthy)"
   | Some diagnosis ->
@@ -166,7 +163,7 @@ let test_format_service_diagnosis_succeeded_pod_still_flagged_when_continuous ()
   check_bool "a Succeeded pod is still a finding for Continuous (Svc/Worker)" true
     (Option.is_some (D.format_service_diagnosis ~service_name:"charge-svc" pods []))
 
-(* ── format_cronjob_diagnosis (Ephemeral/Fn, OBS-026) ───────────────────── *)
+(* ── format_cronjob_diagnosis (Ephemeral/Fn) ────────────────────────────── *)
 
 let never_scheduled : D.cronjob_status =
   { last_schedule_time = None; last_successful_time = None; active_count = 0 }
@@ -204,15 +201,10 @@ let test_format_cronjob_diagnosis_last_run_succeeded_is_ok () =
   check_bool "most recent run succeeded -> no diagnosis" true
     (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_succeeded)))
 
-(* is_at_or_after is a >=, not a strict >: a success recorded at exactly
-   the same instant as the schedule trigger must still read as
-   succeeded, not flagged. *)
 let test_format_cronjob_diagnosis_success_at_schedule_boundary_is_ok () =
   check_bool "success at the same instant as the schedule trigger -> no diagnosis" true
     (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_success_at_schedule_boundary)))
 
-(* The most recently scheduled run not having succeeded -- failed
-   outright, or simply never succeeded -- must still be flagged. *)
 let test_format_cronjob_diagnosis_last_run_failed_is_flagged () =
   match D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_last_run_failed) with
   | None -> Alcotest.fail "expected a diagnosis for a most-recent-run failure, got None (looks healthy)"
@@ -228,16 +220,11 @@ let test_format_cronjob_diagnosis_never_succeeded_is_flagged () =
   check_bool "scheduled but never once succeeded -> flagged" true
     (Option.is_some (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found idle_never_succeeded)))
 
-(* A run currently in progress isn't judged yet either way -- Sun's
-   CronJobs set backoffLimit: 3, so a run stuck failing terminates within
-   a few retries rather than staying "active" indefinitely. *)
 let test_format_cronjob_diagnosis_active_run_is_ok () =
+  (* Active-run pod failures are bounded by the CronJob backoff/failure state. *)
   check_bool "a currently-active run is not (yet) a diagnosis" true
     (Option.is_none (D.format_cronjob_diagnosis ~service_name:"invoice-fn" (D.Found run_currently_active)))
 
-(* A missing CronJob for a declared service is exactly the kind of
-   failure this diagnosis exists to catch; an unavailable fetch
-   (transient kubectl failure) stays silent. *)
 let test_format_cronjob_diagnosis_missing_is_flagged () =
   match D.format_cronjob_diagnosis ~service_name:"invoice-fn" D.Missing with
   | None -> Alcotest.fail "expected a diagnosis for a missing CronJob, got None (looks healthy)"
