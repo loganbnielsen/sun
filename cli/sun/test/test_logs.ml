@@ -118,6 +118,20 @@ let test_url_default_base () =
      String.length url >= String.length prefix &&
      String.sub url 0 (String.length prefix) = prefix)
 
+(* ── kubectl_logs_argv ─────────────────────────────────────────────────── *)
+
+let test_kubectl_logs_deployment_target () =
+  check_string "argv" "kubectl logs -n acme-payments deployment/charge-svc --follow --tail=50"
+    (String.concat " "
+       (Sun_cli_logs.kubectl_logs_argv ~ns:"acme-payments"
+          ~target:(Sun_cli_logs.Deployment "charge-svc") ~follow:true ~tail:50))
+
+let test_kubectl_logs_fn_target () =
+  check_string "argv" "kubectl logs -n acme-billing -l app=invoice-fn --all-containers=true --tail=25"
+    (String.concat " "
+       (Sun_cli_logs.kubectl_logs_argv ~ns:"acme-billing"
+          ~target:(Sun_cli_logs.App_selector "invoice-fn") ~follow:false ~tail:25))
+
 (* ── runner ─────────────────────────────────────────────────────────────── *)
 
 let () =
@@ -143,5 +157,9 @@ let () =
       ; Alcotest.test_case "= encoded as %3D"          `Quick test_url_no_raw_equals_in_logql
       ; Alcotest.test_case "no raw double-quotes"      `Quick test_url_no_raw_double_quotes
       ; Alcotest.test_case "default base prefix"       `Quick test_url_default_base
+      ]
+    ; "kubectl_logs_argv", [
+        Alcotest.test_case "deployment target" `Quick test_kubectl_logs_deployment_target
+      ; Alcotest.test_case "fn target"         `Quick test_kubectl_logs_fn_target
       ]
     ]
