@@ -2393,19 +2393,48 @@
         },
         {
           "date": "2026-09-03",
-          "commit": "f9efd23",
-          "duration_s": 2.825,
-          "baseline": true
+          "commit": "4cbd989",
+          "duration_s": 2.034
         },
         {
           "date": "2026-09-03",
-          "commit": "49c6ee1",
-          "duration_s": 2.026
+          "commit": "4cbd989",
+          "duration_s": 2.034
         },
         {
           "date": "2026-09-03",
-          "commit": "28ff292",
-          "duration_s": 2.028
+          "commit": "4cbd989",
+          "duration_s": 2.034
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "4cbd989",
+          "duration_s": 2.030
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "4cbd989",
+          "duration_s": 2.016
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "0a08dcc",
+          "duration_s": 2.034
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "c0ffb93",
+          "duration_s": 2.020
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "878e31c",
+          "duration_s": 2.035
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "5bce64a",
+          "duration_s": 2.016
         }
       ]
     },
@@ -4148,13 +4177,28 @@
         },
         {
           "date": "2026-09-03",
-          "commit": "49c6ee1",
-          "duration_s": 1.089
+          "commit": "4cbd989",
+          "duration_s": 1.214
         },
         {
           "date": "2026-09-03",
-          "commit": "28ff292",
-          "duration_s": 1.094
+          "commit": "0a08dcc",
+          "duration_s": 1.086
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "c0ffb93",
+          "duration_s": 1.087
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "878e31c",
+          "duration_s": 1.101
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "5bce64a",
+          "duration_s": 1.086
         }
       ]
     },

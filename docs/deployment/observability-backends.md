@@ -31,11 +31,23 @@ external_prometheus_username         = "123456"
 external_prometheus_password         = "<api key>"
 ```
 
-**Known gap:** `sun logs`'s Loki client (`Sun_cli_loki`, OBS-002) sends
-unauthenticated queries. If your `external` target requires an API key on
-reads (most hosted Loki services do), `sun logs` will fail through to its
-`kubectl logs` fallback rather than actually querying your external Loki.
-Not fixed in this pass — file a follow-up if you need it.
+For read-side log snapshots, pass a Loki query URL and credentials to
+`sun logs --no-follow`:
+
+```bash
+export SUN_LOKI_USERNAME="123456"
+export SUN_LOKI_PASSWORD="<api key>"
+
+sun logs payments/charge_svc \
+  --no-follow \
+  --observability-backend external \
+  --loki-base-url https://logs-prod-000.grafana.net
+```
+
+`--loki-username`/`--loki-password` are also supported for one-off use, and
+flags win over `SUN_LOKI_USERNAME`/`SUN_LOKI_PASSWORD` when both are set. Prefer
+`SUN_LOKI_PASSWORD` on shared hosts because command-line flags can be visible in
+shell history and process listings.
 
 ## `self_hosted_durable` (AWS only)
 
