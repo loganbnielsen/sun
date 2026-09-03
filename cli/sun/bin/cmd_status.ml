@@ -53,17 +53,11 @@ let declared_services ~domain : (string * string * Sun_cli_manifest.primitive) l
    domain ([None] = healthy, [Some diagnosis] = rollout failed); services
    whose name fails Sun's k8s-naming rules are skipped, same as before.
    Keyed by k8s (hyphenated) name -- the same form 'sun open'/'sun logs'
-   scope arguments use. An Fn has no pod between scheduled runs by
-   design, so a zero-pod Fn isn't degraded the way a zero-pod Svc/Worker
-   is (OBS-024 follow-up). *)
-let pod_expectation_of_primitive = function
-  | Sun_cli_manifest.Fn -> Sun_cli_rollout_diagnosis.Ephemeral
-  | Sun_cli_manifest.Svc | Sun_cli_manifest.Worker -> Sun_cli_rollout_diagnosis.Continuous
-
+   scope arguments use. *)
 let service_diagnoses_named ~ns ~domain : (string * string option) list =
   declared_services ~domain
   |> List.map (fun (service_name, k8s_name, primitive) ->
-       let pod_expectation = pod_expectation_of_primitive primitive in
+       let pod_expectation = Sun_cli_status.pod_expectation_of_primitive primitive in
        (k8s_name,
         Sun_cli_rollout_diagnosis.diagnose_service_live
           ~pod_expectation ~ns ~service_name ~k8s_name ()))
@@ -257,7 +251,7 @@ let print_service_status ~workspace ~domain ~service_name ~backend ~base_domain
   (* Fn has no pod between scheduled runs by design (OBS-024/026 follow-up)
      -- found above, so this List.find can't raise. *)
   let (_, _, primitive) = List.find (fun (_, k, _) -> k = k8s_name) declared in
-  let pod_expectation = pod_expectation_of_primitive primitive in
+  let pod_expectation = Sun_cli_status.pod_expectation_of_primitive primitive in
   let exists = ns_exists ns in
   let diagnosis =
     if exists then

@@ -57,3 +57,8 @@ let reachability_of_probe ~probe_url ~is_reachable =
    cmd_status.ml; this is just the pure "is it in the set" decision. *)
 let service_is_declared ~k8s_name declared_k8s_names =
   List.mem k8s_name declared_k8s_names
+
+let pod_expectation_of_primitive : Sun_cli_manifest.primitive -> Sun_cli_rollout_diagnosis.pod_expectation =
+  function
+  | Fn -> Ephemeral
+  | Svc | Worker -> Continuous

@@ -85,6 +85,18 @@ let test_service_is_declared_false_for_empty_domain () =
   check_bool "no declared services at all -> false" false
     (S.service_is_declared ~k8s_name:"charge-svc" [])
 
+(* ── pod_expectation_of_primitive (OBS-026) ─────────────────────────────── *)
+
+module R = Sun_cli_rollout_diagnosis
+
+let test_pod_expectation_of_primitive () =
+  check_bool "Fn -> Ephemeral" true
+    (S.pod_expectation_of_primitive Sun_cli_manifest.Fn = R.Ephemeral);
+  check_bool "Svc -> Continuous" true
+    (S.pod_expectation_of_primitive Sun_cli_manifest.Svc = R.Continuous);
+  check_bool "Worker -> Continuous" true
+    (S.pod_expectation_of_primitive Sun_cli_manifest.Worker = R.Continuous)
+
 let () =
   Alcotest.run "status" [
     "rollup_domain_status", [
@@ -110,5 +122,8 @@ let () =
       Alcotest.test_case "declared name -> true"      `Quick test_service_is_declared_true_for_declared_name;
       Alcotest.test_case "undeclared name -> false"   `Quick test_service_is_declared_false_for_undeclared_name;
       Alcotest.test_case "empty domain -> false"      `Quick test_service_is_declared_false_for_empty_domain;
+    ];
+    "pod_expectation_of_primitive", [
+      Alcotest.test_case "maps each primitive" `Quick test_pod_expectation_of_primitive;
     ];
   ]

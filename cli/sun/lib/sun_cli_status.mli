@@ -48,3 +48,13 @@ val reachability_of_probe
     scan and stays in [cmd_status.ml]; this is just the set-membership
     check, pulled out so it's directly testable. *)
 val service_is_declared : k8s_name:string -> string list -> bool
+
+(** Which health model a declared service's primitive implies: [Fn] is
+    [Ephemeral] (CronJob-status diagnosis), [Svc]/[Worker] are
+    [Continuous] (live-pod diagnosis). Swapping this mapping would
+    silently reintroduce the OBS-024/026 regression (a zero-pod Fn
+    reported as failed), so it's pulled out of `cmd_status.ml` to be
+    directly unit-tested rather than left as untested glue. *)
+val pod_expectation_of_primitive
+  :  Sun_cli_manifest.primitive
+  -> Sun_cli_rollout_diagnosis.pod_expectation
