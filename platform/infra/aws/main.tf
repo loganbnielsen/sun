@@ -280,7 +280,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki" {
     status = "Enabled"
     filter {}
     expiration {
-      days = 90
+      days = var.loki_retention_days
     }
   }
 }
@@ -329,20 +329,6 @@ resource "aws_s3_bucket" "thanos" {
 
   lifecycle {
     prevent_destroy = true
-  }
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "thanos" {
-  count  = var.enable_durable_observability ? 1 : 0
-  bucket = aws_s3_bucket.thanos[0].id
-
-  rule {
-    id     = "expire-old-blocks"
-    status = "Enabled"
-    filter {}
-    expiration {
-      days = 90
-    }
   }
 }
 

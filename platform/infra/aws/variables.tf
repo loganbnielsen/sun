@@ -113,3 +113,13 @@ variable "enable_durable_observability" {
   type        = bool
   default     = false
 }
+
+variable "loki_retention_days" {
+  description = "S3 lifecycle retention for durable Loki logs."
+  type        = number
+  default     = 90
+  validation {
+    condition     = var.loki_retention_days >= 1 && floor(var.loki_retention_days) == var.loki_retention_days
+    error_message = "loki_retention_days must be a whole number of days >= 1."
+  }
+}
