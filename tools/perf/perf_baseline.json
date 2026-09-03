@@ -2390,6 +2390,12 @@
           "commit": "0377255",
           "duration_s": 2.061,
           "baseline": true
+        },
+        {
+          "date": "2026-09-03",
+          "commit": "f9efd23",
+          "duration_s": 2.825,
+          "baseline": true
         }
       ]
     },
