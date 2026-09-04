@@ -135,7 +135,7 @@ sun status
 sun logs
 sun secret set DATABASE_URL --env local --value ...
 sun migrate
-sun deploy dev/aws/us-east-1 --dry-run
+sun deploy dev/aws/us-east-1 --dry-run  # requires sun/dev/aws/us-east-1.yml with a registry set
 sun rollback
 ```
 

@@ -145,12 +145,7 @@ let test_rendered_manifest_diagnostics () =
      (test_manifest_render.ml), not rollout_doc, and this is also the one
      place that previously dropped plan.environment.env entirely. *)
   check_bool "rollout carries env label" true
-    (let needle = {|env: "prod"|} in
-     let n = String.length needle and s = String.length rollout.yaml in
-     let found = ref false in
-     for i = 0 to s - n do
-       if String.sub rollout.yaml i n = needle then found := true
-     done; !found);
+    (contains_substring ~needle:{|env: "prod"|} rollout.yaml);
   let ingress =
     List.find
       (fun (m : Sun_cli_release_inspection.rendered_manifest) ->
