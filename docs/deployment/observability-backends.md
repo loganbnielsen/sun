@@ -237,9 +237,9 @@ SLO-based rules are a deliberate non-goal for this starter set — Sun has
 no per-service SLO target concept today: revisit only if the simple
 threshold rules above prove insufficient in practice.
 
-## Dashboards (OBS-011, OBS-036)
+## Dashboards (OBS-011, OBS-036, OBS-038)
 
-All three profiles provision the same three Grafana dashboards, loaded via
+All three profiles provision the same four Grafana dashboards, loaded via
 the standalone `grafana` chart's sidecar ConfigMap-loading
 (`sidecar.dashboards`) rather than one file per domain/service:
 
@@ -254,6 +254,16 @@ the standalone `grafana` chart's sidecar ConfigMap-loading
   scrape-target health signals broken down per service within that domain,
   plus a Loki logs panel filtered to that domain. Fills the gap between the
   workspace-wide and single-service views for a domain-level incident.
+- **Release timeline** (OBS-038) — a Loki logs panel showing `sun deploy`'s
+  `event=deploy` log lines (OBS-037), filtered by the same `$workspace`/
+  `$domain`/`$service` template variables as the other dashboards. Those
+  deploy-event lines are pushed directly by the `sun` CLI rather than
+  tailed from a pod, so they carry a fixed `service="sun-deploy"` Loki
+  stream label with `workspace`/`domain`/`service`/`primitive`/`release`
+  as logfmt fields in the line body — the panel's query parses those
+  fields with `| logfmt` and matches them against the template variables
+  (`service_extracted`, since the parsed `service` field collides with the
+  stream label of the same name).
 
 A Prometheus datasource is provisioned the same way the chart already
 auto-provisions its own "Loki" datasource (a ConfigMap labeled
@@ -269,8 +279,6 @@ this ticket.
   `docs/architecture/observability-design.md`) is not built — the service
   template's embedded Loki logs panel (filtered to `$domain`/`$service`)
   covers this use case in practice; see OBS-036's ticket for the reasoning.
-  A **deploy/release timeline** dashboard is also not built yet — tracked
-  separately in OBS-037/OBS-038.
 - **Not verified against a live Grafana instance.** This pass validated the
   dashboard JSON is well-formed and the Terraform/Helm wiring
   (`terraform validate`, chart values checked against `helm show values`),

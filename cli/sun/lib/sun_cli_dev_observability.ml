@@ -280,6 +280,71 @@ let service_template_json = {json|{
   ]
 }|json}
 
+(* OBS-038: deploy/release timeline, sourced from OBS-037's `event=deploy`
+   Loki log lines pushed directly by `sun deploy` (cli/sun/bin/
+   cmd_deploy_event.ml) rather than tailed from a pod by Alloy -- those
+   lines carry the fixed stream label `service="sun-deploy"`, with
+   workspace/domain/service/primitive/release/event as logfmt fields in
+   the line body rather than real Loki labels. The $workspace/$domain/
+   $service template variables are still populated from ordinary
+   services' indexed Loki labels (same as the other dashboards above);
+   the logs panel then filters deploy-event lines by matching those
+   values against the parsed logfmt fields, including `service_extracted`
+   -- Loki's `| logfmt` parser suffixes an extracted field that collides
+   with an existing label name, and `service` collides with the stream's
+   own `service="sun-deploy"` label. *)
+let release_timeline_json = {json|{
+  "title": "Sun Release Timeline",
+  "uid": "sun-release-timeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-24h", "to": "now" },
+  "tags": ["sun"],
+  "templating": {
+    "list": [
+      {
+        "name": "workspace",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values(workspace)",
+        "refresh": 2,
+        "includeAll": false
+      },
+      {
+        "name": "domain",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values({workspace=\"$workspace\"}, domain)",
+        "refresh": 2,
+        "includeAll": false
+      },
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values({workspace=\"$workspace\", domain=\"$domain\"}, service)",
+        "refresh": 2,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Deploy / release events",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{service=\"sun-deploy\"} | logfmt | event=\"deploy\" | workspace=\"$workspace\" | domain=\"$domain\" | service_extracted=\"$service\""
+        }
+      ]
+    }
+  ]
+}|json}
+
 let dashboard_configmap_yaml ~namespace =
   configmap_yaml
     ~name:"sun-grafana-dashboards"
@@ -289,6 +354,7 @@ let dashboard_configmap_yaml ~namespace =
       "workspace-overview.json", workspace_overview_json;
       "domain-overview.json", domain_overview_json;
       "service-template.json", service_template_json;
+      "release-timeline.json", release_timeline_json;
     ]
 
 let prometheus_datasource_configmap_yaml ~namespace =
