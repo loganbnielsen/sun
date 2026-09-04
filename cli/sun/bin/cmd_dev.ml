@@ -22,8 +22,8 @@ let registry_port = 5000
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
-let helm_install release chart ~namespace ?(values = []) () =
-  match upgrade_install ~release ~chart ~namespace ~values () with
+let helm_install release chart ~namespace ?(values = []) ?values_yaml () =
+  match upgrade_install ~release ~chart ~namespace ~values ?values_yaml () with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
@@ -41,6 +41,10 @@ let apply_yaml yaml =
 
 let install_local_grafana_config ~prometheus =
   apply_yaml (Sun_cli_dev_observability.dashboard_configmap_yaml ~namespace:"monitoring");
+  (* OBS-039: no longer auto-provisioned by a bundled loki-stack Grafana
+     subchart -- see Sun_cli_dev_observability.loki_datasource_configmap_yaml. *)
+  apply_yaml
+    (Sun_cli_dev_observability.loki_datasource_configmap_yaml ~namespace:"monitoring");
   if prometheus then
     apply_yaml
       (Sun_cli_dev_observability.prometheus_datasource_configmap_yaml
@@ -88,7 +92,10 @@ let dev_up () =
   let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
   if need_any then begin
     ignore (Sun_cli_helm.repo_add ~name:"redpanda"             ~url:"https://charts.redpanda.com");
+    (* Alloy stays on this repo -- only loki/grafana moved (see
+       grafana-community below, OBS-039). *)
     ignore (Sun_cli_helm.repo_add ~name:"grafana"              ~url:"https://grafana.github.io/helm-charts");
+    ignore (Sun_cli_helm.repo_add ~name:"grafana-community"    ~url:"https://grafana-community.github.io/helm-charts");
     ignore (Sun_cli_helm.repo_add ~name:"bitnami"              ~url:"https://charts.bitnami.com/bitnami");
     ignore (Sun_cli_helm.repo_add ~name:"prometheus-community" ~url:"https://prometheus-community.github.io/helm-charts");
     ignore (Sun_cli_helm.repo_update ());
@@ -126,20 +133,59 @@ let dev_up () =
 
   let need_grafana = req.loki || req.prometheus in
   if need_grafana then begin
-    Printf.printf "\n  Installing Loki/Grafana...\n%!";
-    (* promtail.enabled: true — explicit, not just the chart default. Scrapes
-       every pod's stdout/stderr so 'sun logs' can fall back to real log
-       content even for a pod that crashed before it could push its own logs
-       (OBS-004). Matches platform/infra/base/main.tf's helm_release.loki. *)
-    let rc = helm_install "loki" "grafana/loki-stack" ~namespace:"monitoring"
+    (* OBS-039: loki-stack is deprecated (no longer updated/supported per
+       Grafana Labs' own chart README) and its bundled Promtail reached
+       end-of-life March 2026. Split into the same three charts
+       platform/infra/base/main.tf uses in production ("Dev mirrors prod
+       exactly") -- loki (community-maintained), grafana (standalone), and
+       alloy (Promtail's official successor, log-shipping role only). *)
+    Printf.printf "\n  Installing Loki...\n%!";
+    (* Single Monolithic replica; explicit zeroing of write/read/backend is
+       required even though deploymentMode itself already defaults to
+       "Monolithic" -- see platform/infra/base/main.tf's helm_release.loki
+       comment for why. filesystem storage + useTestSchema: dev has no S3
+       backing, same footprint loki-stack had. *)
+    let rc = helm_install "loki" "grafana-community/loki" ~namespace:"monitoring"
       ~values:[
-        ("grafana.enabled", Bool true);
-        ("grafana.sidecar.dashboards.enabled", Bool true);
-        ("grafana.sidecar.datasources.enabled", Bool true);
-        ("promtail.enabled", Bool true);
+        ("deploymentMode",                   Str "Monolithic");
+        ("singleBinary.replicas",            Float 1.);
+        ("write.replicas",                   Float 0.);
+        ("read.replicas",                    Float 0.);
+        ("backend.replicas",                 Float 0.);
+        ("singleBinary.persistence.enabled", Bool false);
+        ("gateway.enabled",                  Bool false);
+        ("loki.auth_enabled",                Bool false);
+        ("loki.storage.type",                Str "filesystem");
+        ("loki.useTestSchema",               Bool true);
       ] ()
     in
-    if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1)
+    if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1);
+
+    Printf.printf "\n  Installing Grafana...\n%!";
+    (* sidecar.dashboards/datasources: moved from loki-stack's nested
+       grafana.sidecar.* passthrough naming to this standalone chart's own
+       top-level sidecar.* -- both now need an explicit `set` since this
+       chart (unlike loki-stack) defaults sidecar.datasources.enabled to
+       false. *)
+    let rc = helm_install "grafana" "grafana-community/grafana" ~namespace:"monitoring"
+      ~values:[
+        ("sidecar.dashboards.enabled",  Bool true);
+        ("sidecar.datasources.enabled", Bool true);
+      ] ()
+    in
+    if rc <> 0 then (Printf.eprintf "error: Grafana install failed\n"; exit 1);
+
+    Printf.printf "\n  Installing Alloy...\n%!";
+    (* Cluster-wide pod stdout/stderr scraping via DaemonSet -- same role
+       promtail.enabled: true played, so 'sun logs' can fall back to real
+       log content even for a pod that crashed before it could push its own
+       logs (OBS-004). River config (not Promtail YAML) lives in
+       Sun_cli_dev_observability.alloy_values_yaml, kept in sync by hand
+       with platform/infra/base/alloy/logs.alloy.tftpl. *)
+    let rc = helm_install "alloy" "grafana/alloy" ~namespace:"monitoring"
+      ~values_yaml:Sun_cli_dev_observability.alloy_values_yaml ()
+    in
+    if rc <> 0 then (Printf.eprintf "error: Alloy install failed\n"; exit 1)
   end;
 
   if req.prometheus then begin
@@ -184,7 +230,7 @@ let dev_up () =
          target = "svc/loki"; local_port = 3100; remote_port = 3100 };
   if need_grafana then
     pf { name = "grafana"; namespace = "monitoring";
-         target = "svc/loki-grafana"; local_port = 3000; remote_port = 80 };
+         target = "svc/grafana"; local_port = 3000; remote_port = 80 };
   if req.prometheus then
     pf { name = "prometheus"; namespace = "monitoring";
          target = "svc/prometheus-server"; local_port = 9090; remote_port = 80 };

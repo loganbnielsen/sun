@@ -297,3 +297,107 @@ let prometheus_datasource_configmap_yaml ~namespace =
     ~namespace
     ~labels:["grafana_datasource", "1"]
     ~data:["prometheus.yaml", prometheus_datasource_yaml ~namespace]
+
+(* OBS-039: loki-stack's bundled Grafana subchart auto-provisioned a "Loki"
+   datasource itself (a chart-internal template, not just the generic
+   sidecar-ConfigMap convention). Now that `sun dev up` installs the
+   standalone `grafana` chart instead, that auto-provisioning is gone and
+   must be replaced explicitly -- every dashboard above references a
+   datasource named exactly "Loki". Matches
+   platform/infra/base's helm_release.grafana bundle:
+   kubernetes_config_map.grafana_loki_datasource. *)
+let loki_datasource_yaml =
+  {|apiVersion: 1
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false|}
+
+let loki_datasource_configmap_yaml ~namespace =
+  configmap_yaml
+    ~name:"grafana-loki-datasource"
+    ~namespace
+    ~labels:["grafana_datasource", "1"]
+    ~data:["loki.yaml", loki_datasource_yaml]
+
+(* OBS-039: Alloy's log-shipping River config for `sun dev up`, matching
+   platform/infra/base/alloy/logs.alloy.tftpl's local-profile rendering
+   (push straight to the in-cluster Loki, no external/basic-auth branch --
+   `sun dev up` has no "external backend" concept). Validated with the real
+   `alloy validate` binary (grafana/alloy:v1.12.1) during OBS-039's
+   implementation; keep this in sync with the .tftpl by hand if either
+   changes -- Terraform's HCL template language has no OCaml equivalent to
+   share the source with directly. *)
+let alloy_config_river =
+  {river|// Cluster-wide pod log shipping for `sun dev up`. Alloy's Promtail
+// successor: this is real River config (Alloy's config language), not
+// Promtail-shaped YAML. See OBS-039 for the migration this replaces
+// (promtail.enabled -> Alloy). Kept in sync by hand with
+// platform/infra/base/alloy/logs.alloy.tftpl's local-profile rendering.
+
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_workspace"]
+    target_label  = "workspace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_domain"]
+    target_label  = "domain"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_primitive"]
+    target_label  = "primitive"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_release"]
+    target_label  = "release"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+|river}
+
+let alloy_values_yaml =
+  Printf.sprintf
+    {|alloy:
+  configMap:
+    content: |-
+%s
+|}
+    (indent_block alloy_config_river)

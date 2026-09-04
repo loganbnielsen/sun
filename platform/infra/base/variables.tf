@@ -100,7 +100,7 @@ variable "observability_backend" {
   description = <<-EOT
     Observability backend profile:
       local                — in-cluster Loki + Grafana + Prometheus (default).
-      external             — point promtail/Prometheus remote_write at a
+      external             — point Alloy/Prometheus remote_write at a
                               user-supplied endpoint; skip installing local
                               Loki + Grafana (Prometheus still runs to scrape
                               and forward, with minimal local retention).

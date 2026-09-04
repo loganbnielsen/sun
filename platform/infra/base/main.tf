@@ -11,6 +11,7 @@
 #   Redpanda           — Kafka-compatible broker + schema registry
 #   PostgreSQL         — Primary database (use platform/infra/aws RDS for production)
 #   Loki + Grafana     — Log aggregation and dashboards
+#   Alloy              — Cluster-wide pod log shipping (Promtail's successor)
 #   Prometheus         — Metrics collection and Pushgateway
 
 terraform {
@@ -245,153 +246,269 @@ resource "helm_release" "postgresql" {
   }
 }
 
-# ── Loki + Grafana ────────────────────────────────────────────────────────── #
+# ── Loki + Grafana + Alloy ──────────────────────────────────────────────── #
+#
+# OBS-039: loki-stack (deprecated by Grafana Labs, bundled Promtail which
+# reached end-of-life March 2026) replaced by the split, currently
+# maintained chart set: `loki` (Loki only), `grafana` (standalone, no
+# longer a loki-stack subchart), and `alloy` (Promtail's official
+# successor, Loki-log-shipping role only -- see alloy/logs.alloy.tftpl).
 
 locals {
-  # "external": promtail ships straight to the user-supplied Loki endpoint;
-  # no local Loki/Grafana needed. "local"/"self_hosted_durable": promtail
-  # ships to the in-cluster Loki, which self_hosted_durable then backs with
-  # S3 instead of local disk.
+  # "external": Alloy ships straight to the user-supplied Loki endpoint; no
+  # local Loki/Grafana needed. "local"/"self_hosted_durable": Alloy ships to
+  # the in-cluster Loki, which self_hosted_durable then backs with S3
+  # instead of local disk.
   loki_install_local = var.observability_backend != "external"
 
-  loki_promtail_clients = var.observability_backend == "external" ? [
-    merge(
-      { url = var.external_loki_url },
-      var.external_loki_username != "" ? {
-        basic_auth = { username = var.external_loki_username, password = var.external_loki_password }
-      } : {}
-    )
-    ] : [
-    { url = "http://loki:3100/loki/api/v1/push" }
-  ]
+  # Alloy's loki.write target -- installed unconditionally (unlike Loki and
+  # Grafana), same as promtail.enabled used to be regardless of
+  # observability_backend.
+  loki_push_url                 = var.observability_backend == "external" ? var.external_loki_url : "http://loki:3100/loki/api/v1/push"
+  loki_push_basic_auth_username = var.observability_backend == "external" ? var.external_loki_username : ""
+  loki_push_basic_auth_password = var.observability_backend == "external" ? var.external_loki_password : ""
 
   # OBS-008: promote the label taxonomy (Sun_cli_manifest_yaml's
-  # render_taxonomy_labels) from pod labels into Loki stream labels. The
-  # chart's own default relabel_configs only handle the app.kubernetes.io/*
-  # convention (see helm show values grafana/loki-stack --version 2.10.2) --
-  # these are plain custom label keys, so they need explicit
-  # __meta_kubernetes_pod_label_<name> -> <name> mappings via
-  # extraRelabelConfigs, the documented extension point in the chart's
-  # default scrapeConfigs template.
-  loki_promtail_taxonomy_relabel_configs = [
-    for label in ["workspace", "domain", "service", "primitive", "release"] : {
-      source_labels = ["__meta_kubernetes_pod_label_${label}"]
-      target_label  = label
-    }
-  ]
+  # render_taxonomy_labels) from pod labels into Loki stream labels via
+  # Alloy's discovery.relabel component -- see alloy/logs.alloy.tftpl.
+  observability_taxonomy_labels = ["workspace", "domain", "service", "primitive", "release"]
 
-  # Grafana's documented object-storage-backed architecture: chunks + the
-  # boltdb-shipper index both in S3. loki_s3_bucket/aws_region come from
-  # platform/infra/aws's loki_s3_bucket/loki_irsa_arn outputs (OBS-006).
-  #
-  # Always computed (not a `cond ? {...} : {}` ternary) and gated instead via
-  # a list-level `concat()` in helm_release.loki's `values` below --
-  # Terraform's conditional expressions require both branches to unify to
-  # the same type, which breaks for two object literals with different
-  # attribute sets. A list of yamlencode() strings has no such problem since
-  # every branch is just `list(string)`.
+  # The `loki` chart's own object-storage-backed architecture: chunks + the
+  # index both in S3, addressed as bucketNames/s3 rather than loki-stack's
+  # nested storage_config.aws/boltdb_shipper shape (confirmed via
+  # `helm show values grafana-community/loki --version 18.12.1`).
+  # loki_s3_bucket/aws_region come from platform/infra/aws's
+  # loki_s3_bucket/loki_irsa_arn outputs (OBS-006). serviceAccount is now a
+  # top-level chart value (the new chart has no bundled Grafana to
+  # disambiguate it from).
   loki_object_storage_config = {
     loki = {
-      config = {
-        storage_config = {
-          aws = {
-            s3               = "s3://${var.aws_region}/${var.loki_s3_bucket}"
-            s3forcepathstyle = false
-          }
-          boltdb_shipper = {
-            active_index_directory = "/data/loki/boltdb-shipper-active"
-            cache_location         = "/data/loki/boltdb-shipper-cache"
-            shared_store           = "s3"
-          }
+      storage = {
+        type = "s3"
+        bucketNames = {
+          chunks = var.loki_s3_bucket
+          ruler  = var.loki_s3_bucket
         }
-        schema_config = {
-          configs = [{
-            from         = "2024-01-01"
-            store        = "boltdb-shipper"
-            object_store = "s3"
-            schema       = "v11"
-            index = {
-              prefix = "index_"
-              period = "24h"
-            }
-          }]
+        s3 = {
+          region           = var.aws_region
+          s3ForcePathStyle = false
         }
       }
-      serviceAccount = {
-        annotations = {
-          "eks.amazonaws.com/role-arn" = var.loki_irsa_role_arn
-        }
+      schemaConfig = {
+        configs = [{
+          from         = "2024-01-01"
+          store        = "tsdb"
+          object_store = "s3"
+          schema       = "v13"
+          index = {
+            prefix = "index_"
+            period = "24h"
+          }
+        }]
+      }
+    }
+    serviceAccount = {
+      annotations = {
+        "eks.amazonaws.com/role-arn" = var.loki_irsa_role_arn
       }
     }
   }
 }
 
-# promtail.enabled defaults to true in loki-stack (it scrapes every pod's
-# stdout/stderr cluster-wide via a DaemonSet, relabeling namespace/pod/
-# container/app from Kubernetes metadata). Sun depends on this for the
-# failures obs-loki-eio's app-push logging structurally can't see: OOMKilled,
-# CrashLoopBackOff, a crash before the app ever logs (OBS-004). Declared
-# explicitly rather than left as an implicit chart default so a future chart
-# bump can't silently turn it off without showing up in a diff.
+# Loki-only chart (community-maintained, replacing the deprecated
+# loki-stack). No local install for the "external" backend -- there's
+# nothing to browse locally when logs ship straight to the user's own
+# endpoint. Single Monolithic replica matches loki-stack's single-instance
+# footprint ("Dev mirrors prod exactly" -- same shape at both scales).
+#
+# Chart moved from grafana.github.io/helm-charts to
+# grafana-community.github.io/helm-charts (confirmed via `helm search repo`
+# against both hosts: the old repo's `grafana/loki` and `grafana/grafana`
+# entries are `deprecated: true`; grafana-community's are not). Alloy has
+# not moved -- it stays on grafana.github.io/helm-charts, see
+# helm_release.alloy below.
 resource "helm_release" "loki" {
+  count = local.loki_install_local ? 1 : 0
+
   name       = "loki"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "loki-stack"
-  version    = "2.10.2"
+  repository = "https://grafana-community.github.io/helm-charts"
+  chart      = "loki"
+  version    = "18.12.1"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
+  # The chart's own recommended default is SimpleScalable (write/read/backend
+  # replicas default to 3 each even though deploymentMode itself defaults to
+  # "Monolithic") -- explicit zeroing is required to actually run
+  # single-binary mode, not just leaving the top-level deploymentMode at its
+  # default. Verified via `helm template`: omitting these renders a
+  # validate.yaml failure ("Cannot run scalable targets ... without an
+  # object storage backend") under the filesystem-storage `local` profile.
   set {
-    name  = "grafana.enabled"
-    value = tostring(local.loki_install_local)
+    name  = "deploymentMode"
+    value = "Monolithic"
   }
   set {
-    name  = "grafana.adminPassword"
-    value = var.grafana_admin_password
+    name  = "singleBinary.replicas"
+    value = "1"
   }
   set {
-    name  = "loki.enabled"
-    value = tostring(local.loki_install_local)
+    name  = "write.replicas"
+    value = "0"
   }
   set {
-    name  = "loki.persistence.enabled"
+    name  = "read.replicas"
+    value = "0"
+  }
+  set {
+    name  = "backend.replicas"
+    value = "0"
+  }
+  set {
+    name  = "singleBinary.persistence.enabled"
     value = tostring(var.loki_persistent_storage)
   }
+  # No nginx gateway in front of Loki -- loki-stack never had one either;
+  # Alloy/Sun's CLI (sun_cli_status.ml's `kubectl port-forward ... svc/loki
+  # 3100:3100`) both talk to the singleBinary Service directly.
   set {
-    name  = "promtail.enabled"
-    value = "true"
+    name  = "gateway.enabled"
+    value = "false"
   }
-  # OBS-011: loki-stack's Grafana ships with dashboard/datasource
-  # sidecar-ConfigMap loading available (sidecar.datasources.enabled is
-  # already the chart default; dashboards is not) -- both watch for
-  # ConfigMaps carrying their respective labels in this namespace, which
-  # kubernetes_config_map.grafana_dashboards/grafana_prometheus_datasource
-  # below provide.
+  # Single-tenant, matching loki-stack's default -- Alloy pushes with no
+  # X-Scope-OrgID, which the new chart's auth_enabled: true default would
+  # reject.
   set {
-    name  = "grafana.sidecar.dashboards.enabled"
-    value = "true"
+    name  = "loki.auth_enabled"
+    value = "false"
+  }
+  set {
+    name  = "loki.storage.type"
+    value = var.observability_backend == "self_hosted_durable" ? "s3" : "filesystem"
+  }
+  # useTestSchema is the chart's documented escape hatch for a real
+  # schemaConfig when running filesystem storage without object-store-backed
+  # durability -- exactly the `local` profile's use case.
+  set {
+    name  = "loki.useTestSchema"
+    value = tostring(var.observability_backend != "self_hosted_durable")
   }
 
-  values = concat(
-    [yamlencode({
-      promtail = {
-        config = {
-          clients = local.loki_promtail_clients
-          snippets = {
-            extraRelabelConfigs = local.loki_promtail_taxonomy_relabel_configs
-          }
-        }
-      }
-    })],
-    var.observability_backend == "self_hosted_durable" ? [yamlencode(local.loki_object_storage_config)] : []
-  )
+  values = var.observability_backend == "self_hosted_durable" ? [yamlencode(local.loki_object_storage_config)] : []
 
   depends_on = [terraform_data.observability_backend_validation]
 }
 
+# Grafana, standalone (no longer a loki-stack subchart). Gated identically
+# to helm_release.loki -- no local Grafana to browse when shipping to an
+# external backend.
+resource "helm_release" "grafana" {
+  count = local.loki_install_local ? 1 : 0
+
+  name       = "grafana"
+  repository = "https://grafana-community.github.io/helm-charts"
+  chart      = "grafana"
+  version    = "13.2.1"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  set {
+    name  = "adminPassword"
+    value = var.grafana_admin_password
+  }
+  # OBS-011: dashboard/datasource sidecar-ConfigMap loading is a feature of
+  # the Grafana chart itself (unchanged behavior from loki-stack's bundled
+  # subchart), just moved from the nested `grafana.sidecar.*` passthrough
+  # naming to this chart's own top-level `sidecar.*`. Unlike loki-stack,
+  # this standalone chart defaults sidecar.datasources.enabled to false, so
+  # it now needs the same explicit `set` treatment dashboards already had.
+  set {
+    name  = "sidecar.dashboards.enabled"
+    value = "true"
+  }
+  set {
+    name  = "sidecar.datasources.enabled"
+    value = "true"
+  }
+
+  depends_on = [terraform_data.observability_backend_validation]
+}
+
+# Alloy -- Promtail's official successor (Promtail itself reached
+# end-of-life March 2026), scoped in this ticket to log shipping only (see
+# OBS-039's Non-goal; metrics/traces collection is a future OBS-041
+# connection point). Installed unconditionally, matching
+# promtail.enabled = true's old unconditional-across-all-backends behavior:
+# even the "external" profile needs something scraping and forwarding pod
+# logs.
+#
+# alloy/logs.alloy.tftpl is real Alloy River config (discovery.kubernetes +
+# discovery.relabel + loki.source.kubernetes + loki.write), not
+# Promtail-shaped YAML -- Alloy's config language has no scrape_configs/
+# relabel_configs compatibility surface. loki.source.kubernetes tails pod
+# logs via the Kubernetes API rather than a hostPath volume mount, so no
+# extra RBAC or `alloy.mounts.*` values are needed beyond this chart's
+# default ClusterRole (verified via `helm show values`: the default
+# `rbac.rules` already grants `pods`, `pods/log`, and `namespaces`
+# get/list/watch).
+resource "helm_release" "alloy" {
+  name       = "alloy"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "alloy"
+  version    = "1.12.1"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  values = [yamlencode({
+    alloy = {
+      configMap = {
+        content = templatefile("${path.module}/alloy/logs.alloy.tftpl", {
+          loki_push_url                 = local.loki_push_url
+          loki_push_basic_auth_username = local.loki_push_basic_auth_username
+          loki_push_basic_auth_password = local.loki_push_basic_auth_password
+          taxonomy_labels               = local.observability_taxonomy_labels
+        })
+      }
+    }
+  })]
+
+  depends_on = [terraform_data.observability_backend_validation]
+}
+
+# Loki datasource for Grafana. loki-stack's bundled Grafana subchart
+# auto-provisioned this itself (a chart-internal template, not just the
+# generic sidecar-ConfigMap convention) -- now that Grafana and Loki are
+# separate charts with no bundling relationship, that auto-provisioning is
+# gone and must be replaced explicitly, the same way
+# grafana_prometheus_datasource below already wires up Prometheus. Every
+# dashboard in dashboards/*.json references a datasource named exactly
+# "Loki".
+resource "kubernetes_config_map" "grafana_loki_datasource" {
+  count = local.loki_install_local ? 1 : 0
+
+  metadata {
+    name      = "grafana-loki-datasource"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels    = { grafana_datasource = "1" }
+  }
+
+  data = {
+    "loki.yaml" = yamlencode({
+      apiVersion = 1
+      datasources = [{
+        name      = "Loki"
+        type      = "loki"
+        access    = "proxy"
+        url       = "http://loki:3100"
+        isDefault = false
+      }]
+    })
+  }
+
+  depends_on = [helm_release.grafana]
+}
+
 # Prometheus datasource for Grafana, loaded via the same sidecar-ConfigMap
-# mechanism the chart already uses for its own auto-provisioned "Loki"
-# datasource (sidecar.datasources.enabled: true is this chart's default;
-# label key "grafana_datasource" is that sidecar's own default, unchanged).
+# mechanism the chart already uses (sidecar.datasources.enabled: true, set
+# explicitly on helm_release.grafana above; label key "grafana_datasource"
+# is that sidecar's own default, unchanged).
 resource "kubernetes_config_map" "grafana_prometheus_datasource" {
   count = local.loki_install_local ? 1 : 0
 
@@ -413,6 +530,8 @@ resource "kubernetes_config_map" "grafana_prometheus_datasource" {
       }]
     })
   }
+
+  depends_on = [helm_release.grafana]
 }
 
 # OBS-011: the lazy version -- two dashboards total (workspace overview,
@@ -437,6 +556,8 @@ resource "kubernetes_config_map" "grafana_dashboards" {
     "service-template.json"   = file("${path.module}/dashboards/service-template.json")
     "domain-overview.json"    = file("${path.module}/dashboards/domain-overview.json")
   }
+
+  depends_on = [helm_release.grafana]
 }
 
 # Grafana Ingress — no local Grafana to expose when shipping to an external
@@ -469,7 +590,7 @@ resource "kubernetes_ingress_v1" "grafana" {
           path_type = "Prefix"
           backend {
             service {
-              name = "loki-grafana"
+              name = "grafana"
               port { number = 80 }
             }
           }
@@ -478,7 +599,7 @@ resource "kubernetes_ingress_v1" "grafana" {
     }
   }
 
-  depends_on = [helm_release.loki, helm_release.ingress_nginx]
+  depends_on = [helm_release.grafana, helm_release.ingress_nginx]
 }
 
 # ── Prometheus + Pushgateway ──────────────────────────────────────────────── #
