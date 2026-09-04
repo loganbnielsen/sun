@@ -147,12 +147,10 @@ auto-provisions its own "Loki" datasource (a ConfigMap labeled
 this ticket.
 
 **Known gaps:**
-- Only `-svc` primitives get a `prometheus.io/scrape` annotation today (a
-  containerPort actually exists to scrape). `-worker` has no metrics port
-  wired at the manifest level yet — a pre-existing gap, not introduced or
-  fixed here — so the service template's `$service` dropdown will only ever
-  populate with `-svc` names until that's addressed separately. `-fn` uses
-  Pushgateway, a different ingestion path this ticket doesn't touch.
+- `-svc` and `-worker` primitives both get a `prometheus.io/scrape`
+  annotation and a real metrics port (`-worker`'s closed by OBS-035), so the
+  service template's `$service` dropdown populates for both. `-fn` uses
+  Pushgateway, a different ingestion path neither ticket touches.
 - A per-service **logs view** and a **deploy/release timeline** dashboard
   (both mentioned in `docs/architecture/observability-design.md`) are not
   built — deferred, not silently dropped.
