@@ -21,6 +21,7 @@
   test_loki
   test_run_log
   test_observability_url
+  test_deploy_event
   test_open
   test_status
   test_workspace)

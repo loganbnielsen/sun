@@ -15,6 +15,7 @@ type deploy_request = {
   registry              : string option;
   secret_backend        : Sun_cli_manifest.secret_backend;
   confirm_group_change  : bool;
+  loki_push_url         : string option;
 }
 
 let make_up_request ~filter_path ~dry_run ~tag ~confirm_group_change ~git_sha =
@@ -22,10 +23,10 @@ let make_up_request ~filter_path ~dry_run ~tag ~confirm_group_change ~git_sha =
   Ok { filter_path; dry_run; image_tag; confirm_group_change }
 
 let make_deploy_request ~target ~filter_path ~dry_run ~emit_to ~emit_plan_to
-    ~image_tag ~registry ~secret_backend ~confirm_group_change ~git_sha =
+    ~image_tag ~registry ~secret_backend ~confirm_group_change ~loki_push_url ~git_sha =
   if String.length (String.trim target) = 0 then
     Error "target must not be empty (expected <env>/<provider>/<region>)"
   else
     let image_tag = match image_tag with Some t -> t | None -> git_sha () in
     Ok { target; filter_path; dry_run; emit_to; emit_plan_to; image_tag; registry;
-         secret_backend; confirm_group_change }
+         secret_backend; confirm_group_change; loki_push_url }

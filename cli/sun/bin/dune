@@ -8,6 +8,8 @@
   unix
   threads.posix
   eio_main
+  obs-eio
+  obs-loki-eio
   yojson)
  (modules
   main
@@ -15,6 +17,7 @@
   cmd_plan
   cmd_up
   cmd_deploy
+  cmd_deploy_event
   cmd_status
   cmd_logs
   cmd_open

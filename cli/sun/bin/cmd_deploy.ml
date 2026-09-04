@@ -215,7 +215,43 @@ let run (req : Sun_cli_command_request.deploy_request) =
          image = sha;
          consumer_groups = List.map Sun_cli_plan_ids.Consumer_group.to_string
                              plan.Sun_cli_deployment_plan.consumer_groups;
-       })
+       });
+     (* OBS-037: one structured Loki log line per deployed service, for
+        OBS-038's deploy/release timeline dashboard. Real apply only (this
+        branch is neither --dry-run nor --emit-to already); a push failure
+        must never fail a deploy that has already succeeded, so this is
+        wrapped on top of cmd_deploy_event.ml's own per-event try/with as a
+        second safety net -- cancellation/fatal exceptions still propagate,
+        matching Obs_eio's own exclusion list. *)
+     let backend =
+       match target_cfg.Sun_cli_config.observability_backend with
+       | Some s ->
+         (match Sun_cli_observability_url.backend_of_string s with
+          | Some b -> b
+          | None -> Sun_cli_observability_url.Local)
+       | None -> Sun_cli_observability_url.Local
+     in
+     let deploy_events =
+       List.map (fun (spec : Sun_cli_deployment_plan.service_spec) ->
+         { Sun_cli_deploy_event.workspace;
+           env       = target_cfg.Sun_cli_config.env;
+           domain    = spec.domain;
+           service   = Sun_cli_kubernetes_name.k8s_name_to_string spec.k8s_name;
+           primitive = primitive_label
+             (match spec.primitive with
+              | Sun_cli_deployment_plan.Svc    -> Svc
+              | Sun_cli_deployment_plan.Worker -> Worker
+              | Sun_cli_deployment_plan.Fn     -> Fn);
+           release   = Sun_cli_manifest_yaml.release_of_image spec.image;
+         }
+       ) plan.Sun_cli_deployment_plan.services
+     in
+     (try Cmd_deploy_event.push_all ~backend ~explicit_url:req.loki_push_url deploy_events
+      with
+      | Eio.Cancel.Cancelled _ as exn -> raise exn
+      | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+      | exn ->
+        Printf.eprintf "warning: deploy-event log push failed: %s\n%!" (Printexc.to_string exn))
    | None -> ())
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
@@ -329,6 +365,19 @@ let confirm_group_change_flag =
        info ["confirm-group-change"]
          ~doc:"Acknowledge that consumer group IDs have changed and proceed with deploy")
 
+let loki_push_url_arg =
+  Arg.(value & opt (some string) None &
+       info ["loki-push-url"] ~docv:"URL"
+         ~doc:"Loki push URL for this deploy's release-event log line \
+               (OBS-037), e.g. https://logs-prod-000.grafana.net. When \
+               omitted: for the 'local'/'self_hosted_durable' \
+               observability backends, sun deploy probes the cluster for \
+               an in-cluster Loki (svc/loki -n monitoring) and, if found, \
+               port-forwards to it for the duration of the push; for \
+               'external' there is no in-cluster Loki and no configured \
+               push URL, so pass this flag to record the event at all. A \
+               push failure never fails the deploy.")
+
 let cmd =
   Cmd.v
     (Cmd.info "deploy"
@@ -339,11 +388,11 @@ let cmd =
              'sun up' whose positional is the optional service-path filter — \
              'sun up' is local-only and has no target to resolve.")
     Term.(const (fun target filter_path dry_run emit_to emit_plan_to image_tag registry
-                     secret_backend confirm_group_change ->
+                     secret_backend confirm_group_change loki_push_url ->
         match Sun_cli_command_request.make_deploy_request
                 ~target ~filter_path ~dry_run ~emit_to ~emit_plan_to
                 ~image_tag ~registry ~secret_backend ~confirm_group_change
-                ~git_sha
+                ~loki_push_url ~git_sha
           with
           | Ok req -> run req
           | Error msg ->
@@ -351,4 +400,4 @@ let cmd =
             exit 1)
           $ target_arg $ path_arg $ dry_run_flag $ emit_to_arg
           $ emit_plan_to_arg $ image_tag_arg $ registry_arg
-          $ secret_backend_term $ confirm_group_change_flag)
+          $ secret_backend_term $ confirm_group_change_flag $ loki_push_url_arg)
