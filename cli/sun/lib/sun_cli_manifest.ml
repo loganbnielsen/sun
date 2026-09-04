@@ -28,6 +28,11 @@ let primitive_of_suffix name =
   else if String.ends_with ~suffix:"_fn"     name then Some Fn
   else None
 
+(* Service directories are underscored (charge_svc); CLI filters may be typed
+   hyphenated (charge-svc), matching the convention sun new/scaffold already
+   normalizes. Compare on the normalized form so both spellings match. *)
+let normalize_filter = String.map (function '-' -> '_' | c -> c)
+
 let discover_services ~filter_path =
   let app_dir = "app" in
   if not (Sys.file_exists app_dir && Sys.is_directory app_dir) then begin
@@ -50,7 +55,9 @@ let discover_services ~filter_path =
                   let svc = { domain; name = svc_dir; primitive; dir = sp } in
                   let included = match filter_path with
                     | None   -> true
-                    | Some p -> sp = p || Filename.basename sp = p
+                    | Some p ->
+                      let p = normalize_filter p in
+                      sp = p || Filename.basename sp = p
                   in
                   if included then services := svc :: !services
                 end

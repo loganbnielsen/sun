@@ -1256,6 +1256,56 @@ let test_sanitize_label_value_strips_leading_non_alnum () =
   check_string "leading hyphens stripped" "app"
     (Sun_cli_manifest.sanitize_label_value "---app")
 
+(* ── discover_services filter matching ──────────────────────────────────── *)
+
+(* Run [f] inside a fresh temp workspace root, then restore cwd and delete it. *)
+let in_temp_workspace f =
+  let orig_cwd = Sys.getcwd () in
+  let tmpdir   = Filename.temp_file "sun-manifest-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Sys.chdir tmpdir;
+  Fun.protect
+    ~finally:(fun () ->
+      Sys.chdir orig_cwd;
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    f
+
+(* charge_svc is the on-disk (underscored) directory name; sun new/scaffold's
+   own normalize converts hyphens to underscores, so a filter typed
+   hyphenated (as in FEAT-026's acceptance criteria,
+   "app/payments/charge-svc") must match it too. *)
+let with_charge_svc_workspace f =
+  in_temp_workspace @@ fun () ->
+  let dir = "app/payments/charge_svc" in
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)));
+  let oc = open_out (Filename.concat dir "Dockerfile") in
+  output_string oc "FROM scratch\n";
+  close_out oc;
+  f ()
+
+let names services = List.map (fun (s : Sun_cli_manifest.service) -> s.name) services
+
+let test_discover_services_hyphenated_filter_matches_underscored_dir () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "app/payments/charge-svc") in
+  Alcotest.(check (list string)) "hyphenated full path matches" ["charge_svc"] (names found)
+
+let test_discover_services_hyphenated_basename_filter_matches () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "charge-svc") in
+  Alcotest.(check (list string)) "hyphenated basename matches" ["charge_svc"] (names found)
+
+let test_discover_services_underscored_filter_still_matches () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "charge_svc") in
+  Alcotest.(check (list string)) "underscored basename still matches" ["charge_svc"] (names found)
+
+let test_discover_services_non_matching_filter_excludes () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "notify-worker") in
+  Alcotest.(check (list string)) "non-matching filter excludes" [] (names found)
+
 let () =
   Alcotest.run "manifest_render"
     [ "svc", [
@@ -1390,5 +1440,11 @@ let () =
       ; Alcotest.test_case "sanitize_label_value lowercases + replaces underscores" `Quick test_sanitize_label_value_lowercases_and_replaces_underscores
       ; Alcotest.test_case "sanitize_label_value replaces internal space" `Quick test_sanitize_label_value_replaces_internal_space
       ; Alcotest.test_case "sanitize_label_value strips leading non-alnum" `Quick test_sanitize_label_value_strips_leading_non_alnum
+      ]
+    ; "discover_services_filter", [
+        Alcotest.test_case "hyphenated full path matches underscored dir" `Quick test_discover_services_hyphenated_filter_matches_underscored_dir
+      ; Alcotest.test_case "hyphenated basename matches"                  `Quick test_discover_services_hyphenated_basename_filter_matches
+      ; Alcotest.test_case "underscored filter still matches"             `Quick test_discover_services_underscored_filter_still_matches
+      ; Alcotest.test_case "non-matching filter excludes"                 `Quick test_discover_services_non_matching_filter_excludes
       ]
     ]
