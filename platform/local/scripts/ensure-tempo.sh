@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OTLP_PORT=4318
+QUERY_PORT=3200
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config/tempo.yaml"
+
+if docker ps --format '{{.Names}}' | grep -q '^tempo$'; then
+  echo "Tempo already running"
+else
+  if docker ps -a --format '{{.Names}}' | grep -q '^tempo$'; then
+    echo "Restarting stopped Tempo container..."
+    docker start tempo
+  else
+    echo "Starting Tempo..."
+    docker run -d \
+      --name tempo \
+      -p "${OTLP_PORT}:4318" \
+      -p "${QUERY_PORT}:3200" \
+      -v "${CONFIG_FILE}:/etc/tempo.yaml:ro" \
+      grafana/tempo:latest \
+      -config.file=/etc/tempo.yaml
+  fi
+
+  echo -n "Waiting for Tempo to be ready"
+  for i in $(seq 1 30); do
+    if curl -sf "http://localhost:${QUERY_PORT}/ready" > /dev/null 2>&1; then
+      echo " ready"
+      exit 0
+    fi
+    sleep 1
+    echo -n "."
+  done
+  echo ""
+  echo "ERROR: Tempo did not become ready within 30s" >&2
+  docker logs tempo | tail -20 >&2
+  exit 1
+fi
+
+echo ""
+echo "  OTLP/HTTP ingestion -> http://localhost:${OTLP_PORT}  (obs-tempo-eio's TEMPO_URL)"
+echo "  Query API           -> http://localhost:${QUERY_PORT} (obs-tempo-eio's TEMPO_QUERY_URL)"
+echo ""
