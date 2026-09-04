@@ -10,7 +10,8 @@ let local_defaults ~image_tag =
 let customer_cloud_defaults ~registry ~image_tag ~emit_to () =
   if String.length (String.trim registry) = 0 then
     Error "registry must be set for customer cluster deployments \
-(pass --registry <prefix> or set a registry in sun.toml). \
+(pass --registry <prefix>, or set registry in the resolved target's \
+sun/<env>/<provider>/<region>.yml). \
 See docs/deployment/self-hosted-substrate-contract.md for the full substrate contract."
   else
     match emit_to with

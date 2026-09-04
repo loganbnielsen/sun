@@ -141,8 +141,8 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 #   Sun does not own this step today; a future `sun build` command will replace it.
 #
 # PHASE 2 — Deploy (Sun-owned, typed contract):
-#   sun deploy --emit-plan-to plan.json --dry-run   # capture typed deployment intent
-#   sun deploy --emit-to manifests/ --image-tag $SHA  # render K8s YAML (GitOps)
+#   sun deploy <target> --emit-plan-to plan.json --dry-run   # capture typed deployment intent
+#   sun deploy <target> --emit-to manifests/ --image-tag $SHA  # render K8s YAML (GitOps)
 #
 # Never duplicate the plan/render/execute logic from sun deploy in CI.
 # All deployment decisions (image tags, namespaces, service discovery, secrets)
@@ -248,9 +248,9 @@ jobs:
 
 # ── Job 3: emit deployment plan + GitOps manifests ──────────────────────── #
 # This job runs only on pushes to main (not on pull requests).
-# `sun deploy --emit-plan-to plan.json` records the full deployment intent
+# `sun deploy <target> --emit-plan-to plan.json` records the full deployment intent
 # (images, namespaces, config) without applying anything — useful for auditing.
-# `sun deploy --emit-to manifests/` renders Kubernetes YAML to manifests/.
+# `sun deploy <target> --emit-to manifests/` renders Kubernetes YAML to manifests/.
 # An Argo CD Application watching that directory reconciles the change
 # automatically; no KUBECONFIG or cluster credentials are required in CI.
   deploy:
@@ -282,7 +282,7 @@ jobs:
       - name: Export deployment plan
         run: |
           eval $(opam env)
-          # Equivalent Sun command: sun deploy --emit-plan-to plan.json --dry-run
+          # Equivalent Sun command: sun deploy <target> --emit-plan-to plan.json --dry-run
           _build/default/cli/sun/bin/main.exe deploy \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \
@@ -299,7 +299,7 @@ jobs:
       - name: Emit GitOps manifests
         run: |
           eval $(opam env)
-          # Equivalent Sun command: sun deploy --emit-to manifests/
+          # Equivalent Sun command: sun deploy <target> --emit-to manifests/
           _build/default/cli/sun/bin/main.exe deploy \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \

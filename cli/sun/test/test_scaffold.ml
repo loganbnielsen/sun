@@ -96,6 +96,15 @@ let test_deploy_workflow_created () =
   let path = "testapp/.github/workflows/deploy.yml" in
   check_bool "deploy.yml created" true (Sys.file_exists path)
 
+(* FEAT-026: deploy.yml's real (non-comment) `sun deploy` invocation passes
+   a target via a SUN_TARGET repo variable, documented in the header. *)
+let test_deploy_workflow_passes_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/deploy.yml" in
+  assert_contains "deploy.yml" content "SUN_TARGET";
+  assert_contains "deploy.yml" content "sun deploy \"$SUN_TARGET\""
+
 (* Verify that sun-ci.yml contains 'sun deploy' *)
 let test_ci_contains_sun_deploy () =
   in_temp_dir @@ fun () ->
@@ -157,9 +166,10 @@ let test_ci_contract_deploy_phase_uses_sun_deploy () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
   let content = read_file "testapp/.github/workflows/sun-ci.yml" in
-  (* The contract comment block must reference the sun deploy command *)
-  assert_contains "sun-ci.yml" content "sun deploy --emit-plan-to";
-  assert_contains "sun-ci.yml" content "sun deploy --emit-to"
+  (* The contract comment block must reference the sun deploy command,
+     including the required <env>/<provider>/<region> target (FEAT-026) *)
+  assert_contains "sun-ci.yml" content "sun deploy <target> --emit-plan-to";
+  assert_contains "sun-ci.yml" content "sun deploy <target> --emit-to"
 
 (* Verify that no raw kubectl apply appears in the generated workflow — all
    cluster changes must go through sun deploy *)
@@ -636,6 +646,7 @@ let () =
     [ "ci_workflow", [
         Alcotest.test_case "sun-ci.yml created"           `Quick test_ci_workflow_created
       ; Alcotest.test_case "deploy.yml still created"     `Quick test_deploy_workflow_created
+      ; Alcotest.test_case "deploy.yml passes target"     `Quick test_deploy_workflow_passes_target
       ; Alcotest.test_case "contains sun deploy"          `Quick test_ci_contains_sun_deploy
       ; Alcotest.test_case "--emit-plan-to present"       `Quick test_ci_contains_emit_plan_to
       ; Alcotest.test_case "--emit-to present"            `Quick test_ci_contains_emit_to

@@ -56,8 +56,8 @@ Check all `project/tickets/` subdirectories for existing EXP-* ticket files. A f
 - Check `platform/infra/` — verify Terraform modules exist for at least one cloud provider
 
 **Stage 5 — First Deploy:**
-- Check `README.md` or a linked guide for `sun deploy` instructions with all required flags
-- Verify `sun deploy` exists and works end-to-end
+- Check `README.md` or a linked guide for `sun deploy` instructions with the required target positional (`<env>/<provider>/<region>`) and all required flags
+- Verify `sun deploy <target>` exists and works end-to-end
 - Check whether the command prints the deployed service URL on completion
 
 **Stage 6 — Shipping a Change:**

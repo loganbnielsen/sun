@@ -240,7 +240,10 @@ let run (req : Sun_cli_command_request.up_request) =
 let path_arg =
   Arg.(value & pos 0 (some string) None &
        info [] ~docv:"PATH"
-         ~doc:"Service path to build and deploy (default: all services in workspace)")
+         ~doc:"Service path to build and deploy (default: all services in workspace). \
+               'sun up' is local-only and has no target concept, so unlike \
+               'sun deploy TARGET [path]' this positional is the optional \
+               service-path filter, not a required deployment target.")
 
 let dry_run_flag =
   Arg.(value & flag &
@@ -260,7 +263,8 @@ let confirm_group_change_flag =
 let cmd =
   Cmd.v
     (Cmd.info "up"
-       ~doc:"Build images, synthesize k8s manifests, and deploy to the cluster")
+       ~doc:"Build images, synthesize k8s manifests, and deploy to the local \
+             cluster. Local-only — no target concept, unlike 'sun deploy'.")
     Term.(const (fun filter_path dry_run tag confirm_group_change ->
         match Sun_cli_command_request.make_up_request
                 ~filter_path ~dry_run ~tag ~confirm_group_change ~git_sha

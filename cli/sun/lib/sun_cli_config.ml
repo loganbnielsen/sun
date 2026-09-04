@@ -571,8 +571,18 @@ let target_file target =
 
 let load_for_target ~target =
   let* target = target_of_path target in
+  let file = target_file target in
+  let* () =
+    if Sys.file_exists "sun.yml" || Sys.file_exists file then Ok ()
+    else Error { path = target.name; line = 0;
+                 message = Printf.sprintf "target %S resolves to neither a \
+                   sun.yml nor a sun/<env>/<provider>/<region>.yml in this \
+                   directory — at least one must exist for a target to be \
+                   real, not just shaped like <env>/<provider>/<region>"
+                   target.name }
+  in
   let* base = load "sun.yml" in
-  let* overlay = load (target_file target) in
+  let* overlay = load file in
   let base_target =
     match base.target with
     | None -> target

@@ -30,13 +30,18 @@ let run (req : Sun_cli_command_request.deploy_request) =
         exit 1
       | Some target -> target
   in
+  (* No hardcoded local-registry fallback here, deliberately: sun deploy is
+     always a customer-cluster path (it never constructs
+     Sun_cli_env_target.Local, unlike sun up) -- an unresolvable registry
+     must reach customer_cloud_defaults's empty-registry check below and
+     fail loudly, not silently point a real deploy at a k3d-only address. *)
   let registry =
     match req.registry with
     | Some r -> r
     | None ->
       (match target_cfg.Sun_cli_config.registry with
        | Some r -> r
-       | None   -> "sun-registry:5000")
+       | None   -> "")
   in
 
   if services = [] then begin
@@ -240,7 +245,8 @@ let registry_arg =
        info ["registry"] ~docv:"URL"
          ~doc:"Container registry prefix, e.g. \
                123456789.dkr.ecr.us-east-1.amazonaws.com. \
-               Omit for local k3d cluster (uses sun-registry:5000).")
+               Omit to fall back to the resolved target's own registry \
+               (sun/<env>/<provider>/<region>.yml); required if neither is set.")
 
 let secret_backend_arg =
   Arg.(value & opt string "kubernetes-placeholder" &

@@ -14,7 +14,7 @@ sun new workspace myapp   # I have a project
 sun dev up                # it runs on my laptop
 sun dev run               # I can see it working
 sun cloud init            # I have a cloud environment
-sun deploy                # I can ship
+sun deploy <target>       # I can ship
 ```
 
 Each section has two gates that must both pass:
@@ -143,7 +143,7 @@ With a local project and a cloud environment, the engineer should be able to dep
 ### Reproduction gate
 
 ```bash
-sun deploy
+sun deploy <target>
 ```
 
 Then, following the guide, verify the deploy.
@@ -170,7 +170,7 @@ Make a visible change to the `charge_svc` handler (e.g., add a field to the resp
 
 ```bash
 # edit app/payments/charge_svc/lib/handler.ml
-sun deploy
+sun deploy <target>
 ```
 
 **Invariants:**
@@ -197,7 +197,7 @@ sun logs charge_svc       # stream recent logs
 sun migrate               # apply pending migrations
 sun status                # show all running services and their health
 sun new svc payments/refund  # add a new service
-sun deploy                # deploy the new service alongside existing ones
+sun deploy <target>       # deploy the new service alongside existing ones
 ```
 
 **Invariants:**
@@ -223,7 +223,7 @@ After the first project is running, the engineer should be able to add a new cro
 ```bash
 sun new event billing/payment_confirmed
 sun new worker logistics/fulfillment
-sun deploy
+sun deploy <target>
 ```
 
 Then, following the guide:

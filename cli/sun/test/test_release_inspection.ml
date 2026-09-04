@@ -139,6 +139,18 @@ let test_rendered_manifest_diagnostics () =
       manifests
   in
   check_string "rollout kind" "Rollout" rollout.kind;
+  (* FEAT-026: rollout_doc (progressive-delivery path) gets ?env too, and
+     rendered_manifests_of_plan threads it from plan.environment.env -- the
+     only other render paths tested for this are deployment_doc/cronjob_doc
+     (test_manifest_render.ml), not rollout_doc, and this is also the one
+     place that previously dropped plan.environment.env entirely. *)
+  check_bool "rollout carries env label" true
+    (let needle = {|env: "prod"|} in
+     let n = String.length needle and s = String.length rollout.yaml in
+     let found = ref false in
+     for i = 0 to s - n do
+       if String.sub rollout.yaml i n = needle then found := true
+     done; !found);
   let ingress =
     List.find
       (fun (m : Sun_cli_release_inspection.rendered_manifest) ->
