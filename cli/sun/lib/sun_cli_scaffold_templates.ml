@@ -130,9 +130,9 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 #   SUN_TARGET         deployment target, <env>/<provider>/<region>, e.g.
 #                      prod/aws/us-east-1. Requires a matching
 #                      sun/<env>/<provider>/<region>.yml file committed in
-#                      this repo -- create one before the first deploy,
-#                      even empty: mkdir -p sun/prod/aws && touch
-#                      sun/prod/aws/us-east-1.yml
+#                      this repo -- this workspace ships a placeholder at
+#                      sun/prod/aws/us-east-1.yml; rename it to match your
+#                      real target if it isn't prod/aws/us-east-1.
 #
 # Optional (GitOps push step):
 #   GITOPS_TOKEN       GitHub token with repo-write access to commit manifests/.
@@ -340,8 +340,9 @@ let tpl_github_deploy = {tpl|# CI/CD — deploy to your Sun cluster on every pus
 # not a secret, this is just a path):
 #   SUN_TARGET       deployment target, <env>/<provider>/<region>, e.g. prod/aws/us-east-1.
 #                    Requires a matching sun/<env>/<provider>/<region>.yml file
-#                    committed in this repo -- create one before the first deploy,
-#                    even empty: mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml
+#                    committed in this repo -- this workspace ships a placeholder
+#                    at sun/prod/aws/us-east-1.yml; rename it to match your real
+#                    target if it isn't prod/aws/us-east-1.
 #
 # For ECR add AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION and
 # uncomment the ECR login step below.
