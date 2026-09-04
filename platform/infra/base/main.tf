@@ -420,6 +420,9 @@ resource "kubernetes_config_map" "grafana_prometheus_datasource" {
 # per domain/service. Adding a new service requires zero Sun-side dashboard
 # changes; Grafana's own template variables (populated from live Prometheus/
 # Loki label values, not a static list Sun maintains) do the scoping.
+# OBS-036 adds a third, $domain-only dashboard for the gap between
+# workspace-wide and single-service views: per-service breakdowns within
+# one domain, using the same live-label-driven templating.
 resource "kubernetes_config_map" "grafana_dashboards" {
   count = local.loki_install_local ? 1 : 0
 
@@ -432,6 +435,7 @@ resource "kubernetes_config_map" "grafana_dashboards" {
   data = {
     "workspace-overview.json" = file("${path.module}/dashboards/workspace-overview.json")
     "service-template.json"   = file("${path.module}/dashboards/service-template.json")
+    "domain-overview.json"    = file("${path.module}/dashboards/domain-overview.json")
   }
 }
 
