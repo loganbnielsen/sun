@@ -3,6 +3,7 @@ type infra_requirements = {
   postgres   : bool;
   loki       : bool;
   prometheus : bool;
+  tempo      : bool;
 }
 
 
@@ -40,6 +41,7 @@ let scan ~dir =
   let postgres   = ref false in
   let loki       = ref false in
   let prometheus = ref false in
+  let tempo      = ref false in
   let rec collect d =
     (try
       Array.iter (fun entry ->
@@ -52,6 +54,7 @@ let scan ~dir =
               if Sun_cli_port_forward.string_contains ~needle:"pg-eio"             content then postgres   := true;
               if Sun_cli_port_forward.string_contains ~needle:"obs-loki-eio"       content then loki       := true;
               if Sun_cli_port_forward.string_contains ~needle:"obs-prometheus-eio" content then prometheus := true;
+              if Sun_cli_port_forward.string_contains ~needle:"obs-tempo-eio"      content then tempo      := true;
             with _ -> ())
           end else if Sys.is_directory path then
             collect path
@@ -60,4 +63,4 @@ let scan ~dir =
     with _ -> ())
   in
   collect dir;
-  { kafka = !kafka; postgres = !postgres; loki = !loki; prometheus = !prometheus }
+  { kafka = !kafka; postgres = !postgres; loki = !loki; prometheus = !prometheus; tempo = !tempo }

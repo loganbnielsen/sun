@@ -288,3 +288,58 @@ this ticket.
   but did not run a real `sun dev up` and confirm the panels/variables
   actually render and populate. Flagged explicitly — do this before trusting
   the dashboards in a real review.
+
+## Tracing (OBS-042)
+
+Tempo is the fourth backend, deployed the same way as Loki/Prometheus/
+Grafana: `helm_release.tempo` (`grafana-community/tempo`, gated by
+`local.loki_install_local`, the same condition Loki/Grafana already use —
+no local Tempo to receive spans from when there's no local Grafana to
+browse them in either) plus a Grafana datasource ConfigMap
+(`kubernetes_config_map.grafana_tempo_datasource`) loaded through the same
+sidecar convention as the others. `sun dev up` mirrors this exactly via
+direct `helm`/`kubectl` calls in `cmd_dev.ml` and
+`Sun_cli_dev_observability.ml`, so local dev and Terraform-provisioned
+clusters both get tracing the same way ("Dev mirrors prod exactly").
+
+**Wired for `-svc` only.** `obs-tempo-eio` (OBS-041) is composed into the
+`-svc` scaffold's backend (`Obs_eio.compose backend (Obs_tempo.create ...)`,
+alongside the existing Loki/Prometheus composition) via `TEMPO_URL`, an
+optional environment variable following the same pattern as `LOKI_URL` —
+absent means no traces, not a startup failure. `-worker`/`-fn` are a
+deliberate non-goal, matching `OBS-035`'s precedent of landing
+observability primitives one primitive at a time; a follow-up ticket can
+retrofit them once this pattern proves out.
+
+**Two ports, two purposes.** Spans push to Tempo's OTLP/HTTP receiver on
+port 4318 (`TEMPO_URL`, what `-svc` and `examples/local-demo`'s order-svc
+push to); Grafana's Tempo datasource reads from Tempo's own query API on
+port 3200. `sun dev up` port-forwards both (`tempo` and `tempo-query`).
+
+**Trace-lookup link.** The Loki datasource (both
+`kubernetes_config_map.grafana_loki_datasource` in Terraform and
+`Sun_cli_dev_observability.loki_datasource_yaml` in `sun dev up`) carries a
+`derivedFields` entry matching `obs-loki-eio`'s real `trace_id=` logfmt
+output (an unquoted 32-hex-char field), so a `trace_id` in any Loki log
+line is clickable through to its Tempo waterfall. A dedicated
+trace-analysis dashboard is a non-goal for this ticket — this is the
+minimal "log line to trace" link, not an APM-style trace search UI.
+
+**Verified live**, not just statically: `dune exec
+examples/local-demo/bin/demo.exe` with `TEMPO_URL` set produced real spans
+in a real local Tempo instance (`platform/local/scripts/ensure-tempo.sh`),
+confirmed via `curl`'s TraceQL search API
+(`/api/search?q={resource.service.name="order-svc"}`) — and the `trace_id`
+captured in the corresponding Loki log line matched a real Tempo trace ID
+byte-for-byte, confirming the derivedFields regex and encoding actually
+line up. `helm_release.tempo`'s chart/version was also confirmed with a
+real `helm install --dry-run=server` and a real (non-dry-run) install
+against a live k3d cluster.
+
+**Known gap:** the Tempo datasource ConfigMap's sidecar pickup was not
+verified against a live Grafana UI click-through in this pass (the shared
+local test cluster's existing Grafana predates OBS-039's chart split) —
+the underlying trace_id/regex/datasource-uid mechanism was verified against
+real data as above, but "click a log line and land on the trace in
+Grafana's UI" itself was not visually confirmed. Do this before trusting
+the click-through in a real review.

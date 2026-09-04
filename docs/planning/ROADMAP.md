@@ -460,6 +460,7 @@ SCHEMA_REGISTRY_URL = http://redpanda.redpanda.svc.cluster.local:8081
 POSTGRES_URL        = postgresql://postgres:dev@postgresql.postgresql.svc.cluster.local:5432/dev
 LOKI_URL            = http://loki.monitoring.svc.cluster.local:3100
 PUSHGATEWAY_URL     = http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091
+TEMPO_URL           = http://tempo.monitoring.svc.cluster.local:4318
 ```
 
 Host port-forward mapping (for local `dune exec` dev against the same cluster):
@@ -471,6 +472,8 @@ localhost:5432   → postgresql:5432   (postgres)
 localhost:3100   → loki:3100         (loki)
 localhost:3000   → grafana:80        (grafana)
 localhost:9091   → prometheus-prometheus-pushgateway:9091
+localhost:4318   → tempo:4318        (tempo, OTLP/HTTP ingestion)
+localhost:3200   → tempo:3200        (tempo, query API)
 ```
 
 These addresses are deterministic from the Helm release names in `sun dev up`. Hardcoded in v1 — no dynamic discovery needed.
@@ -485,6 +488,7 @@ These addresses are deterministic from the Helm release names in `sun dev up`. H
 | Grafana | `grafana` | `monitoring` |
 | Alloy (log shipping, OBS-039) | `alloy` | `monitoring` |
 | Prometheus | `prometheus` | `monitoring` |
+| Tempo (tracing, OBS-042; `-svc` only) | `tempo` | `monitoring` |
 
 #### `-svc` manifest details
 

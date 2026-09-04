@@ -35,7 +35,9 @@ let test_prometheus_datasource_configmap () =
    subchart -- see sun_cli_dev_observability.ml's comment on
    loki_datasource_configmap_yaml. Every dashboard above references a
    datasource named exactly "Loki", so a missing/misnamed datasource here
-   silently breaks every Loki panel. *)
+   silently breaks every Loki panel.
+   OBS-042: also asserts the derivedFields link to Tempo -- a trace_id in a
+   Loki log line must be clickable through to its Tempo waterfall. *)
 let test_loki_datasource_configmap () =
   let yaml =
     Sun_cli_dev_observability.loki_datasource_configmap_yaml
@@ -44,7 +46,27 @@ let test_loki_datasource_configmap () =
   assert_contains "name" yaml "name: grafana-loki-datasource";
   assert_contains "sidecar label" yaml "grafana_datasource: \"1\"";
   assert_contains "datasource" yaml "name: Loki";
-  assert_contains "url" yaml "url: http://loki:3100"
+  assert_contains "url" yaml "url: http://loki:3100";
+  assert_contains "derivedFields datasourceUid" yaml "datasourceUid: tempo";
+  assert_contains "derivedFields matcherRegex" yaml "matcherRegex: \"trace_id=(\\w+)\"";
+  assert_contains "derivedFields name" yaml "name: TraceID";
+  assert_contains "derivedFields url" yaml "url: \"${__value.raw}\""
+
+(* OBS-042: Tempo query API (port 3200, distinct from the OTLP/HTTP
+   ingestion port 4318 obs-tempo-eio's -svc backend pushes spans to)
+   exposed as a Grafana datasource, mirroring Loki/Prometheus above. uid is
+   pinned so the Loki datasource's derivedFields entry above can reference
+   it by a stable value. *)
+let test_tempo_datasource_configmap () =
+  let yaml =
+    Sun_cli_dev_observability.tempo_datasource_configmap_yaml
+      ~namespace:"monitoring"
+  in
+  assert_contains "name" yaml "name: grafana-tempo-datasource";
+  assert_contains "sidecar label" yaml "grafana_datasource: \"1\"";
+  assert_contains "datasource" yaml "name: Tempo";
+  assert_contains "uid" yaml "uid: tempo";
+  assert_contains "url" yaml "url: http://tempo:3200"
 
 (* OBS-039: Alloy replaces promtail as the log shipper. This is real Alloy
    River config, not Promtail-shaped YAML -- assert on the actual
@@ -79,6 +101,8 @@ let () =
           test_prometheus_datasource_configmap;
         Alcotest.test_case "loki datasource configmap" `Quick
           test_loki_datasource_configmap;
+        Alcotest.test_case "tempo datasource configmap" `Quick
+          test_tempo_datasource_configmap;
       ];
       "alloy",
       [ Alcotest.test_case "values yaml" `Quick test_alloy_values_yaml;

@@ -7,6 +7,7 @@
           ▼
       order-svc  (sun-svc)
           │  Loki span: "receive_order"  ·  Prometheus: svc request metrics
+          │  Tempo trace: "receive_order" (OBS-042, -svc only)
           │  publishes OrderPlaced event with W3C traceparent header
           ▼
       Kafka  sun-demo-orders
@@ -16,7 +17,7 @@
           │  Loki span: "fulfill_order"  ·  Prometheus: worker message metrics
           │  records fulfilled order in PostgreSQL  (pg-eio)
           ▼
-      Loki (logs) · Prometheus (metrics) · PostgreSQL (storage)
+      Loki (logs) · Prometheus (metrics) · Tempo (traces, order-svc only) · PostgreSQL (storage)
       Grafana  http://localhost:3000
 
     Run:
@@ -25,10 +26,12 @@
       bash platform/local/scripts/ensure-loki.sh           # optional — logs to stdout if absent
       bash platform/local/scripts/ensure-grafana.sh        # optional
       bash platform/local/scripts/ensure-prometheus.sh     # optional
+      bash platform/local/scripts/ensure-tempo.sh          # optional — order-svc traces skipped if absent
 
       KAFKA_BROKERS=localhost:9092 \
       POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
       LOKI_URL=http://localhost:3100 \
+      TEMPO_URL=http://localhost:4318 \
         dune exec examples/local-demo/bin/demo.exe
 *)
 
@@ -37,6 +40,7 @@
 let loki_url        = Sys.getenv_opt "LOKI_URL"
 let pushgateway_url = Sys.getenv_opt "PUSHGATEWAY_URL"
 let postgres_url    = Sys.getenv_opt "POSTGRES_URL"
+let tempo_url       = Sys.getenv_opt "TEMPO_URL"
 
 let kafka_config : Kafka_service.config =
   let config =
@@ -151,6 +155,8 @@ let () =
   Printf.printf "  Schema registry: %s\n" kafka_config.schema_registry_url;
   Printf.printf "  Loki:            %s\n" (Option.value ~default:"(stdout fallback)" loki_url);
   Printf.printf "  Pushgateway:     %s\n" (Option.value ~default:"(disabled)" pushgateway_url);
+  Printf.printf "  Tempo:           %s  (order-svc only)\n"
+    (Option.value ~default:"(disabled)" tempo_url);
   Printf.printf "  Postgres:        %s\n%!" (Option.value ~default:"(disabled)" postgres_url);
 
   Eio_main.run @@ fun env ->
@@ -166,9 +172,23 @@ let () =
       Printf.printf "\n  Logs -> Loki at %s\n%!" url;
       Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
-  let backend   = Obs_eio.compose log_backend prom_backend in
+  let backend = Obs_eio.compose log_backend prom_backend in
+  (* OBS-042: Tempo wired in for -svc only, matching OBS-035's precedent of
+     landing observability primitives service-by-service rather than all at
+     once (see the ticket's non-goal on -worker/-fn). fulfillment-worker
+     below keeps [backend] unchanged. *)
+  let svc_backend =
+    match tempo_url with
+    | None ->
+      Printf.printf "\n  Note: TEMPO_URL not set — order-svc traces disabled.\n%!";
+      backend
+    | Some url ->
+      Printf.printf "\n  Traces -> Tempo at %s\n%!" url;
+      Obs_eio.compose backend
+        (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
+  in
   let svc_ot    = Obs_eio.create ~service:"order-svc"
-                    ~mono_clock:env#mono_clock ~backend () in
+                    ~mono_clock:env#mono_clock ~backend:svc_backend () in
   let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
                     ~mono_clock:env#mono_clock ~backend () in
 

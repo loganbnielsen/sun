@@ -13,6 +13,7 @@
 #   Loki + Grafana     — Log aggregation and dashboards
 #   Alloy              — Cluster-wide pod log shipping (Promtail's successor)
 #   Prometheus         — Metrics collection and Pushgateway
+#   Tempo              — Distributed tracing (OBS-042; -svc only, see obs-tempo-eio)
 
 terraform {
   required_version = ">= 1.6"
@@ -472,6 +473,36 @@ resource "helm_release" "alloy" {
   depends_on = [terraform_data.observability_backend_validation]
 }
 
+# Tempo -- distributed tracing (OBS-042). Wired in for -svc only today
+# (obs-tempo-eio composed into the scaffold's `-svc` backend, see
+# cli/sun/lib/sun_cli_scaffold_templates.ml); -worker/-fn are a deliberate
+# non-goal, matching OBS-035's own precedent of landing observability
+# primitives service-by-service. Gated the same as Loki/Grafana -- no local
+# Tempo to receive spans from when there's no local Grafana to browse them
+# in either.
+#
+# grafana-community/tempo (not the deprecated grafana/tempo -- same
+# grafana.github.io -> grafana-community.github.io chart move OBS-039 found
+# for loki/grafana; confirmed via each repo's index.yaml `deprecated`
+# field). "Grafana Tempo Single Binary Mode" is this chart's only mode
+# (StatefulSet, replicas: 1 by default) -- unlike loki's SimpleScalable
+# default, there is no deploymentMode to zero out. Local disk trace storage
+# (the chart's own default `storage.trace.backend: local`) is not
+# S3-backed -- a durable path is a future ticket, same gap
+# self_hosted_durable's Loki/Thanos S3 backing closes for logs/metrics
+# today (see docs/deployment/observability-backends.md).
+resource "helm_release" "tempo" {
+  count = local.loki_install_local ? 1 : 0
+
+  name       = "tempo"
+  repository = "https://grafana-community.github.io/helm-charts"
+  chart      = "tempo"
+  version    = "2.3.0"
+  namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  depends_on = [terraform_data.observability_backend_validation]
+}
+
 # Loki datasource for Grafana. loki-stack's bundled Grafana subchart
 # auto-provisioned this itself (a chart-internal template, not just the
 # generic sidecar-ConfigMap convention) -- now that Grafana and Loki are
@@ -490,6 +521,14 @@ resource "kubernetes_config_map" "grafana_loki_datasource" {
   }
 
   data = {
+    # OBS-042: derivedFields turns a trace_id in a Loki log line into a
+    # click-through to its Tempo waterfall. matcherRegex must match
+    # obs-loki-eio's real logfmt output -- trace_id is an unquoted 32-hex-
+    # char field (Obs_loki.trace_id_hex, "%016Lx%016Lx"), never quoted since
+    # hex digits never trigger Obs_loki.logfmt_val's quoting rule.
+    # datasourceUid references kubernetes_config_map.grafana_tempo_datasource's
+    # explicit `uid` below -- pinned rather than left for Grafana to derive
+    # from the datasource name, so this reference stays stable.
     "loki.yaml" = yamlencode({
       apiVersion = 1
       datasources = [{
@@ -498,6 +537,14 @@ resource "kubernetes_config_map" "grafana_loki_datasource" {
         access    = "proxy"
         url       = "http://loki:3100"
         isDefault = false
+        jsonData = {
+          derivedFields = [{
+            datasourceUid = "tempo"
+            matcherRegex  = "trace_id=(\\w+)"
+            name          = "TraceID"
+            url           = "$${__value.raw}"
+          }]
+        }
       }]
     })
   }
@@ -532,6 +579,39 @@ resource "kubernetes_config_map" "grafana_prometheus_datasource" {
   }
 
   depends_on = [helm_release.grafana]
+}
+
+# Tempo datasource for Grafana (OBS-042), loaded via the same sidecar-
+# ConfigMap mechanism as Loki/Prometheus above. url targets the query API
+# (service port 3200), not the OTLP/HTTP ingestion port (4318) -svc pods
+# push spans to -- see helm_release.tempo's comment. `uid` is pinned
+# explicitly so kubernetes_config_map.grafana_loki_datasource's
+# derivedFields entry above can reference it by a stable value instead of
+# whatever Grafana would otherwise derive from the datasource name.
+resource "kubernetes_config_map" "grafana_tempo_datasource" {
+  count = local.loki_install_local ? 1 : 0
+
+  metadata {
+    name      = "grafana-tempo-datasource"
+    namespace = kubernetes_namespace.monitoring.metadata[0].name
+    labels    = { grafana_datasource = "1" }
+  }
+
+  data = {
+    "tempo.yaml" = yamlencode({
+      apiVersion = 1
+      datasources = [{
+        name      = "Tempo"
+        type      = "tempo"
+        access    = "proxy"
+        uid       = "tempo"
+        url       = "http://tempo.${kubernetes_namespace.monitoring.metadata[0].name}.svc.cluster.local:3200"
+        isDefault = false
+      }]
+    })
+  }
+
+  depends_on = [helm_release.grafana, helm_release.tempo]
 }
 
 # OBS-011: the lazy version -- two dashboards total (workspace overview,

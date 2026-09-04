@@ -3,6 +3,7 @@ type infra_requirements = {
   postgres   : bool;
   loki       : bool;
   prometheus : bool;
+  tempo      : bool;
 }
 
 val pending_migration_count : dir:string -> int

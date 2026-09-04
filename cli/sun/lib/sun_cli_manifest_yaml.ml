@@ -34,6 +34,10 @@ let default_cluster_env = [
   "REDPANDA_ADMIN_URL",  "http://redpanda.redpanda.svc.cluster.local:9644";
   "LOKI_URL",            "http://loki.monitoring.svc.cluster.local:3100";
   "PUSHGATEWAY_URL",     "http://prometheus-prometheus-pushgateway.monitoring.svc.cluster.local:9091";
+  (* OBS-042: OTLP/HTTP ingestion port, not Tempo's query port (3200) --
+     Grafana's Tempo datasource reads from 3200, but a running -svc pushes
+     spans to 4318 (obs-tempo-eio's TEMPO_URL). *)
+  "TEMPO_URL",           "http://tempo.monitoring.svc.cluster.local:4318";
 ]
 
 (* Credentials that must never appear in ConfigMap; emitted empty into a

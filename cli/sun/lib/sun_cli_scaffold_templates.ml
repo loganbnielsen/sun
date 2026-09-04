@@ -679,14 +679,20 @@ let require_db_pool ~sw ~stdenv =
 
 let () =
   let loki_url     = env_nonempty "LOKI_URL" in
+  let tempo_url    = env_nonempty "TEMPO_URL" in
   let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
   let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
   let prom, render = Obs_prometheus.create () in
+  let backend = Obs_eio.compose log_backend prom in
+  let backend = match tempo_url with
+    | None     -> backend
+    | Some url -> Obs_eio.compose backend (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
+  in
   let ot =
     Obs_eio.with_context
       (Obs_eio.create ~service:"{{name}}-charge-svc" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom) ())
+         ~backend ())
       [("team", "payments")]
   in
   Eio.Switch.run @@ fun sw ->
@@ -711,7 +717,7 @@ let ws_svc_bin_dune = {tpl|(executable
  (name main)
  (libraries
   {{name}}_payments_charge_svc
-  sun_svc kafka_eio_service obs-eio obs-loki-eio obs-prometheus-eio
+  sun_svc kafka_eio_service obs-eio obs-loki-eio obs-prometheus-eio obs-tempo-eio
   pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))
 |tpl}
