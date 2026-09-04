@@ -182,7 +182,7 @@ let test_deploy_request_uses_explicit_tag () =
     ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
     ~image_tag:(Some "sha-abc") ~registry:(Some "reg.example.com")
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
-    ~confirm_group_change:false
+    ~confirm_group_change:false ~loki_push_url:None
     ~git_sha:(fun () -> Alcotest.fail "git_sha should not be called")
   in
   match r with
@@ -196,7 +196,7 @@ let test_deploy_request_local_mode_builds_request () =
     ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
     ~image_tag:(Some "v2") ~registry:(Some "gcr.io/myproject")
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
-    ~confirm_group_change:false ~git_sha:(fun () -> "")
+    ~confirm_group_change:false ~loki_push_url:None ~git_sha:(fun () -> "")
   in
   Alcotest.(check bool) "deploy request Ok" true (Result.is_ok r)
 
@@ -206,7 +206,7 @@ let test_deploy_request_gitops_emit_to_stored () =
     ~filter_path:None ~dry_run:false ~emit_to:(Some "/tmp/gitops")
     ~emit_plan_to:None ~image_tag:(Some "tag")
     ~registry:(Some "reg") ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
-    ~confirm_group_change:false ~git_sha:(fun () -> "")
+    ~confirm_group_change:false ~loki_push_url:None ~git_sha:(fun () -> "")
   in
   match r with
   | Ok req ->
@@ -222,7 +222,7 @@ let test_deploy_request_rejects_empty_target () =
     ~target:"" ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
     ~image_tag:(Some "tag") ~registry:(Some "reg")
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
-    ~confirm_group_change:false ~git_sha:(fun () -> "")
+    ~confirm_group_change:false ~loki_push_url:None ~git_sha:(fun () -> "")
   in
   Alcotest.(check bool) "empty target rejected" true (Result.is_error r)
 
@@ -234,7 +234,7 @@ let test_deploy_request_registry_omitted_stays_none () =
     ~target:"dev/aws/us-east-1" ~filter_path:None ~dry_run:false
     ~emit_to:None ~emit_plan_to:None ~image_tag:(Some "tag") ~registry:None
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
-    ~confirm_group_change:false ~git_sha:(fun () -> "")
+    ~confirm_group_change:false ~loki_push_url:None ~git_sha:(fun () -> "")
   in
   match r with
   | Ok req -> Alcotest.(check (option string)) "registry stays None"

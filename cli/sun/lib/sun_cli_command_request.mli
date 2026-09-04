@@ -39,6 +39,12 @@ type deploy_request = {
       [Sun_cli_config]. *)
   secret_backend        : Sun_cli_manifest.secret_backend;
   confirm_group_change  : bool;
+  loki_push_url         : string option;
+  (** Raw [--loki-push-url] value (OBS-037). [None] means "resolve the push
+      URL from the target's observability backend" -- see
+      [Sun_cli_deploy_event.resolve_push_url]. Only meaningful for a real
+      apply (not [--dry-run]/[--emit-to], which push no deploy event at
+      all). *)
 }
 
 val make_up_request
@@ -62,6 +68,7 @@ val make_deploy_request
   -> registry:string option
   -> secret_backend:Sun_cli_manifest.secret_backend
   -> confirm_group_change:bool
+  -> loki_push_url:string option
   -> git_sha:(unit -> string)
   -> (deploy_request, string) result
 (** Validate raw Cmdliner values for [sun deploy] into a [deploy_request].
