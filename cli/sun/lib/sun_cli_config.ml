@@ -8,6 +8,13 @@ type target = {
   cluster_name           : string option;
   terraform_var_file     : string option;
   observability_backend  : string option;
+  provider_fields        : (string * (string * string) list) list;
+}
+
+type index = {
+  index_name    : string;
+  partition_key : string option;
+  sort_key      : string option;
 }
 
 type resource = {
@@ -15,7 +22,7 @@ type resource = {
   typ           : string option;
   partition_key : string option;
   sort_key      : string option;
-  indexes       : string list;
+  indexes       : index list;
   size          : string option;
   omit          : bool;
 }
@@ -123,6 +130,8 @@ let parse_bool s =
   | "false" -> Ok false
   | _ -> Error "expected true or false"
 
+let index_empty index_name = { index_name; partition_key = None; sort_key = None }
+
 let upsert_by_name name key update xs =
   let rec loop acc = function
     | [] -> List.rev (update None :: acc)
@@ -148,7 +157,8 @@ type section =
   | Resources
   | Resource of string
   | Resource_indexes of string
-  | Target_provider
+  | Resource_index of string * string
+  | Target_provider of string
   | Services
   | Service of string
   | Service_scale of string
@@ -168,6 +178,7 @@ let load path =
          let seen_target = ref false in
          let seen_resources = ref false in
          let seen_services = ref false in
+         let seen_provider_boxes = ref [] in
          let line_no = ref 0 in
          let fail message = Error { path; line = !line_no; message } in
          let require_value k v =
@@ -202,6 +213,23 @@ let load path =
            cfg := { !cfg with services };
            Ok ()
          in
+         let update_provider provider f =
+           let target = Option.value !cfg.target ~default:{
+             name = ""; env = ""; provider = ""; region = "";
+             registry = None; base_domain = None; cluster_name = None;
+             terraform_var_file = None; observability_backend = None;
+             provider_fields = [];
+           } in
+           let fields = List.assoc_opt provider target.provider_fields
+                        |> Option.value ~default:[] in
+           let* fields = f fields in
+           let provider_fields =
+             (provider, fields) ::
+             List.filter (fun (p, _) -> p <> provider) target.provider_fields
+           in
+           cfg := { !cfg with target = Some { target with provider_fields } };
+           Ok ()
+         in
          let add_resource name =
            if List.exists (fun (r : resource) -> r.name = name) !cfg.resources then
              fail (Printf.sprintf "duplicate resource %S" name)
@@ -229,7 +257,7 @@ let load path =
                let ind = indent text in
                let body = trim text in
                match ind, body, split_key_value body with
-               | _, _, _ when ind >= 4 && !section = Target_provider -> loop ()
+               | _, _, _ when ind >= 6 && (match !section with Target_provider _ -> true | _ -> false) -> loop ()
                | 0, "target:", _ ->
                  if !seen_target then fail "duplicate top-level section \"target\""
                  else if !root <> No_root then fail "target must appear before resources or services"
@@ -267,20 +295,30 @@ let load path =
                    loop ()
                  | No_root ->
                    begin match !section, split_key_value body with
-                   | (Target | Target_provider), Some (k, "") when k = "aws" || k = "gcp" ->
-                     section := Target_provider;
-                     loop ()
-                   | (Target | Target_provider), Some (k, "") ->
+                   | (Target | Target_provider _), Some (k, "") when k = "aws" || k = "gcp" ->
+                     if List.mem k !seen_provider_boxes then
+                       fail (Printf.sprintf "duplicate target provider box %S" k)
+                     else begin
+                       seen_provider_boxes := k :: !seen_provider_boxes;
+                       section := Target_provider k;
+                       loop ()
+                     end
+                   | (Target | Target_provider _), Some (k, "") ->
                      fail (Printf.sprintf "missing value for %s" k)
                    | _ -> fail "unsupported sun.yml syntax"
                    end
                  end
                | 2, _, Some (k, v) ->
                  let* () = begin match !section with
-                 | Target | Target_provider ->
+                 | Target | Target_provider _ ->
                    if (k = "aws" || k = "gcp") && v = "" then begin
-                     section := Target_provider;
-                     Ok ()
+                     if List.mem k !seen_provider_boxes then
+                       fail (Printf.sprintf "duplicate target provider box %S" k)
+                     else begin
+                       seen_provider_boxes := k :: !seen_provider_boxes;
+                       section := Target_provider k;
+                       Ok ()
+                     end
                    end else
                    let* () = require_value k v in
                    section := Target;
@@ -288,6 +326,7 @@ let load path =
                      name = ""; env = ""; provider = ""; region = "";
                      registry = None; base_domain = None; cluster_name = None;
                      terraform_var_file = None; observability_backend = None;
+                     provider_fields = [];
                    } in
                    let* target =
                      match k with
@@ -315,7 +354,7 @@ let load path =
                  loop ()
                | 4, _, Some (k, v) ->
                  let* () = begin match !section with
-                 | Resource name | Resource_indexes name ->
+                 | Resource name | Resource_indexes name | Resource_index (name, _) ->
                    if k = "indexes" && v = "" then begin
                      section := Resource_indexes name;
                      Ok ()
@@ -371,21 +410,28 @@ let load path =
                        | _ -> fail (Printf.sprintf "unknown service key %S" k))
                      in
                      Ok ()
-                 | Target_provider -> Ok ()
+                 | Target_provider provider ->
+                   if v = "" then Ok ()
+                   else
+                     let* v = scalar k v in
+                     update_provider provider (fun fields ->
+                       if List.mem_assoc k fields then
+                         fail (Printf.sprintf "duplicate %s target field %S" provider k)
+                       else Ok (fields @ [k, v]))
                  | _ -> fail "unsupported sun.yml syntax"
                  end in
                  loop ()
                | 6, _, _ when ends_with ~suffix:":" body ->
                  let* () = begin match !section with
-                 | Resource_indexes resource_name ->
+                 | Resource_indexes resource_name | Resource_index (resource_name, _) ->
                    let index_name = drop_suffix ~suffix:":" body |> trim in
-                   let update old =
-                     let r = Option.value old ~default:(resource_empty resource_name) in
-                     if List.mem index_name r.indexes then
+                   update_resource resource_name (fun r ->
+                     if List.exists (fun i -> i.index_name = index_name) r.indexes then
                        fail (Printf.sprintf "duplicate index %S" index_name)
-                     else Ok { r with indexes = r.indexes @ [index_name] }
-                   in
-                   update_resource resource_name (fun r -> update (Some r))
+                     else begin
+                       section := Resource_index (resource_name, index_name);
+                       Ok { r with indexes = r.indexes @ [index_empty index_name] }
+                     end)
                  | _ -> fail "unsupported sun.yml syntax"
                  end in
                  loop ()
@@ -410,9 +456,24 @@ let load path =
                  | _ -> fail "unsupported sun.yml syntax"
                  end in
                  loop ()
-               | 8, _, Some (k, _) ->
+               | 8, _, Some (k, v) ->
                  begin match !section with
-                 | Resource_indexes _ when k = "partition_key" || k = "sort_key" -> loop ()
+                 | Resource_index (resource_name, index_name) when k = "partition_key" || k = "sort_key" ->
+                   let* () = require_value k v in
+                   let* v = scalar k v in
+                   let update_index i =
+                     if i.index_name <> index_name then i
+                     else match k with
+                       | "partition_key" -> { i with partition_key = Some v }
+                       | "sort_key" -> { i with sort_key = Some v }
+                       | _ -> i
+                   in
+                   let* () = update_resource resource_name (fun r ->
+                     Ok { r with indexes = List.map update_index r.indexes })
+                   in
+                   loop ()
+                 | Resource_indexes _ when k = "partition_key" || k = "sort_key" ->
+                   fail "index key must appear under an index name"
                  | _ -> fail (Printf.sprintf "unknown key %S" k)
                  end
                | _ -> fail "unsupported sun.yml syntax"
@@ -422,6 +483,22 @@ let load path =
 let prefer a b = match b with Some _ -> b | None -> a
 let prefer_list a b = if b = [] then a else b
 
+let merge_fields a b =
+  List.fold_left (fun acc (k, v) ->
+    upsert_by_name fst k
+      (function None -> k, v | Some _ -> k, v)
+      acc)
+    a b
+
+let merge_provider_fields a b =
+  List.fold_left (fun acc (provider, fields) ->
+    upsert_by_name fst provider
+      (function
+        | None -> provider, fields
+        | Some (_, old_fields) -> provider, merge_fields old_fields fields)
+      acc)
+    a b
+
 let merge_target a b = {
   a with
   registry = prefer a.registry b.registry;
@@ -429,6 +506,7 @@ let merge_target a b = {
   cluster_name = prefer a.cluster_name b.cluster_name;
   terraform_var_file = prefer a.terraform_var_file b.terraform_var_file;
   observability_backend = prefer a.observability_backend b.observability_backend;
+  provider_fields = merge_provider_fields a.provider_fields b.provider_fields;
 }
 
 let merge_resource (a : resource) (b : resource) = {
@@ -478,7 +556,8 @@ let target_of_path s =
     when env <> "" && provider <> "" && region <> ""
          && env <> ".." && provider <> ".." && region <> ".." ->
     Ok { name = s; env; provider; region; registry = None; base_domain = None;
-         cluster_name = None; terraform_var_file = None; observability_backend = None }
+         cluster_name = None; terraform_var_file = None; observability_backend = None;
+         provider_fields = [] }
   | parts when List.exists ((=) "..") parts ->
     Error { path = s; line = 0; message = "target path must not contain '..'" }
   | _ ->
@@ -520,6 +599,12 @@ let terraform_vars cfg =
       |> add_opt "region" (Some target.region)
       |> add_opt "cluster_name" target.cluster_name
       |> add_opt "base_domain" target.base_domain
+    in
+    let vars =
+      List.assoc_opt target.provider target.provider_fields
+      |> Option.value ~default:[]
+      |> List.map (fun (k, v) -> k ^ "=" ^ v)
+      |> List.rev_append vars
     in
     let has_postgres =
       resources cfg

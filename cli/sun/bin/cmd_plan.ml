@@ -4,6 +4,16 @@ let print_opt label = function
   | None -> ()
   | Some v -> Printf.printf "  %-14s %s\n" label v
 
+let print_index (index : Sun_cli_config.index) =
+  Printf.printf "    index %s" index.index_name;
+  begin match index.partition_key, index.sort_key with
+  | None, None -> Printf.printf "\n"
+  | partition_key, sort_key ->
+    Printf.printf " (partition_key=%s sort_key=%s)\n"
+      (Option.value partition_key ~default:"?")
+      (Option.value sort_key ~default:"?")
+  end
+
 let run target_name =
   match Sun_cli_config.load_for_target ~target:target_name with
   | Error e ->
@@ -32,8 +42,7 @@ let run target_name =
       List.iter (fun (r : Sun_cli_config.resource) ->
         Printf.printf "  - %s%s\n" r.Sun_cli_config.name
           (match r.typ with None -> "" | Some t -> " (" ^ t ^ ")");
-        if r.indexes <> [] then
-          Printf.printf "    indexes: %s\n" (String.concat ", " r.indexes))
+        List.iter print_index r.indexes)
         resources;
       Printf.printf "\nServices:\n";
       if services = [] then Printf.printf "  (none)\n";
