@@ -5,6 +5,13 @@ type env_config = {
   mode           : deployment_mode;
   registry       : string;
   image_tag      : string;
+  env            : string option;
+  (** Resolved deployment environment (e.g. ["dev"], ["prod"]) from a
+      [sun deploy <env>/<provider>/<region>] target. [None] when no target
+      was resolved (e.g. [sun up], which is local-only and has no target
+      concept). Threaded into generated manifest labels alongside
+      [workspace]/[domain]/[service]/[primitive]/[release] — see
+      [docs/architecture/observability-design.md]'s Identity table. *)
   region         : string option;
   base_domain    : string option;
   secret_backend : Sun_cli_manifest.secret_backend;

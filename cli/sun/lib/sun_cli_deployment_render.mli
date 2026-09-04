@@ -1,12 +1,15 @@
 val render_spec :
   workspace:string ->
+  ?env:string ->
   ?image:string ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   Sun_cli_deployment_plan.service_spec ->
   (string * string, string) result
 (** Render a [(namespace_yaml, workload_yaml)] pair from a resolved [service_spec].
     [workspace] plus the spec's [domain]/[primitive] populate the OBS-008
-    label taxonomy.
+    label taxonomy. Pass [~env] (the resolved deployment environment, e.g.
+    ["prod"]) to add the [env] label — omit it for deploys with no resolved
+    target (e.g. [sun up]).
     Returns [Ok (ns_yaml, workload_yaml)] on success.
     Returns [Error msg] when [secret_backend = Kubernetes_live] and one or more
     user-declared secret env vars (from [spec.secrets]) are absent from the

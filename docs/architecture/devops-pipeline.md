@@ -360,8 +360,8 @@ at that step.
 The deploy job uses two stable `sun deploy` invocations:
 
 ```
-sun deploy --emit-plan-to plan.json --dry-run    # capture typed deployment intent
-sun deploy --emit-to manifests/ --image-tag $SHA # render K8s YAML for GitOps
+sun deploy prod/aws/us-east-1 --emit-plan-to plan.json --dry-run    # capture typed deployment intent
+sun deploy prod/aws/us-east-1 --emit-to manifests/ --image-tag $SHA # render K8s YAML for GitOps
 ```
 
 The `--emit-plan-to` step records the full deployment intent (images, namespaces,

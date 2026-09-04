@@ -36,11 +36,14 @@ val gitops :
 
 val run_plan :
   workspace:string ->
+  ?env:string ->
   mode:mode ->
   ?secret_backend:Sun_cli_manifest.secret_backend ->
   Sun_cli_deployment_plan.service_spec list ->
   (result list, string) Stdlib.result
-(** [run_plan ~mode ?secret_backend services] renders all service specs upfront
+(** [run_plan ~mode ?env ?secret_backend services] renders all service specs upfront
+    ([~env], the resolved deployment environment, is threaded into every
+    spec's [env] manifest label — omit it when no target resolved one)
     (returning [Error msg] on the first render failure before any side effect),
     then executes according to [mode]:
     - [Dry_run]    — prints rendered YAML to stdout; no kubectl called.

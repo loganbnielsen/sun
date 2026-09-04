@@ -98,7 +98,7 @@ bill. Sun owns the standard substrate shape and release workflow.
 Deployments may be direct:
 
 ```bash
-sun deploy --env prod
+sun deploy prod/aws/us-east-1
 ```
 
 ### Exported Self-Managed
@@ -108,7 +108,7 @@ workspace into Terraform/manifests/GitOps artifacts, but those artifacts become
 handoff output rather than a Sun-operated release.
 
 ```bash
-sun deploy --env prod --emit-to <gitops-repo>
+sun deploy prod/aws/us-east-1 --emit-to <gitops-repo>
 ```
 
 ### Sun Hosted Factory Floor

@@ -28,8 +28,10 @@ registry URL, Kubernetes cluster name, base domain). Passed through
 `Sun_cli_env_target.t` when building a deployment plan. These are not
 per-service — they apply to the entire workspace for a given environment.
 
-Use `sun deploy --registry <url> --image-tag <tag>` or the equivalent
-environment target configuration.
+Use `sun deploy <env>/<provider>/<region> --registry <url> --image-tag <tag>`
+or the equivalent environment target configuration
+(`sun/<env>/<provider>/<region>.yml`'s own `registry`, used as the default
+when `--registry` is omitted).
 
 ### Level 3 — GitOps emit (`sun deploy --emit-to`)
 

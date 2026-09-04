@@ -68,6 +68,7 @@ let env_config : Sun_cli_deployment_plan.env_config = {
   mode           = Sun_cli_deployment_plan.Customer_cloud;
   registry       = "registry.example.com";
   image_tag      = "abc123";
+  env            = None;
   region         = None;
   base_domain    = None;
   secret_backend = Sun_cli_manifest.Kubernetes_placeholder;

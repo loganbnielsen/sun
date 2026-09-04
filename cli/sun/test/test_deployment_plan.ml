@@ -160,6 +160,7 @@ let sample_plan () : Sun_cli_deployment_plan.t =
     mode           = Sun_cli_deployment_plan.Customer_cloud;
     registry       = "123.dkr.ecr.us-east-1.amazonaws.com";
     image_tag      = "abc1234";
+    env            = Some "prod";
     region         = Some "us-east-1";
     base_domain    = Some "example.com";
     secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
@@ -235,7 +236,7 @@ let test_to_json_config_values_present () =
 let test_to_json_mode_strings () =
   let check_mode mode expected =
     let env : Sun_cli_deployment_plan.env_config = {
-      name = "env"; mode; registry = "r"; image_tag = "t";
+      name = "env"; mode; registry = "r"; image_tag = "t"; env = None;
       region = None; base_domain = None; secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
     } in
     let plan : Sun_cli_deployment_plan.t = {
@@ -746,6 +747,7 @@ let test_of_services_result_surfaces_toml_parse_error () =
       mode = Sun_cli_deployment_plan.Local;
       registry = "sun-registry:5000";
       image_tag = "dev";
+      env = None;
       region = None;
       base_domain = None;
       secret_backend = Sun_cli_manifest.Kubernetes_live;

@@ -5,6 +5,7 @@ type env_config = {
   mode           : deployment_mode;
   registry       : string;
   image_tag      : string;
+  env            : string option;
   region         : string option;
   base_domain    : string option;
   secret_backend : Sun_cli_manifest.secret_backend;
@@ -171,6 +172,7 @@ let to_json t =
       "mode",           `String (mode_to_string env.mode);
       "registry",       `String env.registry;
       "image_tag",      `String env.image_tag;
+      "env",            opt_string env.env;
       "region",         opt_string env.region;
       "base_domain",    opt_string env.base_domain;
       "secret_backend", secret_backend_to_json env.secret_backend;

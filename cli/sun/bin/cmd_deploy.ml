@@ -18,6 +18,27 @@ let run (req : Sun_cli_command_request.deploy_request) =
   let sha       = req.image_tag in
   let services  = discover_services ~filter_path:req.filter_path in
 
+  let target_cfg =
+    match Sun_cli_config.load_for_target ~target:req.target with
+    | Error e ->
+      Printf.eprintf "error: %s\n" (Sun_cli_config.error_to_string e);
+      exit 1
+    | Ok cfg ->
+      match Sun_cli_config.target cfg with
+      | None ->
+        Printf.eprintf "error: target %S not found\n" req.target;
+        exit 1
+      | Some target -> target
+  in
+  let registry =
+    match req.registry with
+    | Some r -> r
+    | None ->
+      (match target_cfg.Sun_cli_config.registry with
+       | Some r -> r
+       | None   -> "sun-registry:5000")
+  in
+
   if services = [] then begin
     Printf.eprintf "No services found in app/ with a Dockerfile.\n";
     exit 1
@@ -46,7 +67,7 @@ let run (req : Sun_cli_command_request.deploy_request) =
 
   let env_target =
     match Sun_cli_env_target.customer_cloud_defaults
-            ~registry:req.registry
+            ~registry
             ~image_tag:sha
             ~emit_to:req.emit_to
             ()
@@ -73,7 +94,8 @@ let run (req : Sun_cli_command_request.deploy_request) =
    | _ -> ());
 
   let env  = { (Sun_cli_env_target.to_env_config ~name:workspace env_target) with
-               Sun_cli_deployment_plan.secret_backend = req.secret_backend } in
+               Sun_cli_deployment_plan.secret_backend = req.secret_backend;
+               env = Some target_cfg.Sun_cli_config.env } in
   let plan =
     match Sun_cli_deployment_plan.of_services_result ~workspace ~env services with
     | Ok plan -> plan
@@ -135,7 +157,8 @@ let run (req : Sun_cli_command_request.deploy_request) =
 
   (try
     let results =
-      match Sun_cli_executor.run_plan ~workspace ~mode ~secret_backend:req.secret_backend
+      match Sun_cli_executor.run_plan ~workspace ~env:target_cfg.Sun_cli_config.env
+              ~mode ~secret_backend:req.secret_backend
               plan.Sun_cli_deployment_plan.services with
       | Ok rs -> rs
       | Error msg ->
@@ -175,8 +198,17 @@ let run (req : Sun_cli_command_request.deploy_request) =
 
 (* ── Cmdliner terms ──────────────────────────────────────────────────────── *)
 
+let target_arg =
+  Arg.(required & pos 0 (some string) None &
+       info [] ~docv:"TARGET"
+         ~doc:"Deployment target path: <env>/<provider>/<region>, e.g. \
+               dev/aws/us-east-1 — same convention as 'sun plan'. Resolves \
+               sun.yml + sun/<env>/<provider>/<region>.yml for registry/env \
+               defaults. Unlike 'sun up' (local-only, no target concept), \
+               this is required.")
+
 let path_arg =
-  Arg.(value & pos 0 (some string) None &
+  Arg.(value & pos 1 (some string) None &
        info [] ~docv:"PATH"
          ~doc:"Service path to deploy (default: all services in workspace)")
 
@@ -279,11 +311,14 @@ let cmd =
     (Cmd.info "deploy"
        ~doc:"Deploy pre-built images to a cluster (CI/CD integration). \
              Like 'sun up' but skips the build step — images must already \
-             be in the registry.")
-    Term.(const (fun filter_path dry_run emit_to emit_plan_to image_tag registry
+             be in the registry. Takes a required TARGET positional \
+             (<env>/<provider>/<region>, e.g. dev/aws/us-east-1), unlike \
+             'sun up' whose positional is the optional service-path filter — \
+             'sun up' is local-only and has no target to resolve.")
+    Term.(const (fun target filter_path dry_run emit_to emit_plan_to image_tag registry
                      secret_backend confirm_group_change ->
         match Sun_cli_command_request.make_deploy_request
-                ~filter_path ~dry_run ~emit_to ~emit_plan_to
+                ~target ~filter_path ~dry_run ~emit_to ~emit_plan_to
                 ~image_tag ~registry ~secret_backend ~confirm_group_change
                 ~git_sha
           with
@@ -291,6 +326,6 @@ let cmd =
           | Error msg ->
             Printf.eprintf "error: %s\n" msg;
             exit 1)
-          $ path_arg $ dry_run_flag $ emit_to_arg
+          $ target_arg $ path_arg $ dry_run_flag $ emit_to_arg
           $ emit_plan_to_arg $ image_tag_arg $ registry_arg
           $ secret_backend_term $ confirm_group_change_flag)

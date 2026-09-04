@@ -56,6 +56,7 @@ let to_env_config ~name t : Sun_cli_deployment_plan.env_config = {
   mode           = deployment_mode_of_target t;
   registry       = registry t;
   image_tag      = image_tag t;
+  env            = None;
   region         = None;
   base_domain    = None;
   secret_backend = default_secret_backend t;

@@ -7,8 +7,8 @@ let check_string = Alcotest.(check string)
 let check_bool   = Alcotest.(check bool)
 
 (** Unwrap a [render_spec] result, failing the test on [Error]. *)
-let render_spec_ok ?(workspace = "myapp") ?image ?secret_backend spec =
-  match Sun_cli_deployment_render.render_spec ~workspace ?image ?secret_backend spec with
+let render_spec_ok ?(workspace = "myapp") ?env ?image ?secret_backend spec =
+  match Sun_cli_deployment_render.render_spec ~workspace ?env ?image ?secret_backend spec with
   | Ok v    -> v
   | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
 
@@ -184,6 +184,25 @@ let test_svc_replicas () =
 let test_svc_extra_config () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
+
+(* FEAT-026: sun deploy's resolved target's env is threaded through to a
+   real env taxonomy label — omitted (not a fake default) when no target
+   resolved one, e.g. sun up. *)
+let test_svc_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"prod" svc_spec in
+  assert_contains "svc env label" workload {|env: "prod"|}
+
+let test_svc_env_label_absent_by_default () =
+  let (_ns, workload) = render_spec_ok svc_spec in
+  assert_absent "svc env label" workload {|env: "|}
+
+let test_worker_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"staging" worker_spec in
+  assert_contains "worker env label" workload {|env: "staging"|}
+
+let test_fn_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"dev" fn_spec in
+  assert_contains "fn env label" workload {|env: "dev"|}
 
 let test_svc_default_postgres_url () =
   (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
@@ -1248,6 +1267,8 @@ let () =
       ; Alcotest.test_case "has containerPort"      `Quick test_svc_has_ports
       ; Alcotest.test_case "replicas from spec"     `Quick test_svc_replicas
       ; Alcotest.test_case "extra config in map"    `Quick test_svc_extra_config
+      ; Alcotest.test_case "env label when resolved" `Quick test_svc_env_label_present_when_resolved
+      ; Alcotest.test_case "env label absent by default" `Quick test_svc_env_label_absent_by_default
       ; Alcotest.test_case "default postgres url"   `Quick test_svc_default_postgres_url
       ; Alcotest.test_case "POSTGRES_URL not in ConfigMap" `Quick test_postgres_url_not_in_configmap
       ; Alcotest.test_case "POSTGRES_URL in Secret"        `Quick test_postgres_url_in_secret
@@ -1269,12 +1290,14 @@ let () =
       ; Alcotest.test_case "metrics containerPort"  `Quick test_worker_metrics_port
       ; Alcotest.test_case "has Deployment"         `Quick test_worker_has_deployment
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_worker_user_secret_key_in_secret_resource
+      ; Alcotest.test_case "env label when resolved" `Quick test_worker_env_label_present_when_resolved
       ]
     ; "fn", [
         Alcotest.test_case "namespace yaml"         `Quick test_fn_namespace
       ; Alcotest.test_case "image"                  `Quick test_fn_image
       ; Alcotest.test_case "kind CronJob"           `Quick test_fn_cronjob
       ; Alcotest.test_case "schedule from spec"     `Quick test_fn_schedule
+      ; Alcotest.test_case "env label when resolved" `Quick test_fn_env_label_present_when_resolved
       ; Alcotest.test_case "no Deployment"          `Quick test_fn_no_deployment
       ; Alcotest.test_case "default schedule"       `Quick test_fn_default_schedule
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_fn_user_secret_key_in_secret_resource

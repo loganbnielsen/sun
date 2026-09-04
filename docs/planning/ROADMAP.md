@@ -135,7 +135,7 @@ sun status
 sun logs
 sun secret set DATABASE_URL --env local --value ...
 sun migrate
-sun deploy --dry-run
+sun deploy dev/aws/us-east-1 --dry-run
 sun rollback
 ```
 
@@ -593,17 +593,17 @@ Phase 5 built the synthesis pipeline and proved it against a local k3d cluster. 
 
 **Local (`sun up`)** — builds Docker images and deploys to the local k3d cluster provisioned by `sun dev up`. Intended for development and smoke-testing.
 
-**Customer-cloud direct (`sun deploy`)** — CI builds images, pushes them to a production registry, then `sun deploy --image-tag $SHA --registry $REGISTRY` synthesizes manifests and applies them directly to a customer-managed Kubernetes cluster.
+**Customer-cloud direct (`sun deploy`)** — CI builds images, pushes them to a production registry, then `sun deploy <env>/<provider>/<region> --image-tag $SHA --registry $REGISTRY` synthesizes manifests and applies them directly to a customer-managed Kubernetes cluster. The target resolves `sun.yml` + `sun/<env>/<provider>/<region>.yml` for `--registry`'s default and the `env` manifest label — same convention as `sun plan`.
 
 ```bash
-sun deploy --image-tag <sha>            # deploy with a specific image tag
-sun deploy --image-tag <sha> --dry-run  # emit YAML only, for PR diff review
+sun deploy prod/aws/us-east-1 --image-tag <sha>            # deploy with a specific image tag
+sun deploy prod/aws/us-east-1 --image-tag <sha> --dry-run  # emit YAML only, for PR diff review
 ```
 
-**Customer-cloud GitOps (`sun deploy --emit-to`)** — `sun deploy --emit-to <dir>` writes synthesized YAML to a directory instead of applying it. CI pushes that directory to a separate GitOps repo; Argo CD reconciles the cluster. The workspace repo never contains committed manifests.
+**Customer-cloud GitOps (`sun deploy --emit-to`)** — `sun deploy <target> --emit-to <dir>` writes synthesized YAML to a directory instead of applying it. CI pushes that directory to a separate GitOps repo; Argo CD reconciles the cluster. The workspace repo never contains committed manifests.
 
 ```bash
-sun deploy --emit-to /tmp/manifests --image-tag $SHA --registry $REGISTRY
+sun deploy prod/aws/us-east-1 --emit-to /tmp/manifests --image-tag $SHA --registry $REGISTRY
 # → CI pushes /tmp/manifests/* to the GitOps repo
 # → Argo CD detects the change and applies it
 ```

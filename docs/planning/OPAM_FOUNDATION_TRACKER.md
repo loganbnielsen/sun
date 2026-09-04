@@ -205,7 +205,7 @@ sun dev up
 sun up
 sun status
 sun migrate
-sun deploy --dry-run
+sun deploy dev/aws/us-east-1 --dry-run
 sun rollback
 ```
 

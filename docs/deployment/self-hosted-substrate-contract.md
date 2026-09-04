@@ -36,7 +36,9 @@ The following substrate inputs must exist before running `sun deploy`.
 ### Container Registry Prefix
 
 - A registry that the cluster's nodes can pull from.
-- Pass the prefix via `sun deploy --registry <prefix>`.
+- Pass the prefix via `sun deploy <env>/<provider>/<region> --registry <prefix>`,
+  or set it as the target file's own `registry` (used as the default when
+  `--registry` is omitted).
   Example: `123456789.dkr.ecr.us-east-1.amazonaws.com`
 - The cluster must have image-pull credentials configured (imagePullSecret,
   IRSA, or workload identity). Sun does not create pull credentials.
@@ -212,7 +214,7 @@ docker build -t $REGISTRY/orders-svc:$SHA .
 docker push $REGISTRY/orders-svc:$SHA
 
 # 2. Deploy — Sun's responsibility
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --registry   $REGISTRY \
   --image-tag  $SHA
 ```
@@ -222,7 +224,9 @@ What Sun does in step 2:
 1. Discovers services in `app/` (any directory with a `Dockerfile`).
 2. Reads `sun.toml` for service metadata (domain, primitive type, schedule,
    secret names, config keys, `ingress_host`).
-3. Validates that `--registry` is non-empty for customer cluster modes.
+3. Resolves the registry — explicit `--registry`, falling back to the
+   target file's `registry`, falling back to the local k3d default — and
+   validates the result is non-empty for customer cluster modes.
 4. Renders namespaces, service accounts, Deployments/Services/CronJobs,
    Ingress (when `ingress_host` is set in `sun.toml`), and NetworkPolicies.
 5. Applies manifests via `kubectl apply` (direct mode) or writes YAML files
@@ -234,7 +238,7 @@ the Kubernetes API server.
 ### GitOps Mode
 
 ```bash
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --registry   $REGISTRY \
   --image-tag  $SHA \
   --emit-to    ./gitops/manifests

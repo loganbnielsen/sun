@@ -41,7 +41,7 @@ type render_spec_t = {
   workload : render_workload;
 }
 
-let render ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
+let render ~workspace ?env ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     { common; workload } =
   let { namespace; k8s_name; domain; primitive; spec_image; config; secrets } = common in
   let ns               = Sun_cli_kubernetes_name.namespace_to_string namespace in
@@ -103,7 +103,7 @@ let render ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernet
         let memory = Sun_cli_toml.memory_quantity_to_string memory in
         match progressive_delivery with
         | Some pd ->
-          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd ~workspace ~domain ~primitive () in
+          let rollout = rollout_doc ~extra_labels ~secret_keys:(List.map fst secrets) ~config_hash:cfg_hash ?env ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~pd ~workspace ~domain ~primitive () in
           (match pd with
            | Sun_cli_toml.Blue_green ->
              [ rollout
@@ -120,7 +120,7 @@ let render ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernet
           let rollout_strategy = Option.value rollout_strategy
                                    ~default:Sun_cli_toml.RollingUpdate in
           [ deployment_doc ~rollout_strategy ~extra_labels ~config_hash:cfg_hash
-              ~secret_keys:(List.map fst secrets)
+              ~secret_keys:(List.map fst secrets) ?env
               ~shape ~replicas ~cpu ~memory ~ns ~name ~image:img ~workspace ~domain ~primitive () ]
       in
       let resources = match workload with
@@ -144,13 +144,13 @@ let render ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernet
         | Render_worker { deployment } ->
           deployment_resources ~shape:Background_worker ~ingress_host:"" ~ingress_path:"/" ~deployment
         | Render_fn { schedule } ->
-          [ cronjob_doc ~secret_keys:(List.map fst secrets) ~ns ~name ~image:img ~schedule ~workspace ~domain () ]
+          [ cronjob_doc ~secret_keys:(List.map fst secrets) ?env ~ns ~name ~image:img ~schedule ~workspace ~domain () ]
       in
       (ns_yaml, String.concat "\n" (common_resources @ resources))
     ) secret_resource_result
   )
 
-let render_spec ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
+let render_spec ~workspace ?env ?(image = "") ?(secret_backend = Sun_cli_manifest.Kubernetes_live)
     (s : Sun_cli_deployment_plan.service_spec) =
   let primitive = match s.primitive with
     | Sun_cli_deployment_plan.Svc    -> "svc"
@@ -183,4 +183,4 @@ let render_spec ~workspace ?(image = "") ?(secret_backend = Sun_cli_manifest.Kub
       let schedule = Option.value s.schedule ~default:"0 * * * *" in
       Render_fn { schedule }
   in
-  render ~workspace ~image ~secret_backend { common; workload }
+  render ~workspace ?env ~image ~secret_backend { common; workload }

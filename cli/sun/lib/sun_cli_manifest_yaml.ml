@@ -147,10 +147,11 @@ let render_extra_labels labels =
   String.concat "\n" (List.map (fun (k, v) -> f "        %s: \"%s\"" k v) labels)
 
 (* docs/architecture/observability-design.md's identity taxonomy: workspace,
-   domain, service, primitive, release. `env` is a sixth taxonomy label the
-   doc calls for, sourced from the active deployment target -- not emitted
-   yet, since sun up/sun deploy have no target-resolution concept today
-   (see OBS-016). `release` is the image tag, the part after the last ':'
+   domain, service, primitive, release, plus a sixth, `env`, sourced from
+   the active deployment target -- passed to render_taxonomy_labels below
+   as ?env, omitted (not a fake default) when no target resolved one, e.g.
+   sun up (FEAT-026; see OBS-016 for the original gap). `release` is the
+   image tag, the part after the last ':'
    -- falls back to "unknown" for a tag-less/malformed image ref rather
    than raising, since a bad label value is far cheaper than a failed
    deploy; sanitize_label_value bounds it to Kubernetes' 63-char
@@ -170,7 +171,7 @@ let release_of_image image =
    disagreeing. *)
 let sanitize_label_value = Sun_cli_kubernetes_name.sanitize_label_value
 
-let render_taxonomy_labels ?(indent = "        ") ~workspace ~domain ~service ~primitive ~image () =
+let render_taxonomy_labels ?(indent = "        ") ?env ~workspace ~domain ~service ~primitive ~image () =
   (* Every value goes through sanitize_label_value uniformly -- workspace/
      domain are only indirectly bounded today (namespace_result validates
      their combined length before render is ever called) and service is
@@ -183,12 +184,14 @@ let render_taxonomy_labels ?(indent = "        ") ~workspace ~domain ~service ~p
   ; "primitive", primitive
   ; "release", release_of_image image
   ]
+  @ (match env with None -> [] | Some e -> [ "env", e ])
   |> List.map (fun (k, v) -> f "%s%s: \"%s\"" indent k (sanitize_label_value v))
   |> String.concat "\n"
 
 let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
                    ?(extra_labels = [])
                    ?(secret_keys = [])
+                   ?env
                    ?(config_hash = "")
                    ~shape ~replicas ~cpu ~memory ~ns ~name ~image
                    ~workspace ~domain ~primitive () =
@@ -226,7 +229,7 @@ let deployment_doc ?(rollout_strategy = Sun_cli_toml.RollingUpdate)
   in
   let secret_env_section = render_secret_key_refs ~name secret_keys in
   let taxonomy_labels_section =
-    render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
+    render_taxonomy_labels ?env ~workspace ~domain ~service:name ~primitive ~image ()
   in
   let prometheus_annotations = match shape with
     | Http_service ->
@@ -312,7 +315,7 @@ let render_blue_green_strategy name =
     The pod template is the same as a Deployment; only the top-level kind,
     apiVersion, and strategy section differ.  [progressive_delivery] must be
     [Some _] — callers in [render_spec] only invoke this when it is set. *)
-let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd ~workspace ~domain ~primitive () =
+let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ?env ~shape ~replicas ~cpu ~memory ~ns ~name ~image ~pd ~workspace ~domain ~primitive () =
   let ports_section =
     match shape with
     | Http_service -> {|        ports:
@@ -343,7 +346,7 @@ let rollout_doc ?(extra_labels = []) ?(secret_keys = []) ?(config_hash = "") ~sh
   in
   let secret_env_section = render_secret_key_refs ~name secret_keys in
   let taxonomy_labels_section =
-    render_taxonomy_labels ~workspace ~domain ~service:name ~primitive ~image ()
+    render_taxonomy_labels ?env ~workspace ~domain ~service:name ~primitive ~image ()
   in
   let prometheus_annotations = match shape with
     | Http_service ->
@@ -505,10 +508,10 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: monitoring|} name ns name
 
-let cronjob_doc ?(secret_keys = []) ~ns ~name ~image ~schedule ~workspace ~domain () =
+let cronjob_doc ?(secret_keys = []) ?env ~ns ~name ~image ~schedule ~workspace ~domain () =
   let secret_env_section = render_secret_key_refs ~name secret_keys in
   let taxonomy_labels_section =
-    render_taxonomy_labels ~indent:"            " ~workspace ~domain ~service:name ~primitive:"fn" ~image ()
+    render_taxonomy_labels ~indent:"            " ?env ~workspace ~domain ~service:name ~primitive:"fn" ~image ()
   in
   f {|---
 apiVersion: batch/v1

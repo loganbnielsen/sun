@@ -13,6 +13,12 @@
 # Optional secrets (override cluster defaults):
 #   POSTGRES_URL              — set when using RDS instead of in-cluster postgres
 #
+# Required repo variable (Settings → Secrets and variables → Actions → Variables —
+# not a secret, this is just a path):
+#   SUN_TARGET                — deployment target, <env>/<provider>/<region>, e.g.
+#                                prod/aws/us-east-1. Must match a
+#                                sun/<env>/<provider>/<region>.yml file in this repo.
+#
 # For GitOps mode (Argo CD), see github-actions-gitops.yml instead.
 
 name: Deploy
@@ -82,12 +88,13 @@ jobs:
 
       - name: sun deploy
         env:
-          SHA:      ${{ github.sha }}
-          REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          SHA:        ${{ github.sha }}
+          REGISTRY:   ${{ secrets.ECR_REGISTRY }}
+          SUN_TARGET: ${{ vars.SUN_TARGET }}
         run: |
           eval $(opam env)
           SHORT_SHA=${SHA::7}
-          sun deploy \
+          sun deploy "$SUN_TARGET" \
             --image-tag "$SHORT_SHA" \
             --registry  "$REGISTRY"
 

@@ -387,26 +387,26 @@ sun up --dry-run    # print generated YAML to stdout without applying
 
 ### Customer-cloud direct — `sun deploy`
 
-CI builds and pushes images to a production registry; `sun deploy` synthesizes manifests and applies them to a customer-managed Kubernetes cluster. Run after the Docker build step in CI.
+CI builds and pushes images to a production registry; `sun deploy <env>/<provider>/<region>` synthesizes manifests and applies them to a customer-managed Kubernetes cluster. Run after the Docker build step in CI. The target (e.g. `prod/aws/us-east-1`) resolves `sun.yml` + `sun/<env>/<provider>/<region>.yml` for defaults like `--registry` and the `env` manifest label — same convention as `sun plan`.
 
 ```bash
-sun deploy --image-tag $SHA --registry $REGISTRY
-sun deploy --image-tag $SHA --registry $REGISTRY --dry-run  # diff review in PRs
+sun deploy prod/aws/us-east-1 --image-tag $SHA --registry $REGISTRY
+sun deploy prod/aws/us-east-1 --image-tag $SHA --registry $REGISTRY --dry-run  # diff review in PRs
 ```
 
 ### Customer-cloud GitOps — `sun deploy --emit-to`
 
-`sun deploy --emit-to <dir>` writes synthesized manifests to a directory instead of applying them. CI commits that directory to a separate GitOps repo; Argo CD reconciles the cluster automatically.
+`sun deploy <target> --emit-to <dir>` writes synthesized manifests to a directory instead of applying them. CI commits that directory to a separate GitOps repo; Argo CD reconciles the cluster automatically.
 
 ```bash
-sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY
+sun deploy prod/aws/us-east-1 --emit-to manifests/ --image-tag $SHA --registry $REGISTRY
 # CI commits manifests/ to the GitOps repo; Argo CD applies the change
 ```
 
 > **Security:** By default, the generated YAML includes redacted `Secret` placeholders — values are replaced with `REDACTED` so the file is safe to inspect but not usable as-is. To emit `ExternalSecret` CRDs for the External Secrets Operator instead (production-ready GitOps), pass `--secret-backend external-secrets`:
 >
 > ```bash
-> sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY \
+> sun deploy prod/aws/us-east-1 --emit-to manifests/ --image-tag $SHA --registry $REGISTRY \
 >   --secret-backend external-secrets \
 >   --secret-store-ref my-cluster-store
 > ```
@@ -418,7 +418,7 @@ sun deploy --emit-to manifests/ --image-tag $SHA --registry $REGISTRY
 Writes the deployment plan as JSON for external tooling or debugging. The schema is experimental.
 
 ```bash
-sun deploy --emit-plan-to plan.json --image-tag $SHA
+sun deploy prod/aws/us-east-1 --emit-plan-to plan.json --image-tag $SHA
 ```
 
 ### `sun.toml` — per-service overrides

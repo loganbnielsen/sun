@@ -58,6 +58,7 @@ let hosted_plan ?progressive_delivery () =
     mode = Sun_cli_deployment_plan.Sun_hosted;
     registry = "registry.sun.dev/acct_123";
     image_tag = "abc123";
+    env = Some "prod";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
     secret_backend = Sun_cli_manifest.Kubernetes_placeholder;

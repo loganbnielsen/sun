@@ -475,8 +475,8 @@ sun dev run                                       run services as native process
 
 sun plan TARGET                                   print merged app/resource/service plan
 sun up [path] [--dry-run] [--tag]                 build images and deploy to local cluster
-sun deploy [--image-tag TAG] [--registry URL]     deploy pre-built images (CI mode)
-sun deploy --emit-to DIR [--image-tag TAG] ...    write YAML for Argo CD (GitOps mode)
+sun deploy TARGET [--image-tag TAG] [--registry URL]  deploy pre-built images (CI mode)
+sun deploy TARGET --emit-to DIR [--image-tag TAG] ...  write YAML for Argo CD (GitOps mode)
 sun status [domain]                               show running pods and port-forward hints
 
 sun migrate [apply]                               apply pending migrations
@@ -505,7 +505,7 @@ The `sun deploy` command is `sun up` without the build step. It is designed to r
 
 ```bash
 # In CI, after docker build && docker push:
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --image-tag "$GIT_SHA" \
   --registry  "123456789.dkr.ecr.us-east-1.amazonaws.com"
 ```
@@ -516,7 +516,7 @@ Sun generates the same Kubernetes manifests as `sun up` but uses the provided re
 
 ```bash
 # In CI:
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --emit-to   manifests/ \
   --image-tag "$GIT_SHA" \
   --registry  "123456789.dkr.ecr.us-east-1.amazonaws.com"

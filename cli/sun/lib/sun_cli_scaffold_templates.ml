@@ -326,6 +326,11 @@ let tpl_github_deploy = {tpl|# CI/CD — deploy to your Sun cluster on every pus
 #                      GCP AR:   us-central1-docker.pkg.dev/my-project/{{name}}
 #                      Docker Hub: docker.io/myorg
 #
+# Required repo variable (Settings → Secrets and variables → Actions → Variables —
+# not a secret, this is just a path):
+#   SUN_TARGET       deployment target, <env>/<provider>/<region>, e.g. prod/aws/us-east-1.
+#                    Must match a sun/<env>/<provider>/<region>.yml file in this repo.
+#
 # For ECR add AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION and
 # uncomment the ECR login step below.
 #
@@ -396,13 +401,14 @@ jobs:
 
       - name: Deploy
         env:
-          REGISTRY: ${{ secrets.REGISTRY }}
-          SHA:      ${{ github.sha }}
+          REGISTRY:   ${{ secrets.REGISTRY }}
+          SHA:        ${{ github.sha }}
+          SUN_TARGET: ${{ vars.SUN_TARGET }}
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
           eval $(opam env)
-          sun deploy \
+          sun deploy "$SUN_TARGET" \
             --image-tag "${SHA::7}" \
             --registry  "$REGISTRY"
 
