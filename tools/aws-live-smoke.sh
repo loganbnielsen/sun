@@ -67,12 +67,13 @@ run base-apply bash -lc "KUBE_CONFIG_PATH='$HOME/.kube/config' terraform -chdir=
 run pods kubectl get pods -A
 run loki-ready bash -lc "kubectl -n monitoring port-forward svc/loki 3100:3100 >/tmp/sun-loki-pf.log 2>&1 & pid=\$!; sleep 5; curl -fsS http://127.0.0.1:3100/ready; kill \$pid"
 # /ready only proves Loki itself is up, not that anything is being ingested.
-# This proves promtail (OBS-004) is really scraping pod stdout by querying a
-# namespace Sun's own app-push logging (obs-loki-eio) never touches
-# (kube-system) — a non-empty result here can only have come from promtail's
-# cluster-wide DaemonSet scrape, not from any Sun service pushing its own logs.
-run promtail-ingest bash -lc "kubectl -n monitoring port-forward svc/loki 3100:3100 >/tmp/sun-loki-pf2.log 2>&1 & pid=\$!; sleep 5; body=\$(curl -fsS --get 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={namespace=\"kube-system\"}' --data-urlencode limit=1); kill \$pid; echo \"\$body\"; echo \"\$body\" | grep -q '\"result\":\[{' "
+# This proves Alloy (OBS-004, OBS-039 — Promtail's successor) is really
+# scraping pod stdout by querying a namespace Sun's own app-push logging
+# (obs-loki-eio) never touches (kube-system) — a non-empty result here can
+# only have come from Alloy's cluster-wide DaemonSet scrape, not from any Sun
+# service pushing its own logs.
+run alloy-ingest bash -lc "kubectl -n monitoring port-forward svc/loki 3100:3100 >/tmp/sun-loki-pf2.log 2>&1 & pid=\$!; sleep 5; body=\$(curl -fsS --get 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={namespace=\"kube-system\"}' --data-urlencode limit=1); kill \$pid; echo \"\$body\"; echo \"\$body\" | grep -q '\"result\":\[{' "
 run prom-ready bash -lc "kubectl -n monitoring port-forward svc/prometheus-server 9090:80 >/tmp/sun-prom-pf.log 2>&1 & pid=\$!; sleep 5; curl -fsS http://127.0.0.1:9090/-/ready; kill \$pid"
-run grafana-ready bash -lc "kubectl -n monitoring port-forward svc/loki-grafana 3000:80 >/tmp/sun-grafana-pf.log 2>&1 & pid=\$!; sleep 5; curl -fsS http://127.0.0.1:3000/api/health; kill \$pid"
+run grafana-ready bash -lc "kubectl -n monitoring port-forward svc/grafana 3000:80 >/tmp/sun-grafana-pf.log 2>&1 & pid=\$!; sleep 5; curl -fsS http://127.0.0.1:3000/api/health; kill \$pid"
 
 say "smoke checks passed"
