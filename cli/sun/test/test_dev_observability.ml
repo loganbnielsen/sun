@@ -14,6 +14,7 @@ let test_dashboard_configmap () =
   assert_contains "namespace" yaml "namespace: monitoring";
   assert_contains "sidecar label" yaml "grafana_dashboard: \"1\"";
   assert_contains "workspace uid" yaml "\"uid\": \"sun-workspace-overview\"";
+  assert_contains "domain uid" yaml "\"uid\": \"sun-domain-overview\"";
   assert_contains "service uid" yaml "\"uid\": \"sun-service-template\""
 
 let test_prometheus_datasource_configmap () =

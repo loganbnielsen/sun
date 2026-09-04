@@ -110,6 +110,87 @@ let workspace_overview_json = {json|{
   ]
 }|json}
 
+let domain_overview_json = {json|{
+  "title": "Sun Domain Overview",
+  "uid": "sun-domain-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-6h", "to": "now" },
+  "tags": ["sun"],
+  "templating": {
+    "list": [
+      {
+        "name": "workspace",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values(workspace)",
+        "refresh": 2,
+        "includeAll": false
+      },
+      {
+        "name": "domain",
+        "type": "query",
+        "datasource": "Loki",
+        "query": "label_values({workspace=\"$workspace\"}, domain)",
+        "refresh": 2,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate by service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "5xx error rate by service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\", status_class=\"5xx\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Scraped targets up, by service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(up{workspace=\"$workspace\", domain=\"$domain\"}) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Recent logs, this domain",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": "Loki",
+      "targets": [
+        { "expr": "{workspace=\"$workspace\", domain=\"$domain\"}" }
+      ]
+    }
+  ]
+}|json}
+
 let service_template_json = {json|{
   "title": "Sun Service",
   "uid": "sun-service-template",
@@ -206,6 +287,7 @@ let dashboard_configmap_yaml ~namespace =
     ~labels:["grafana_dashboard", "1"]
     ~data:[
       "workspace-overview.json", workspace_overview_json;
+      "domain-overview.json", domain_overview_json;
       "service-template.json", service_template_json;
     ]
 
