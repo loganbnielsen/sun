@@ -2,6 +2,7 @@ let check_str = Alcotest.(check string)
 let check_strs = Alcotest.(check (list string))
 let check_int_opt = Alcotest.(check (option int))
 let check_bool = Alcotest.(check bool)
+let check_str_opt = Alcotest.(check (option string))
 
 let write path content =
   let oc = open_out path in
@@ -27,6 +28,21 @@ let with_temp_dir f =
   Fun.protect
     ~finally:(fun () -> Sys.chdir cwd)
     (fun () -> Sys.chdir dir; f ())
+
+let with_chdir dir f =
+  let cwd = Sys.getcwd () in
+  Fun.protect
+    ~finally:(fun () -> Sys.chdir cwd)
+    (fun () -> Sys.chdir dir; f ())
+
+let expect_load_error expected =
+  match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+  | Ok _ -> Alcotest.fail "expected load_for_target to fail"
+  | Error e -> check_str "message" expected e.message
+
+let example_pluto_dir () =
+  if Sys.file_exists "examples/pluto/sun.yml" then "examples/pluto"
+  else "../../../../../examples/pluto"
 
 let write_base () =
   write "sun.yml" {|
@@ -84,6 +100,206 @@ services:
       check_strs "uses" ["app_db"; "sessions"] service.uses;
       check_int_opt "scale min" (Some 2) service.scale_min;
       check_int_opt "scale max" (Some 10) service.scale_max)
+
+let test_duplicate_resource_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  app_db:
+    type: postgres
+  app_db:
+    type: dynamodb
+|};
+    expect_load_error "duplicate resource \"app_db\"")
+
+let test_unknown_key_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    typo: nope
+|};
+    expect_load_error "unknown service key \"typo\"")
+
+let test_duplicate_top_level_section_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  app_db:
+    type: postgres
+
+services:
+  api:
+    type: http
+
+resources:
+  sessions:
+    type: dynamodb
+|};
+    expect_load_error "duplicate top-level section \"resources\"")
+
+let test_duplicate_index_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  sessions:
+    type: dynamodb
+    indexes:
+      by_expires_at:
+      by_expires_at:
+|};
+    expect_load_error "duplicate index \"by_expires_at\"")
+
+let test_malformed_list_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [app_db
+|};
+    expect_load_error "malformed list for uses")
+
+let test_malformed_quoted_scalar_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    path: "app/core/api
+|};
+    expect_load_error "malformed quoted value for path")
+
+let test_malformed_quoted_list_item_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: ["app_db]
+|};
+    expect_load_error "malformed quoted value for uses")
+
+let test_resource_key_after_indexes_parses () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  sessions:
+    type: dynamodb
+    indexes:
+      by_expires_at:
+    size: small
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let resource = List.hd (Sun_cli_config.resources cfg) in
+      check_str_opt "size" (Some "small") resource.size)
+
+let test_service_key_after_scale_parses () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    scale:
+      min: 1
+    path: app/core/api
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let service = List.hd (Sun_cli_config.services cfg) in
+      check_str_opt "path" (Some "app/core/api") service.path)
+
+let test_nested_provider_box_still_tolerated () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    vpc:
+      id: vpc-123
+  registry: registry.example.com
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_str_opt "registry" (Some "registry.example.com") target.registry)
+
+let test_target_provider_box_ends_before_generic_key () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    account_id: "123456789012"
+  registry: registry.example.com
+    typo: nope
+|};
+    expect_load_error "unsupported sun.yml syntax")
+
+let test_empty_target_value_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  registry:
+|};
+    expect_load_error "missing value for registry")
+
+let test_target_after_resources_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  app_db:
+    type: postgres
+
+target:
+  registry: registry.example.com
+|};
+    expect_load_error "target must appear before resources or services")
+
+let test_quoted_hash_survives () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    type: http
+    path: "app/core/api#1"
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let service = List.hd (Sun_cli_config.services cfg) in
+      check_str_opt "path" (Some "app/core/api#1") service.path)
+
+let test_single_quoted_hash_survives () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    type: http
+    path: 'app/core/api#1'
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let service = List.hd (Sun_cli_config.services cfg) in
+      check_str_opt "path" (Some "app/core/api#1") service.path)
+
+let test_malformed_int_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    scale:
+      min: abc
+|};
+    expect_load_error "expected integer for min")
+
+let test_malformed_bool_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  app_db:
+    omit: TRUE
+|};
+    expect_load_error "expected true or false for omit")
 
 let test_target_overlay_can_omit_resources_and_services () =
   with_temp_dir (fun () ->
@@ -153,6 +369,69 @@ let test_bad_target_path_fails () =
     | Error e ->
       check_str "message" "target must look like <env>/<provider>/<region>" e.message)
 
+let test_parent_target_path_fails () =
+  with_temp_dir (fun () ->
+    write_base ();
+    match Sun_cli_config.load_for_target ~target:"../../etc" with
+    | Ok _ -> Alcotest.fail "expected invalid target path"
+    | Error e ->
+      check_str "message" "target path must not contain '..'" e.message)
+
+let test_root_target_defaults_survive () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  registry: registry.example.com
+
+services:
+  api:
+    type: http
+|};
+    mkdir_p "sun/prod/aws";
+    write "sun/prod/aws/us-east-1.yml" {|
+target:
+  cluster_name: pluto-prod
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_str_opt "registry" (Some "registry.example.com") target.registry)
+
+let test_feat_028_shapes_still_tolerated () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    account_id: "123456789012"
+
+resources:
+  sessions:
+    type: dynamodb
+    indexes:
+      by_expires_at:
+        partition_key: tenant_id
+        sort_key: expires_at
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_str "env" "prod" target.env;
+      let resource = List.hd (Sun_cli_config.resources cfg) in
+      check_strs "indexes" ["by_expires_at"] resource.indexes)
+
+let test_example_pluto_prod_target_parses () =
+  with_chdir (example_pluto_dir ()) (fun () ->
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let resource =
+        Sun_cli_config.resources cfg
+        |> List.find (fun (r : Sun_cli_config.resource) -> r.name = "app_db")
+      in
+      check_str_opt "size" (Some "small") resource.size)
+
 let () =
   Alcotest.run "config"
     [ "sun.yml", [
@@ -161,5 +440,26 @@ let () =
         Alcotest.test_case "observability_backend parsed" `Quick test_target_observability_backend_parsed;
         Alcotest.test_case "observability_backend absent when unset" `Quick test_target_observability_backend_absent_when_unset;
         Alcotest.test_case "bad target path fails" `Quick test_bad_target_path_fails;
+        Alcotest.test_case "parent target path fails" `Quick test_parent_target_path_fails;
+        Alcotest.test_case "duplicate resource fails" `Quick test_duplicate_resource_fails;
+        Alcotest.test_case "unknown key fails" `Quick test_unknown_key_fails;
+        Alcotest.test_case "duplicate top-level section fails" `Quick test_duplicate_top_level_section_fails;
+        Alcotest.test_case "duplicate index fails" `Quick test_duplicate_index_fails;
+        Alcotest.test_case "malformed list fails" `Quick test_malformed_list_fails;
+        Alcotest.test_case "malformed quoted scalar fails" `Quick test_malformed_quoted_scalar_fails;
+        Alcotest.test_case "malformed quoted list item fails" `Quick test_malformed_quoted_list_item_fails;
+        Alcotest.test_case "resource key after indexes parses" `Quick test_resource_key_after_indexes_parses;
+        Alcotest.test_case "service key after scale parses" `Quick test_service_key_after_scale_parses;
+        Alcotest.test_case "nested provider box tolerated" `Quick test_nested_provider_box_still_tolerated;
+        Alcotest.test_case "provider box ends before generic key" `Quick test_target_provider_box_ends_before_generic_key;
+        Alcotest.test_case "empty target value fails" `Quick test_empty_target_value_fails;
+        Alcotest.test_case "target after resources fails" `Quick test_target_after_resources_fails;
+        Alcotest.test_case "quoted hash survives" `Quick test_quoted_hash_survives;
+        Alcotest.test_case "single quoted hash survives" `Quick test_single_quoted_hash_survives;
+        Alcotest.test_case "malformed int fails" `Quick test_malformed_int_fails;
+        Alcotest.test_case "malformed bool fails" `Quick test_malformed_bool_fails;
+        Alcotest.test_case "root target defaults survive" `Quick test_root_target_defaults_survive;
+        Alcotest.test_case "FEAT-028 shapes tolerated" `Quick test_feat_028_shapes_still_tolerated;
+        Alcotest.test_case "example pluto prod target parses" `Quick test_example_pluto_prod_target_parses;
       ]
     ]

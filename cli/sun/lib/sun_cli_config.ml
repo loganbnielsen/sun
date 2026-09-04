@@ -16,6 +16,7 @@ type resource = {
   partition_key : string option;
   sort_key      : string option;
   indexes       : string list;
+  size          : string option;
   omit          : bool;
 }
 
@@ -46,9 +47,16 @@ let ( let* ) = Result.bind
 let trim = String.trim
 
 let strip_comment s =
-  match String.index_opt s '#' with
-  | None -> s
-  | Some i -> String.sub s 0 i
+  let rec loop quote i =
+    if i >= String.length s then s
+    else match s.[i] with
+      | '"' when quote = None -> loop (Some '"') (i + 1)
+      | '\'' when quote = None -> loop (Some '\'') (i + 1)
+      | c when quote = Some c -> loop None (i + 1)
+      | '#' when quote = None -> String.sub s 0 i
+      | _ -> loop quote (i + 1)
+  in
+  loop None 0
 
 let indent s =
   let rec loop i =
@@ -64,12 +72,17 @@ let ends_with ~suffix s =
 let drop_suffix ~suffix s =
   String.sub s 0 (String.length s - String.length suffix)
 
-let strip_quotes s =
+let parse_scalar s =
   let s = trim s in
   let len = String.length s in
-  if len >= 2 && s.[0] = '"' && s.[len - 1] = '"' then
-    String.sub s 1 (len - 2)
-  else s
+  if len = 0 then Ok s
+  else if s.[0] = '"' || s.[0] = '\'' then
+    if len >= 2 && s.[len - 1] = s.[0] then
+      Ok (String.sub s 1 (len - 2))
+    else Error "malformed quoted value"
+  else if s.[len - 1] = '"' || s.[len - 1] = '\'' then
+    Error "malformed quoted value"
+  else Ok s
 
 let split_key_value s =
   match String.index_opt s ':' with
@@ -79,22 +92,36 @@ let split_key_value s =
           trim (String.sub s (i + 1) (String.length s - i - 1)))
 
 let parse_list s =
+  let parse_items s =
+    String.split_on_char ',' s
+    |> List.map trim
+    |> List.filter ((<>) "")
+    |> List.fold_left (fun acc v ->
+      let* xs = acc in
+      let* v = parse_scalar v in
+      Ok (xs @ [v])) (Ok [])
+  in
   let s = trim s in
   let len = String.length s in
   if len >= 2 && s.[0] = '[' && s.[len - 1] = ']' then
-    String.sub s 1 (len - 2)
-    |> String.split_on_char ','
-    |> List.map (fun v -> strip_quotes (trim v))
-    |> List.filter ((<>) "")
-  else if s = "" then []
-  else [strip_quotes s]
+    parse_items (String.sub s 1 (len - 2))
+  else if len > 0 && (s.[0] = '[' || s.[len - 1] = ']') then
+    Error "malformed list"
+  else if s = "" then Ok []
+  else
+    let* v = parse_scalar s in
+    Ok [v]
 
-let parse_int s = try Some (int_of_string (trim s)) with _ -> None
+let parse_int s =
+  match int_of_string_opt (trim s) with
+  | Some i -> Ok (Some i)
+  | None -> Error "expected integer"
 
 let parse_bool s =
   match trim s with
-  | "true" -> true
-  | _ -> false
+  | "true" -> Ok true
+  | "false" -> Ok false
+  | _ -> Error "expected true or false"
 
 let upsert_by_name name key update xs =
   let rec loop acc = function
@@ -107,7 +134,7 @@ let upsert_by_name name key update xs =
 
 let resource_empty name = {
   name; typ = None; partition_key = None; sort_key = None; indexes = [];
-  omit = false;
+  size = None; omit = false;
 }
 
 let service_empty name = {
@@ -121,6 +148,7 @@ type section =
   | Resources
   | Resource of string
   | Resource_indexes of string
+  | Target_provider
   | Services
   | Service of string
   | Service_scale of string
@@ -137,8 +165,59 @@ let load path =
          let cfg = ref empty in
          let section = ref None_section in
          let root = ref No_root in
+         let seen_target = ref false in
+         let seen_resources = ref false in
+         let seen_services = ref false in
          let line_no = ref 0 in
          let fail message = Error { path; line = !line_no; message } in
+         let require_value k v =
+           if v = "" then fail (Printf.sprintf "missing value for %s" k) else Ok ()
+         in
+         let scalar k v =
+           match parse_scalar v with
+           | Ok v -> Ok v
+           | Error msg -> fail (msg ^ " for " ^ k)
+         in
+         let update_resource name f =
+           let rec loop acc = function
+             | [] -> fail (Printf.sprintf "resource %S is missing" name)
+             | (r : resource) :: rest when r.name = name ->
+               let* r = f r in
+               Ok (List.rev_append acc (r :: rest))
+             | r :: rest -> loop (r :: acc) rest
+           in
+           let* resources = loop [] !cfg.resources in
+           cfg := { !cfg with resources };
+           Ok ()
+         in
+         let update_service name f =
+           let rec loop acc = function
+             | [] -> fail (Printf.sprintf "service %S is missing" name)
+             | (s : service) :: rest when s.name = name ->
+               let* s = f s in
+               Ok (List.rev_append acc (s :: rest))
+             | s :: rest -> loop (s :: acc) rest
+           in
+           let* services = loop [] !cfg.services in
+           cfg := { !cfg with services };
+           Ok ()
+         in
+         let add_resource name =
+           if List.exists (fun (r : resource) -> r.name = name) !cfg.resources then
+             fail (Printf.sprintf "duplicate resource %S" name)
+           else begin
+             cfg := { !cfg with resources = !cfg.resources @ [resource_empty name] };
+             Ok ()
+           end
+         in
+         let add_service name =
+           if List.exists (fun (s : service) -> s.name = name) !cfg.services then
+             fail (Printf.sprintf "duplicate service %S" name)
+           else begin
+             cfg := { !cfg with services = !cfg.services @ [service_empty name] };
+             Ok ()
+           end
+         in
          let rec loop () =
            match input_line ic with
            | exception End_of_file -> Ok !cfg
@@ -150,112 +229,192 @@ let load path =
                let ind = indent text in
                let body = trim text in
                match ind, body, split_key_value body with
-               | 0, "target:", _ -> section := Target; loop ()
-               | 0, "resources:", _ -> root := Resources_root; section := Resources; loop ()
-               | 0, "services:", _ -> root := Services_root; section := Services; loop ()
+               | _, _, _ when ind >= 4 && !section = Target_provider -> loop ()
+               | 0, "target:", _ ->
+                 if !seen_target then fail "duplicate top-level section \"target\""
+                 else if !root <> No_root then fail "target must appear before resources or services"
+                 else begin
+                   seen_target := true;
+                   root := No_root; section := Target; loop ()
+                 end
+               | 0, "resources:", _ ->
+                 if !seen_resources then fail "duplicate top-level section \"resources\""
+                 else begin
+                   seen_resources := true;
+                   root := Resources_root; section := Resources; loop ()
+                 end
+               | 0, "services:", _ ->
+                 if !seen_services then fail "duplicate top-level section \"services\""
+                 else begin
+                   seen_services := true;
+                   root := Services_root; section := Services; loop ()
+                 end
                | 0, _, Some ("project", v) ->
-                 cfg := { !cfg with project = Some (strip_quotes v) }; loop ()
+                 let* () = require_value "project" v in
+                 let* project = scalar "project" v in
+                 cfg := { !cfg with project = Some project }; loop ()
+               | 0, _, Some (k, _) -> fail (Printf.sprintf "unknown top-level key %S" k)
                | 2, _, _ when ends_with ~suffix:":" body ->
                  let name = drop_suffix ~suffix:":" body |> trim in
                  begin match !root with
-                 | Resources_root -> section := Resource name;
-                   cfg := { !cfg with resources = upsert_by_name
-                              (fun (r : resource) -> r.name) name
-                              (function Some r -> r | None -> resource_empty name)
-                              !cfg.resources }
-                 | Services_root -> section := Service name;
-                   cfg := { !cfg with services = upsert_by_name
-                              (fun (s : service) -> s.name) name
-                              (function Some s -> s | None -> service_empty name)
-                              !cfg.services }
-                 | No_root -> ()
-                 end;
-                 loop ()
+                 | Resources_root ->
+                   section := Resource name;
+                   let* () = add_resource name in
+                   loop ()
+                 | Services_root ->
+                   section := Service name;
+                   let* () = add_service name in
+                   loop ()
+                 | No_root ->
+                   begin match !section, split_key_value body with
+                   | (Target | Target_provider), Some (k, "") when k = "aws" || k = "gcp" ->
+                     section := Target_provider;
+                     loop ()
+                   | (Target | Target_provider), Some (k, "") ->
+                     fail (Printf.sprintf "missing value for %s" k)
+                   | _ -> fail "unsupported sun.yml syntax"
+                   end
+                 end
                | 2, _, Some (k, v) ->
-                 begin match !section with
-                 | Target ->
+                 let* () = begin match !section with
+                 | Target | Target_provider ->
+                   if (k = "aws" || k = "gcp") && v = "" then begin
+                     section := Target_provider;
+                     Ok ()
+                   end else
+                   let* () = require_value k v in
+                   section := Target;
                    let current = Option.value !cfg.target ~default:{
                      name = ""; env = ""; provider = ""; region = "";
                      registry = None; base_domain = None; cluster_name = None;
                      terraform_var_file = None; observability_backend = None;
                    } in
-                   let target =
+                   let* target =
                      match k with
-                     | "registry" -> { current with registry = Some (strip_quotes v) }
-                     | "base_domain" -> { current with base_domain = Some (strip_quotes v) }
-                     | "cluster_name" -> { current with cluster_name = Some (strip_quotes v) }
-                     | "terraform_var_file" -> { current with terraform_var_file = Some (strip_quotes v) }
-                     | "observability_backend" -> { current with observability_backend = Some (strip_quotes v) }
-                     | _ -> current
+                     | "registry" ->
+                       let* v = scalar k v in
+                       Ok { current with registry = Some v }
+                     | "base_domain" ->
+                       let* v = scalar k v in
+                       Ok { current with base_domain = Some v }
+                     | "cluster_name" ->
+                       let* v = scalar k v in
+                       Ok { current with cluster_name = Some v }
+                     | "terraform_var_file" ->
+                       let* v = scalar k v in
+                       Ok { current with terraform_var_file = Some v }
+                     | "observability_backend" ->
+                       let* v = scalar k v in
+                       Ok { current with observability_backend = Some v }
+                     | _ -> fail (Printf.sprintf "unknown target key %S" k)
                    in
-                   cfg := { !cfg with target = Some target }
-                 | _ -> ()
-                 end;
+                   cfg := { !cfg with target = Some target };
+                   Ok ()
+                 | _ -> fail "unsupported sun.yml syntax"
+                 end in
                  loop ()
                | 4, _, Some (k, v) ->
-                 begin match !section with
-                 | Resource name ->
-                   if k = "indexes" && v = "" then section := Resource_indexes name
+                 let* () = begin match !section with
+                 | Resource name | Resource_indexes name ->
+                   if k = "indexes" && v = "" then begin
+                     section := Resource_indexes name;
+                     Ok ()
+                   end
                    else
-                     let update old =
-                       let r = Option.value old ~default:(resource_empty name) in
+                     let* () = require_value k v in
+                     let* () =
+                       update_resource name (fun r ->
                        match k with
-                       | "type" -> { r with typ = Some (strip_quotes v) }
-                       | "partition_key" -> { r with partition_key = Some (strip_quotes v) }
-                       | "sort_key" -> { r with sort_key = Some (strip_quotes v) }
-                       | "omit" -> { r with omit = parse_bool v }
-                       | _ -> r
+                       | "type" ->
+                         let* v = scalar k v in
+                         Ok { r with typ = Some v }
+                       | "partition_key" ->
+                         let* v = scalar k v in
+                         Ok { r with partition_key = Some v }
+                       | "sort_key" ->
+                         let* v = scalar k v in
+                         Ok { r with sort_key = Some v }
+                       | "size" ->
+                         let* v = scalar k v in
+                         Ok { r with size = Some v }
+                       | "omit" ->
+                         (match parse_bool v with
+                          | Ok omit -> Ok { r with omit }
+                          | Error msg -> fail (msg ^ " for omit"))
+                       | _ -> fail (Printf.sprintf "unknown resource key %S" k))
                      in
-                     cfg := { !cfg with resources = upsert_by_name
-                                (fun (r : resource) -> r.name) name update !cfg.resources }
-                 | Service name ->
-                   if k = "scale" && v = "" then section := Service_scale name
+                     Ok ()
+                 | Service name | Service_scale name ->
+                   if k = "scale" && v = "" then begin
+                     section := Service_scale name;
+                     Ok ()
+                   end
                    else
-                     let update old =
-                       let s = Option.value old ~default:(service_empty name) in
+                     let* () = require_value k v in
+                     let* () =
+                       update_service name (fun s ->
                        match k with
-                       | "type" -> { s with typ = Some (strip_quotes v) }
-                       | "path" -> { s with path = Some (strip_quotes v) }
-                       | "uses" -> { s with uses = parse_list v }
-                       | "omit" -> { s with omit = parse_bool v }
-                       | _ -> s
+                       | "type" ->
+                         let* v = scalar k v in
+                         Ok { s with typ = Some v }
+                       | "path" ->
+                         let* v = scalar k v in
+                         Ok { s with path = Some v }
+                       | "uses" ->
+                         (match parse_list v with
+                          | Ok uses -> Ok { s with uses }
+                          | Error msg -> fail (msg ^ " for uses"))
+                       | "omit" ->
+                         (match parse_bool v with
+                          | Ok omit -> Ok { s with omit }
+                          | Error msg -> fail (msg ^ " for omit"))
+                       | _ -> fail (Printf.sprintf "unknown service key %S" k))
                      in
-                     cfg := { !cfg with services = upsert_by_name
-                                (fun (s : service) -> s.name) name update !cfg.services }
-                 | _ -> ()
-                 end;
+                     Ok ()
+                 | Target_provider -> Ok ()
+                 | _ -> fail "unsupported sun.yml syntax"
+                 end in
                  loop ()
                | 6, _, _ when ends_with ~suffix:":" body ->
-                 begin match !section with
+                 let* () = begin match !section with
                  | Resource_indexes resource_name ->
                    let index_name = drop_suffix ~suffix:":" body |> trim in
                    let update old =
                      let r = Option.value old ~default:(resource_empty resource_name) in
-                     if List.mem index_name r.indexes then r
-                     else { r with indexes = r.indexes @ [index_name] }
+                     if List.mem index_name r.indexes then
+                       fail (Printf.sprintf "duplicate index %S" index_name)
+                     else Ok { r with indexes = r.indexes @ [index_name] }
                    in
-                   cfg := { !cfg with resources = upsert_by_name
-                              (fun (r : resource) -> r.name) resource_name update
-                              !cfg.resources }
-                 | _ -> ()
-                 end;
+                   update_resource resource_name (fun r -> update (Some r))
+                 | _ -> fail "unsupported sun.yml syntax"
+                 end in
                  loop ()
                | 6, _, Some (k, v) ->
-                 begin match !section with
+                 let* () = begin match !section with
                  | Service_scale name ->
-                   let update old =
-                     let s = Option.value old ~default:(service_empty name) in
+                   let* () = require_value k v in
+                   let* () =
+                     update_service name (fun s ->
                      match k with
-                     | "min" -> { s with scale_min = parse_int v }
-                     | "max" -> { s with scale_max = parse_int v }
-                     | _ -> s
+                     | "min" ->
+                       (match parse_int v with
+                        | Ok scale_min -> Ok { s with scale_min }
+                        | Error msg -> fail (msg ^ " for min"))
+                     | "max" ->
+                       (match parse_int v with
+                        | Ok scale_max -> Ok { s with scale_max }
+                        | Error msg -> fail (msg ^ " for max"))
+                     | _ -> fail (Printf.sprintf "unknown scale key %S" k))
                    in
-                   cfg := { !cfg with services = upsert_by_name
-                              (fun (s : service) -> s.name) name update !cfg.services }
-                 | _ -> ()
-                 end;
+                   Ok ()
+                 | _ -> fail "unsupported sun.yml syntax"
+                 end in
                  loop ()
-               | 8, _, Some _ -> loop ()
+               | 8, _, Some (k, _) ->
+                 begin match !section with
+                 | Resource_indexes _ when k = "partition_key" || k = "sort_key" -> loop ()
+                 | _ -> fail (Printf.sprintf "unknown key %S" k)
+                 end
                | _ -> fail "unsupported sun.yml syntax"
          in
          loop ())
@@ -278,6 +437,7 @@ let merge_resource (a : resource) (b : resource) = {
   partition_key = prefer a.partition_key b.partition_key;
   sort_key = prefer a.sort_key b.sort_key;
   indexes = prefer_list a.indexes b.indexes;
+  size = prefer a.size b.size;
   omit = b.omit || a.omit;
 }
 
@@ -314,9 +474,13 @@ let merge base overlay = {
 
 let target_of_path s =
   match String.split_on_char '/' s with
-  | [env; provider; region] when env <> "" && provider <> "" && region <> "" ->
+  | [env; provider; region]
+    when env <> "" && provider <> "" && region <> ""
+         && env <> ".." && provider <> ".." && region <> ".." ->
     Ok { name = s; env; provider; region; registry = None; base_domain = None;
          cluster_name = None; terraform_var_file = None; observability_backend = None }
+  | parts when List.exists ((=) "..") parts ->
+    Error { path = s; line = 0; message = "target path must not contain '..'" }
   | _ ->
     Error { path = s; line = 0;
             message = "target must look like <env>/<provider>/<region>" }
@@ -330,7 +494,13 @@ let load_for_target ~target =
   let* target = target_of_path target in
   let* base = load "sun.yml" in
   let* overlay = load (target_file target) in
-  Ok (merge { base with target = Some target } overlay)
+  let base_target =
+    match base.target with
+    | None -> target
+    | Some t -> { t with name = target.name; env = target.env;
+                         provider = target.provider; region = target.region }
+  in
+  Ok (merge { base with target = Some base_target } overlay)
 
 let target cfg = cfg.target
 
