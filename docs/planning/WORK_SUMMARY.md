@@ -1,5 +1,113 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: FEAT-025/028 landed in parallel; picking up FEAT-026 (2026-09-03)
+
+A parallel session implemented and merged `FEAT-025` (PR #96, "Harden target
+file parser") and `FEAT-028` (PR #97, "Model target provider fields and
+index keys") directly, outside the ticket pipeline — no ticket files were
+moved. Verified the merged `sun_cli_config.ml`/`.mli` against both tickets'
+acceptance criteria post-merge (quote-aware `strip_comment`, duplicate
+rejection, `..`-traversal rejection, fail-loud unknown keys, the `index`
+type, `target.provider_fields`, `resource.size`) — all present and correct.
+Moved both tickets to `DONE` for bookkeeping accuracy. `FEAT-029` (also
+unblocked, since it only depended on `FEAT-025`) is where that same
+session said it would go next, so picking up `FEAT-026` instead to avoid
+duplicate work — both `FEAT-026` and `BUG-004` were equally next per
+`Depends on: FEAT-025`, and `FEAT-026` closes the higher-value gap (the
+`env` label the observability design doc has been missing since OBS-008).
+
+## OBS-031–035 merged, repo cleanup, Target Files ticketed (2026-09-03)
+
+`OBS-031` through `OBS-035` (Loki read-auth, CLI observability messaging,
+configurable Thanos/Loki retention, the GCP gate on `self_hosted_durable`,
+and worker `/metrics`) all merged; ticket pipeline is fully drained
+(`REVIEW`/`READY_TO_MERGE`/`IN_PROGRESS` empty). A follow-up commit
+(`a4d4193`) added real e2e coverage for the worker `/metrics` endpoint and
+`Sun_cli_loki.query` against a live local Loki — `examples/local-demo`'s
+e2e suite now exercises both. Local observability (log levels, metrics,
+Grafana Explore/dashboard links) verified working end-to-end against a live
+local stack. AWS self-hosted durable remains unproven against a real
+account — gated on `DOGFOOD-010` (blocked on an AWS account/cost decision),
+and `alertmanager.enabled = false` plus the missing `env` label are known
+gaps not covered by that dogfood ticket.
+
+Repo hygiene: removed one stale fully-merged worktree
+(`obs-durable-observability`) and 17 fully-merged local branches. Deleted
+`docs/planning/POST_DOGFOOD_GAMEPLAN.md` — every ticket it named as
+future/in-progress work (`FEAT-019`–`024`, `RELEASE-001`–`003`,
+`ALPHA-001`–`002`, `HARDEN-001`, `CLOUD-004`/`005`) was already `DONE`, and
+the hosted-control-plane work it described as upcoming (`CLOUD-004`/`005`)
+had in fact already been built *and then deliberately removed* in the
+self-hosted refocus — the doc was actively misleading despite its own
+"historical" banner. `docs/planning/LIVE_DEV_DEPLOY_ROADMAP.md` is now the
+only current plan; before today it had zero tickets filed against it.
+
+First pass at "Project 3: Target Files" tickets wrongly assumed nothing
+existed yet. Three rounds of fresh (no shared memory between rounds)
+adversarial subagent review — each independently verifying claims against
+the actual code before trusting them — converged on this state:
+
+`Sun_cli_config` (`cli/sun/lib/sun_cli_config.ml`) already implements most
+of Project 3 — `sun.yml` parsing, `target_of_path`/`target_file`,
+`load_for_target` merge — consumed by `cmd_plan.ml`/`cmd_cloud_tf.ml`/
+`sun_cli_observability_url.ml` already. What's actually missing is
+correctness hardening and two genuinely new features, plus wiring `sun
+deploy` (the one command not yet using it) and one unrelated dead-config
+bug found along the way. Filed, chained via `Depends on`:
+
+- `FEAT-025` — core parser hardening: `.mli`, fail-loud on duplicate
+  names/unknown keys/malformed values, fixes for `#`-in-quotes truncation,
+  `..` path traversal, stale-`root` phantom entries, and
+  `load_for_target` discarding root `sun.yml`'s own `target:` defaults.
+- `FEAT-028` (depends on `FEAT-025`) — new parsing: per-index DynamoDB
+  `partition_key`/`sort_key` (currently silently dropped — proven by
+  `test_config.ml`'s own `by_expires_at` fixture) and `aws:`/`gcp:`
+  provider-boxed target fields.
+- `FEAT-029` (depends on `FEAT-025`) — `uses` reference validation and
+  absolute cross-region refs with the v1 cross-env/cross-provider
+  rejection rules.
+- `FEAT-026` (depends on `FEAT-025`) — wire `load_for_target` into `sun
+  deploy`, emit the `env` label
+  (`docs/architecture/observability-design.md`'s open gap), and fix the
+  full blast radius of making target a required CLI positional: the real
+  (non-comment) scaffold CI template, `test_scaffold.ml`'s substring
+  assertions, `env_config`'s sharing with `sun up` (resolved as `env :
+  string option`, not a forced default), and every doc showing a
+  now-stale invocation example — via a repo-wide grep, not a hand-kept
+  line list, since three rounds of review each found lines the previous
+  pass missed.
+- `BUG-004` (depends on `FEAT-025`) — replica scale is declared in both
+  `sun.toml` (`replicas`, currently the live one) and `sun.yml`
+  (`scale_min`/`scale_max`, currently dead — only a printout reads it). A
+  fourth review round found the initial "migrate fully to `sun.yml`" plan
+  wasn't actually implementable: `sun new workspace` doesn't scaffold a
+  `sun.yml` at all (only `examples/pluto` has a hand-written one), and
+  `sun up` never resolves one. Landed on a layered design instead —
+  `sun.yml` scale overrides `sun.toml`'s `replicas` by service-name match
+  only when a target resolved one; `sun.toml` stays the live default
+  everywhere else, unremoved. That same round also caught two more
+  `FEAT-025` gaps (a real fixture, `examples/pluto/sun/prod/aws/us-east-1.yml`,
+  has an unknown `resources.app_db.size` key that item 3's new fail-loud
+  rule would have broken — added `size` support; and the fail-loud rule
+  needed to explicitly exempt the two shapes `FEAT-028` hasn't structured
+  yet) and tightened `FEAT-026`'s grep instruction with `--exclude-dir`s
+  for historical audit/dogfood/done-ticket directories (unfiltered: 274
+  hits, ~47% historical noise). A fifth round confirmed all of the above
+  landed correctly and found one more real gap: that grep's
+  `--include=*.md --include=*.ml` missed two shipped, executed CI
+  templates with no positional target,
+  `platform/infra/ci/github-actions-{deploy,gitops}.yml` — added
+  `--include=*.yml --include=*.yaml` and named both files explicitly.
+  Also added a `FEAT-029` line for `LIVE_DEV_DEPLOY_ROADMAP.md` line 142
+  (`sun plan` must print a resolved absolute ref as cross-region access,
+  not silently the same as a local one).
+
+Chose Target Files over `DOGFOOD-010`/Worker-Retry/Changed-Service-Build as
+the entry point because "Project 2: Changed-Service Build and Deploy" has
+nothing to resolve "changed" against without a target model — but per the
+adversarial review, most of that model turned out to already exist, so the
+real remaining work here is smaller than first scoped.
+
 ## Latest: deploy/runtime visibility decision — three-layer model (2026-09-01)
 
 First live AWS smoke test (`tools/aws-live-smoke.sh` against real EKS) found a
