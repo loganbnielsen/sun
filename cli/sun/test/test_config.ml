@@ -4,6 +4,11 @@ let check_int_opt = Alcotest.(check (option int))
 let check_bool = Alcotest.(check bool)
 let check_str_opt = Alcotest.(check (option string))
 
+let only_index indexes =
+  match indexes with
+  | [index] -> index
+  | _ -> Alcotest.fail "expected one index"
+
 let write path content =
   let oc = open_out path in
   output_string oc content;
@@ -419,7 +424,59 @@ resources:
       let target = Option.get (Sun_cli_config.target cfg) in
       check_str "env" "prod" target.env;
       let resource = List.hd (Sun_cli_config.resources cfg) in
-      check_strs "indexes" ["by_expires_at"] resource.indexes)
+      let index = only_index resource.indexes in
+      check_str "index" "by_expires_at" index.index_name;
+      check_str_opt "index partition_key" (Some "tenant_id") index.partition_key;
+      check_str_opt "index sort_key" (Some "expires_at") index.sort_key)
+
+let test_provider_box_round_trips () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    vpc_cidr: "10.42.0.0/16"
+  gcp:
+    project_id: pluto-dev
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let target = Option.get (Sun_cli_config.target cfg) in
+      check_strs "aws fields" ["vpc_cidr=10.42.0.0/16"]
+        (List.assoc "aws" target.provider_fields
+         |> List.map (fun (k, v) -> k ^ "=" ^ v));
+      check_strs "gcp fields" ["project_id=pluto-dev"]
+        (List.assoc "gcp" target.provider_fields
+         |> List.map (fun (k, v) -> k ^ "=" ^ v)))
+
+let test_duplicate_provider_box_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    vpc_cidr: "10.42.0.0/16"
+  aws:
+    account_id: "123456789012"
+|};
+    expect_load_error "duplicate target provider box \"aws\"")
+
+let test_provider_fields_feed_active_terraform_provider () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+target:
+  aws:
+    vpc_cidr: "10.42.0.0/16"
+  gcp:
+    project_id: pluto-dev
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      match Sun_cli_config.terraform_vars cfg with
+      | Error msg -> Alcotest.fail msg
+      | Ok vars ->
+        check_bool "aws var present" true (List.mem "vpc_cidr=10.42.0.0/16" vars);
+        check_bool "gcp var absent" false (List.mem "project_id=pluto-dev" vars))
 
 let test_example_pluto_prod_target_parses () =
   with_chdir (example_pluto_dir ()) (fun () ->
@@ -460,6 +517,9 @@ let () =
         Alcotest.test_case "malformed bool fails" `Quick test_malformed_bool_fails;
         Alcotest.test_case "root target defaults survive" `Quick test_root_target_defaults_survive;
         Alcotest.test_case "FEAT-028 shapes tolerated" `Quick test_feat_028_shapes_still_tolerated;
+        Alcotest.test_case "provider box round trips" `Quick test_provider_box_round_trips;
+        Alcotest.test_case "duplicate provider box fails" `Quick test_duplicate_provider_box_fails;
+        Alcotest.test_case "provider fields feed terraform vars" `Quick test_provider_fields_feed_active_terraform_provider;
         Alcotest.test_case "example pluto prod target parses" `Quick test_example_pluto_prod_target_parses;
       ]
     ]

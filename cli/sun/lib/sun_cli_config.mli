@@ -8,6 +8,13 @@ type target = {
   cluster_name           : string option;
   terraform_var_file     : string option;
   observability_backend  : string option;
+  provider_fields        : (string * (string * string) list) list;
+}
+
+type index = {
+  index_name    : string;
+  partition_key : string option;
+  sort_key      : string option;
 }
 
 type resource = {
@@ -15,7 +22,7 @@ type resource = {
   typ           : string option;
   partition_key : string option;
   sort_key      : string option;
-  indexes       : string list;
+  indexes       : index list;
   size          : string option;
   omit          : bool;
 }
