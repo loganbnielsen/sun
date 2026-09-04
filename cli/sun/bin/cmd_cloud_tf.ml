@@ -277,12 +277,15 @@ let cloud_init ~target ~var_file ~vars ~action () =
   let provider = provider_of_target_path target in
   let pname, infra_dir = infra_dir provider in
   let run_log = Sun_cli_run_log.create ~prefix:"cloud-apply" () in
+  (* Check the target before terraform-init, same order cloud_destroy
+     already uses -- a typo'd target should fail fast, not after a
+     terraform init that does nothing wrong but wastes the run. *)
+  let config_vars, config_var_file =
+    config_vars ~strict:(action = Apply) (Some target) in
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
   run_terraform_init run_log infra_dir;
 
-  let config_vars, config_var_file =
-    config_vars ~strict:(action = Apply) (Some target) in
   let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
   let vars = config_vars @ vars in
   let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in
