@@ -18,7 +18,7 @@ let test_dashboard_configmap () =
   assert_contains "service uid" yaml "\"uid\": \"sun-service-template\"";
   assert_contains "release timeline uid" yaml "\"uid\": \"sun-release-timeline\"";
   assert_contains "release timeline query" yaml
-    "{service=\\\"sun-deploy\\\"} | logfmt | event=\\\"deploy\\\""
+    "{workspace=\\\"$workspace\\\", domain=\\\"$domain\\\", service=\\\"$service\\\"} | logfmt | event=\\\"deploy\\\""
 
 let test_prometheus_datasource_configmap () =
   let yaml =

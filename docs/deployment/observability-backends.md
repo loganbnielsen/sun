@@ -258,12 +258,15 @@ the standalone `grafana` chart's sidecar ConfigMap-loading
   `event=deploy` log lines (OBS-037), filtered by the same `$workspace`/
   `$domain`/`$service` template variables as the other dashboards. Those
   deploy-event lines are pushed directly by the `sun` CLI rather than
-  tailed from a pod, so they carry a fixed `service="sun-deploy"` Loki
-  stream label with `workspace`/`domain`/`service`/`primitive`/`release`
-  as logfmt fields in the line body — the panel's query parses those
-  fields with `| logfmt` and matches them against the template variables
-  (`service_extracted`, since the parsed `service` field collides with the
-  stream label of the same name).
+  tailed from a pod (`cli/sun/bin/cmd_deploy_event.ml`), but carry real
+  Loki stream labels the same way an application pod's own logs do:
+  `service` is the deployed service's real name (`Obs_eio.create`'s
+  built-in stream label), and `workspace`/`domain`/`primitive`/`release`
+  are promoted from context the same way Alloy promotes them for
+  application pod logs. Deploy events land in that service's own Loki
+  stream rather than a separate one, distinguished from its ordinary
+  application logs by the `event="deploy"` logfmt field every deploy-event
+  line carries.
 
 A Prometheus datasource is provisioned the same way the chart already
 auto-provisions its own "Loki" datasource (a ConfigMap labeled

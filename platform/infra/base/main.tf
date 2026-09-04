@@ -544,9 +544,9 @@ resource "kubernetes_config_map" "grafana_prometheus_datasource" {
 # one domain, using the same live-label-driven templating.
 # OBS-038 adds a fourth: a deploy/release timeline sourced from OBS-037's
 # `event=deploy` Loki log lines (pushed by `sun deploy` itself, not tailed
-# from a pod -- those lines carry the fixed stream label
-# `service="sun-deploy"`, with workspace/domain/service/etc as logfmt
-# fields in the line body rather than real Loki labels).
+# from a pod -- those lines carry real stream labels the same way
+# application pod logs do, via cmd_deploy_event.ml's own Obs_eio/Obs_loki
+# wiring, matching Alloy's taxonomy-label promotion below).
 resource "kubernetes_config_map" "grafana_dashboards" {
   count = local.loki_install_local ? 1 : 0
 

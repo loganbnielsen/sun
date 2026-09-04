@@ -282,17 +282,16 @@ let service_template_json = {json|{
 
 (* OBS-038: deploy/release timeline, sourced from OBS-037's `event=deploy`
    Loki log lines pushed directly by `sun deploy` (cli/sun/bin/
-   cmd_deploy_event.ml) rather than tailed from a pod by Alloy -- those
-   lines carry the fixed stream label `service="sun-deploy"`, with
-   workspace/domain/service/primitive/release/event as logfmt fields in
-   the line body rather than real Loki labels. The $workspace/$domain/
-   $service template variables are still populated from ordinary
-   services' indexed Loki labels (same as the other dashboards above);
-   the logs panel then filters deploy-event lines by matching those
-   values against the parsed logfmt fields, including `service_extracted`
-   -- Loki's `| logfmt` parser suffixes an extracted field that collides
-   with an existing label name, and `service` collides with the stream's
-   own `service="sun-deploy"` label. *)
+   cmd_deploy_event.ml) rather than tailed from a pod by Alloy. The push
+   sets `service` to the deployed service's real name (Obs_eio.create's
+   built-in stream label, same convention every real app pod uses) and
+   promotes workspace/domain/primitive/release to real Loki stream labels
+   too, matching Alloy's own taxonomy-label promotion for application pod
+   logs -- deploy events land in that service's own Loki stream, not a
+   separate synthetic one, distinguished by the `event="deploy"` logfmt
+   field every deploy-event line carries. The query below uses the same
+   `{workspace=..., domain=..., service=...}` selector shape as every
+   other dashboard's logs panel. *)
 let release_timeline_json = {json|{
   "title": "Sun Release Timeline",
   "uid": "sun-release-timeline",
@@ -338,7 +337,7 @@ let release_timeline_json = {json|{
       "datasource": "Loki",
       "targets": [
         {
-          "expr": "{service=\"sun-deploy\"} | logfmt | event=\"deploy\" | workspace=\"$workspace\" | domain=\"$domain\" | service_extracted=\"$service\""
+          "expr": "{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"} | logfmt | event=\"deploy\""
         }
       ]
     }

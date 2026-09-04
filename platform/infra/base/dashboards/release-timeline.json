@@ -43,7 +43,7 @@
       "datasource": "Loki",
       "targets": [
         {
-          "expr": "{service=\"sun-deploy\"} | logfmt | event=\"deploy\" | workspace=\"$workspace\" | domain=\"$domain\" | service_extracted=\"$service\""
+          "expr": "{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"} | logfmt | event=\"deploy\""
         }
       ]
     }

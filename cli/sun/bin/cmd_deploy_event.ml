@@ -110,10 +110,35 @@ let resolve_url ~backend ~explicit_url =
    rejecting a malformed --loki-push-url). Cancellation and fatal runtime
    exceptions are deliberately re-raised, not swallowed -- same exclusion
    list Obs_eio.report_backend_error itself uses. *)
+let deploy_event_stream_labels =
+  [ Obs_loki.stream_label_exn "workspace"
+  ; Obs_loki.stream_label_exn "domain"
+  ; Obs_loki.stream_label_exn "primitive"
+  ; Obs_loki.stream_label_exn "release"
+  ]
+
+(* [service] is the deployed service's real name (Obs_eio.create's built-in
+   stream label), matching every real app pod's own convention -- deploy
+   events land in that service's own Loki stream, not a separate synthetic
+   one, distinguished by the event="deploy" logfmt field already required
+   regardless (OBS-038's dashboard always filters on it). workspace/domain/
+   primitive/release are promoted to real stream labels the same way Alloy
+   promotes them for application pod logs (platform/infra/base/alloy/
+   logs.alloy.tftpl's observability_taxonomy_labels) -- deliberately
+   excluding env, matching that same set. *)
 let push_event ~net ~clock ~mono_clock ~url (event : Sun_cli_deploy_event.t) =
   try
-    let backend = Obs_loki.create ~net ~clock ~url () in
-    let ot = Obs_eio.create ~service:"sun-deploy" ~mono_clock ~backend () in
+    let backend = Obs_loki.create ~net ~clock ~url
+        ~label_names:deploy_event_stream_labels () in
+    let ot = Obs_eio.create ~service:event.Sun_cli_deploy_event.service
+        ~mono_clock ~backend () in
+    let ot = Obs_eio.with_context ot
+        [ "workspace", event.Sun_cli_deploy_event.workspace
+        ; "domain",    event.Sun_cli_deploy_event.domain
+        ; "primitive", event.Sun_cli_deploy_event.primitive
+        ; "release",   event.Sun_cli_deploy_event.release
+        ]
+    in
     Obs_eio.log_standalone ot Obs_eio.Info
       ~fields:(Sun_cli_deploy_event.fields event)
       (Sun_cli_deploy_event.message event)
