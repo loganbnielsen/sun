@@ -457,6 +457,21 @@ let tpl_dockerignore = {tpl|_build/
 *.docker-ctx/
 |tpl}
 
+(* sun deploy deliberately refuses to run against a target with no
+   sun/<env>/<provider>/<region>.yml file, even an empty one -- otherwise a
+   typo'd target would silently inherit sun.yml's shared defaults and
+   deploy anyway. This placeholder exists so a freshly scaffolded workspace
+   has a real first target instead of failing before its first deploy;
+   rename/move it (and update SUN_TARGET below) to your actual target. *)
+let tpl_deploy_target = {tpl|# Placeholder target for `sun deploy prod/aws/us-east-1`.
+# Rename this file's path (sun/<env>/<provider>/<region>.yml) to your real
+# deployment target, and set the SUN_TARGET repository variable in GitHub
+# (used by .github/workflows/deploy.yml) to match.
+#
+# target:
+#   registry: <your-registry-url>
+|tpl}
+
 (* ── Workspace scaffold templates ─────────────────────────────────────────── *)
 
 (* events/payments/charged.ml — satisfies Kafka_service.MESSAGE *)

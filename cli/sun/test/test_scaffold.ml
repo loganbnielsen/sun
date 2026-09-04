@@ -221,6 +221,7 @@ let test_existing_files_still_generated () =
     "testapp/app/comms/notify_worker/bin/main.ml";
     "testapp/app/comms/notify_worker/sun.toml";
     "testapp/db/migrations/0001_notifications.sql";
+    "testapp/sun/prod/aws/us-east-1.yml";
   ] in
   List.iter (fun path ->
     check_bool (Printf.sprintf "%s exists" path) true (Sys.file_exists path)
@@ -237,6 +238,24 @@ let test_existing_files_still_generated () =
   in
   walk "testapp";
   check_bool "at least 21 files generated" true (!count >= 21)
+
+(* FEAT-026 follow-up: `sun deploy` refuses to run against a target with no
+   sun/<env>/<provider>/<region>.yml file, even an empty one (see
+   cmd_deploy.ml's strict target-file check) -- a freshly scaffolded
+   workspace must ship one so the acceptance criteria's own
+   `sun deploy prod/aws/us-east-1 --dry-run` works with zero manual setup. *)
+let test_scaffolded_workspace_has_a_real_deploy_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  Sys.chdir "testapp";
+  match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+  | Error e -> Alcotest.fail ("load_for_target failed: " ^ Sun_cli_config.error_to_string e)
+  | Ok cfg ->
+    match Sun_cli_config.target cfg with
+    | None -> Alcotest.fail "expected a resolved target"
+    | Some target ->
+      check_bool "sun/prod/aws/us-east-1.yml exists" true
+        (Sys.file_exists (Sun_cli_config.target_file target))
 
 let test_workspace_has_dune_project () =
   in_temp_dir @@ fun () ->
@@ -675,6 +694,7 @@ let () =
       ]
     ; "existing_files", [
         Alcotest.test_case "all prior files still present" `Quick test_existing_files_still_generated
+      ; Alcotest.test_case "has a real deploy target"       `Quick test_scaffolded_workspace_has_a_real_deploy_target
       ; Alcotest.test_case "dune-project generated"        `Quick test_workspace_has_dune_project
       ; Alcotest.test_case "Dockerfile paths relative"      `Quick test_dockerfile_paths_are_workspace_relative
       ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted

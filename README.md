@@ -389,13 +389,7 @@ sun up --dry-run    # print generated YAML to stdout without applying
 
 CI builds and pushes images to a production registry; `sun deploy <env>/<provider>/<region>` synthesizes manifests and applies them to a customer-managed Kubernetes cluster. Run after the Docker build step in CI. The target (e.g. `prod/aws/us-east-1`) resolves `sun.yml` + `sun/<env>/<provider>/<region>.yml` for defaults like `--registry` and the `env` manifest label — same convention as `sun plan`.
 
-**The target file must exist.** `sun new workspace` doesn't scaffold `sun.yml`/target files yet, so a fresh workspace needs one created by hand before its first `sun deploy` — even an empty file is enough (it just means every value comes from `--registry`/`--image-tag`/etc. instead):
-
-```bash
-mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml
-```
-
-or with real defaults so CI doesn't need to pass `--registry` every time:
+**The target file must exist.** `sun new workspace` scaffolds a placeholder at `sun/prod/aws/us-east-1.yml` — rename it (`mkdir -p sun/<env>/<provider> && mv sun/prod/aws/us-east-1.yml sun/<env>/<provider>/<region>.yml`) to match your real target, or leave it as-is if you deploy to `prod/aws/us-east-1`. An empty file is enough (it just means every value comes from `--registry`/`--image-tag`/etc. instead) — add real defaults so CI doesn't need to pass `--registry` every time:
 
 ```yaml
 # sun/prod/aws/us-east-1.yml

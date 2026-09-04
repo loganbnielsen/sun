@@ -501,7 +501,7 @@ sun cloud destroy TARGET [--plan|--apply]         destroy cloud infrastructure v
 
 The `sun deploy` command is `sun up` without the build step. It is designed to run in CI after images have already been built and pushed to a production registry.
 
-`sun deploy` takes a required `<env>/<provider>/<region>` target — same convention as `sun plan` — and the target file it resolves must exist first, even if empty: `mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml`. `sun new workspace` doesn't scaffold this yet, so it's a one-time step before your first deploy to a given target.
+`sun deploy` takes a required `<env>/<provider>/<region>` target — same convention as `sun plan` — and the target file it resolves must exist first, even if empty. `sun new workspace` scaffolds a placeholder at `sun/prod/aws/us-east-1.yml`; rename it to match your real target if it isn't `prod/aws/us-east-1`.
 
 ### Direct deploy (CI pushes to the cluster)
 
