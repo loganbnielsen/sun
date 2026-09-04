@@ -128,11 +128,11 @@ it.
 cluster. This pass is still static Terraform/Helm validation only; run a real
 AWS deploy before depending on it in production.
 
-## Dashboards (OBS-011)
+## Dashboards (OBS-011, OBS-036)
 
-All three profiles provision the same two Grafana dashboards, loaded via the
-`loki-stack` chart's sidecar ConfigMap-loading (`grafana.sidecar.dashboards`)
-rather than one file per domain/service:
+All three profiles provision the same three Grafana dashboards, loaded via
+the `loki-stack` chart's sidecar ConfigMap-loading
+(`grafana.sidecar.dashboards`) rather than one file per domain/service:
 
 - **Workspace overview** — request rate, 5xx rate, and scraped-target health
   across every domain at once.
@@ -140,6 +140,11 @@ rather than one file per domain/service:
   Grafana template variables (populated live from Prometheus label values,
   not a list Sun maintains). Selecting values re-scopes every panel,
   including a Loki logs panel filtered to that domain/service.
+- **Domain overview** (OBS-036) — one dashboard parameterized by `$domain`
+  only (no `$service`), showing the same request rate / 5xx rate /
+  scrape-target health signals broken down per service within that domain,
+  plus a Loki logs panel filtered to that domain. Fills the gap between the
+  workspace-wide and single-service views for a domain-level incident.
 
 A Prometheus datasource is provisioned the same way the chart already
 auto-provisions its own "Loki" datasource (a ConfigMap labeled
@@ -151,9 +156,12 @@ this ticket.
   annotation and a real metrics port (`-worker`'s closed by OBS-035), so the
   service template's `$service` dropdown populates for both. `-fn` uses
   Pushgateway, a different ingestion path neither ticket touches.
-- A per-service **logs view** and a **deploy/release timeline** dashboard
-  (both mentioned in `docs/architecture/observability-design.md`) are not
-  built — deferred, not silently dropped.
+- A per-service **logs view** dashboard (mentioned in
+  `docs/architecture/observability-design.md`) is not built — the service
+  template's embedded Loki logs panel (filtered to `$domain`/`$service`)
+  covers this use case in practice; see OBS-036's ticket for the reasoning.
+  A **deploy/release timeline** dashboard is also not built yet — tracked
+  separately in OBS-037/OBS-038.
 - **Not verified against a live Grafana instance.** This pass validated the
   dashboard JSON is well-formed and the Terraform/Helm wiring
   (`terraform validate`, chart values checked against `helm show values`),
