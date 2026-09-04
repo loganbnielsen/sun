@@ -140,6 +140,103 @@ it.
 cluster. This pass is still static Terraform/Helm validation only; run a real
 AWS deploy before depending on it in production.
 
+## Alerting (OBS-040)
+
+All three profiles ship the same starter Alertmanager + rule set — Sun uses
+the plain `prometheus-community/prometheus` chart (`server` +
+`alertmanager` subcharts), not the Prometheus Operator, so there is no
+`PrometheusRule` CRD here. Rules and Alertmanager routing are both plumbed
+in as chart `values` in `platform/infra/base/main.tf`'s
+`helm_release.prometheus`, the same way `remoteWrite`/Thanos fields are
+today:
+
+- `serverFiles."alerting_rules.yml"` — Prometheus's own alerting-rule file
+  (`groups: [...]`), rendered to `/etc/config/alerting_rules.yml` and
+  wired into `prometheus.yml`'s `rule_files` by the chart's default.
+- `alertmanager.config` — the bundled `alertmanager` subchart's own
+  `route`/`receivers` config (confirmed via `helm show values
+  prometheus-community/prometheus --version 25.20.1`; older docs and
+  older chart versions used a different key, `alertmanagerFiles`, which
+  this pinned version does not read).
+
+### Starter rules
+
+Both rules use Sun's label taxonomy
+(`workspace`/`env`/`domain`/`service`/`primitive`) or standard
+kube-state-metrics labels — never a hardcoded domain/service — so they
+apply workspace-wide to every deployed service by default.
+
+| Alert | Signal | Threshold |
+|---|---|---|
+| `SunHighErrorRate` | `sun_svc_requests_total{status_class="5xx"}` vs total, from `-svc`'s auto-metrics (same metric as the "5xx error rate by service" dashboard panel) | 5xx ratio > 5%, sustained 5 minutes, grouped by `workspace, env, domain, service` |
+| `SunPodRestartLoop` | `kube_pod_container_status_restarts_total` (kube-state-metrics, bundled and scraped by this chart by default) | more than 3 restarts in 15 minutes, sustained 5 minutes, per `namespace, pod, container` |
+
+`SunPodRestartLoop` alerts on kube-state-metrics' own `namespace`/`pod`/
+`container` labels rather than Sun's taxonomy labels directly — those live
+on the *monitored* pod, not on kube-state-metrics' own pod. Sun namespaces
+are named `<workspace>-<domain>` (`Sun_cli_kubernetes_name.namespace_of_parts`),
+so the alert is still workspace/domain-identifiable from `namespace` alone.
+For an exact `service`/`primitive` breakdown, join with the
+`kube_pod_labels` metric (requires enabling kube-state-metrics'
+`metricLabelsAllowlist` for pod labels — not configured by default, since
+it isn't needed for the alert itself).
+
+**Deploy-failure alert: skipped for v1.** `OBS-037` added `sun deploy`'s
+release-event line, but it's a *Loki log line*
+(`cli/sun/lib/sun_cli_deploy_event.ml`), not a Prometheus metric —
+Prometheus alerting rules can't query Loki. There is currently no metric
+derived from deploy events (no Pushgateway push, no counter), so there's
+no Prometheus-queryable signal to alert on yet. Revisit once a deploy
+health metric exists (e.g. a Pushgateway push from `sun deploy` on
+rollout success/failure); until then, use `sun logs` or a Grafana Loki
+panel to check deploy outcomes manually.
+
+### No receiver configured by default
+
+Alertmanager ships with a `null` receiver and no `route.receiver` pointing
+anywhere real — alerts fire and are visible in Alertmanager's own UI/API,
+but nothing is notified. This is deliberate: Sun doesn't know your Slack
+webhook, PagerDuty key, or on-call email, so it doesn't guess one.
+
+To wire up a real receiver, override `alertmanager.config` in
+`platform/infra/base/main.tf`'s `local.prometheus_alertmanager_config` (or
+pass an additional `helm_release.prometheus` `values` entry that
+deep-merges over it) with the shape the `alertmanager` chart expects — see
+`helm show values prometheus-community/alertmanager --version 1.10.0` for
+the full schema. For example, a Slack receiver:
+
+```hcl
+receivers = [
+  { name = "null" },
+  {
+    name = "slack"
+    slack_configs = [{
+      api_url    = var.slack_webhook_url
+      channel    = "#alerts"
+      send_resolved = true
+    }]
+  }
+]
+route = {
+  receiver = "slack" # was "null"
+  # ...
+}
+```
+
+PagerDuty (`pagerduty_configs`) and email (`email_configs`) receivers
+follow the same `alertmanager.config.receivers[].<type>_configs` shape.
+None of these are built here — this is the extension point, not a shipped
+integration (see OBS-040's ticket non-goals).
+
+### Extending the rule set
+
+Add more alerting rules the same way: extend
+`local.prometheus_alerting_rules.groups[0].rules` (or add another group)
+in `platform/infra/base/main.tf`. Multi-window burn-rate alerting and
+SLO-based rules are a deliberate non-goal for this starter set — Sun has
+no per-service SLO target concept today: revisit only if the simple
+threshold rules above prove insufficient in practice.
+
 ## Dashboards (OBS-011, OBS-036)
 
 All three profiles provision the same three Grafana dashboards, loaded via
