@@ -9,12 +9,24 @@ The product design is documented in
 | Profile | Logs (Loki) | Metrics (Prometheus) | Requires |
 |---|---|---|---|
 | `local` (default) | In-cluster, optional PVC | In-cluster, optional PVC | Nothing. For dev and throwaway clusters. |
-| `external` | Skipped entirely; promtail ships straight to your endpoint | Still runs (it's the scrape agent) but forwards via `remote_write`, short local retention | `external_loki_url` + `external_prometheus_remote_write_url` (and usernames/passwords if your endpoint needs basic auth) |
+| `external` | Skipped entirely; Alloy ships straight to your endpoint | Still runs (it's the scrape agent) but forwards via `remote_write`, short local retention | `external_loki_url` + `external_prometheus_remote_write_url` (and usernames/passwords if your endpoint needs basic auth) |
 | `self_hosted_durable` | In-cluster Loki, chunks + index in S3 | Prometheus + Thanos sidecar/storegateway/compactor backed by S3 | AWS only — see below |
+
+Log shipping is [Grafana Alloy](https://grafana.com/docs/alloy/latest/)
+(OBS-039), the officially documented successor to Promtail — Promtail
+itself reached end-of-life in March 2026. A cluster-wide DaemonSet tails
+every pod's stdout/stderr via the Kubernetes API
+(`loki.source.kubernetes`, no hostPath mount required) and relabels
+standard Kubernetes metadata plus Sun's taxonomy labels
+(`workspace`/`domain`/`service`/`primitive`/`release`) onto each log
+stream, the same taxonomy `render_taxonomy_labels` already applies to pod
+labels. Alloy's scope in Sun today is log shipping only — its
+metrics/traces collection capability is unused, tracked separately for
+`OBS-041`'s tracing work.
 
 ## `external`
 
-Points promtail's log-shipping client and Prometheus's `remote_write` at
+Points Alloy's log-shipping target and Prometheus's `remote_write` at
 infrastructure you already run or already pay for (a hosted Loki/Prometheus
 service, your own observability stack elsewhere, etc.). Sun's Grafana +
 local Loki are skipped since there's nothing local left to browse; Prometheus
@@ -131,8 +143,8 @@ AWS deploy before depending on it in production.
 ## Dashboards (OBS-011, OBS-036)
 
 All three profiles provision the same three Grafana dashboards, loaded via
-the `loki-stack` chart's sidecar ConfigMap-loading
-(`grafana.sidecar.dashboards`) rather than one file per domain/service:
+the standalone `grafana` chart's sidecar ConfigMap-loading
+(`sidecar.dashboards`) rather than one file per domain/service:
 
 - **Workspace overview** — request rate, 5xx rate, and scraped-target health
   across every domain at once.

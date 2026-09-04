@@ -469,7 +469,7 @@ localhost:9092   → redpanda:9093     (kafka)
 localhost:8081   → redpanda:8081     (schema registry)
 localhost:5432   → postgresql:5432   (postgres)
 localhost:3100   → loki:3100         (loki)
-localhost:3000   → loki-grafana:80   (grafana)
+localhost:3000   → grafana:80        (grafana)
 localhost:9091   → prometheus-prometheus-pushgateway:9091
 ```
 
@@ -481,7 +481,9 @@ These addresses are deterministic from the Helm release names in `sun dev up`. H
 |-----------|-------------|-----------|
 | Kafka | `redpanda` | `redpanda` |
 | PostgreSQL | `postgresql` | `postgresql` |
-| Loki + Grafana | `loki` | `monitoring` |
+| Loki | `loki` | `monitoring` |
+| Grafana | `grafana` | `monitoring` |
+| Alloy (log shipping, OBS-039) | `alloy` | `monitoring` |
 | Prometheus | `prometheus` | `monitoring` |
 
 #### `-svc` manifest details

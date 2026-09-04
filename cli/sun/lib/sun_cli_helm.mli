@@ -5,6 +5,13 @@ type set_val =
 
 val repo_add    : name:string -> url:string -> (Sun_cli_process.result, Sun_cli_process.error) result
 val repo_update : unit -> (Sun_cli_process.result, Sun_cli_process.error) result
+
+(** [?values_yaml] is raw YAML content written to a temp file and passed via
+    [-f] -- needed for values a flat [--set]/[--set-string] can't express,
+    such as Alloy's multi-line River configMap content (OBS-039). The temp
+    file is removed after the helm invocation regardless of outcome. *)
 val upgrade_install : release:string -> chart:string -> namespace:string
-                      -> ?values:(string * set_val) list -> unit
+                      -> ?values:(string * set_val) list
+                      -> ?values_yaml:string
+                      -> unit
                       -> (Sun_cli_process.result, Sun_cli_process.error) result

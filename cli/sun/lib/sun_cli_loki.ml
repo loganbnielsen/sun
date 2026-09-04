@@ -80,8 +80,8 @@ let classify_process_error (e : Sun_cli_process.error) : fetch_error =
     Other (Printf.sprintf "curl exit %d: %s" exit_code stderr)
 
 (* OBS-032: resolves the same read-side basic-auth credentials
-   platform/infra/base/main.tf already collects for promtail's write side
-   (external_loki_username/external_loki_password), mirroring
+   platform/infra/base/main.tf already collects for Alloy's write side
+   (external_loki_username/external_loki_password, OBS-039), mirroring
    --loki-base-url's own flag-wins-over-nothing-else shape but as a
    flag/env pair like Kafka_security.config_of_env()'s KAFKA_SASL_* --
    flag wins over env var, field-by-field. [Error] when exactly one of

@@ -250,7 +250,7 @@ let loki_username_arg =
        info ["loki-username"] ~docv:"USERNAME"
          ~doc:"Basic-auth username for the Loki query request (e.g. a \
                Grafana Cloud stack's instance ID) -- the read-side \
-               counterpart of promtail's external_loki_username \
+               counterpart of Alloy's external_loki_username \
                (platform/infra/base). Falls back to SUN_LOKI_USERNAME; \
                the flag wins when both are set. Must be paired with \
                --loki-password (or SUN_LOKI_PASSWORD).")
@@ -259,7 +259,7 @@ let loki_password_arg =
   Arg.(value & opt (some string) None &
        info ["loki-password"] ~docv:"PASSWORD"
          ~doc:"Basic-auth password/API key for the Loki query request -- \
-               the read-side counterpart of promtail's \
+               the read-side counterpart of Alloy's \
                external_loki_password (platform/infra/base). Falls back to \
                SUN_LOKI_PASSWORD; the flag wins when both are set. Must \
                be paired with --loki-username (or SUN_LOKI_USERNAME). Prefer \
