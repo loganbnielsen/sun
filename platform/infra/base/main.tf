@@ -542,6 +542,11 @@ resource "kubernetes_config_map" "grafana_prometheus_datasource" {
 # OBS-036 adds a third, $domain-only dashboard for the gap between
 # workspace-wide and single-service views: per-service breakdowns within
 # one domain, using the same live-label-driven templating.
+# OBS-038 adds a fourth: a deploy/release timeline sourced from OBS-037's
+# `event=deploy` Loki log lines (pushed by `sun deploy` itself, not tailed
+# from a pod -- those lines carry the fixed stream label
+# `service="sun-deploy"`, with workspace/domain/service/etc as logfmt
+# fields in the line body rather than real Loki labels).
 resource "kubernetes_config_map" "grafana_dashboards" {
   count = local.loki_install_local ? 1 : 0
 
@@ -555,6 +560,7 @@ resource "kubernetes_config_map" "grafana_dashboards" {
     "workspace-overview.json" = file("${path.module}/dashboards/workspace-overview.json")
     "service-template.json"   = file("${path.module}/dashboards/service-template.json")
     "domain-overview.json"    = file("${path.module}/dashboards/domain-overview.json")
+    "release-timeline.json"   = file("${path.module}/dashboards/release-timeline.json")
   }
 
   depends_on = [helm_release.grafana]

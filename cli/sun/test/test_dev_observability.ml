@@ -15,7 +15,10 @@ let test_dashboard_configmap () =
   assert_contains "sidecar label" yaml "grafana_dashboard: \"1\"";
   assert_contains "workspace uid" yaml "\"uid\": \"sun-workspace-overview\"";
   assert_contains "domain uid" yaml "\"uid\": \"sun-domain-overview\"";
-  assert_contains "service uid" yaml "\"uid\": \"sun-service-template\""
+  assert_contains "service uid" yaml "\"uid\": \"sun-service-template\"";
+  assert_contains "release timeline uid" yaml "\"uid\": \"sun-release-timeline\"";
+  assert_contains "release timeline query" yaml
+    "{service=\\\"sun-deploy\\\"} | logfmt | event=\\\"deploy\\\""
 
 let test_prometheus_datasource_configmap () =
   let yaml =
