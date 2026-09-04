@@ -3,6 +3,9 @@ id: FEAT-026
 type: feature
 severity: high
 source: docs/planning/LIVE_DEV_DEPLOY_ROADMAP.md
+branch: FEAT-026/target-deploy-wiring
+worktree: ../sun-FEAT-026-target-deploy-wiring
+pr: https://github.com/loganbnielsen/sun/pull/98
 ---
 
 Wire `Sun_cli_config.load_for_target` into `sun deploy`; emit the `env` label; fix every touchpoint the new required target argument breaks.
