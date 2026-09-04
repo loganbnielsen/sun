@@ -360,8 +360,8 @@ at that step.
 The deploy job uses two stable `sun deploy` invocations:
 
 ```
-sun deploy --emit-plan-to plan.json --dry-run    # capture typed deployment intent
-sun deploy --emit-to manifests/ --image-tag $SHA # render K8s YAML for GitOps
+sun deploy prod/aws/us-east-1 --emit-plan-to plan.json --dry-run    # capture typed deployment intent
+sun deploy prod/aws/us-east-1 --emit-to manifests/ --image-tag $SHA # render K8s YAML for GitOps
 ```
 
 The `--emit-plan-to` step records the full deployment intent (images, namespaces,
@@ -391,7 +391,7 @@ and the `artifact_invariants` test suite.
 | Read-only root filesystem | `containers[].securityContext.readOnlyRootFilesystem: true` | Enforced | Container-level; all primitives |
 | GitOps secret redaction | `Secret.stringData` values are empty strings | Enforced | `Kubernetes_placeholder` mode only |
 | Taxonomy labels | `metadata.labels["workspace"\|"domain"\|"service"\|"primitive"\|"release"]` | Enforced | Pod-template labels, unprefixed (not `sun.dev/*` — see `docs/architecture/observability-design.md`); shipped in OBS-008 |
-| `env` taxonomy label | `metadata.labels["env"]` | Planned | Not yet emitted — `sun up`/`sun deploy` have no target-resolution concept yet; see `observability-design.md`'s Identity section for the planned fix |
+| `env` taxonomy label | `metadata.labels["env"]` | Done | Emitted by `sun deploy <env>/<provider>/<region>` (FEAT-026); `sun up` stays local-only and omits it — see `observability-design.md`'s Identity section |
 
 ### What is covered by `assert_k8s_invariants`
 

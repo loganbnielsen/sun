@@ -11,7 +11,7 @@ and update call sites in the same pass. Full policy: `~/Code/CLAUDE.md`.
 
 ## Current development focus
 
-**Phase 7 core deliverables complete.** `sun deploy` is implemented with `--image-tag`, `--registry`, `--emit-to` (GitOps), and `--dry-run` flags. YAML rendering is shared by `sun up` and `sun deploy`. Terraform modules live at `platform/infra/base/`, `platform/infra/aws/`, and `platform/infra/gcp/`. Remaining hosted-product work is tracked in `project/tickets/`. See `docs/planning/WORK_SUMMARY.md` for full details.
+**Phase 7 core deliverables complete.** `sun deploy <env>/<provider>/<region>` takes a required target positional (same convention as `sun plan`) plus `--image-tag`, `--registry`, `--emit-to` (GitOps), and `--dry-run` flags; the target resolves `sun.yml`/target-file defaults and the `env` manifest label (FEAT-026). YAML rendering is shared by `sun up` and `sun deploy`. Terraform modules live at `platform/infra/base/`, `platform/infra/aws/`, and `platform/infra/gcp/`. Remaining hosted-product work is tracked in `project/tickets/`. See `docs/planning/WORK_SUMMARY.md` for full details.
 
 Package: `cli/sun/` — binary at `_build/default/cli/sun/bin/main.exe`.
 

@@ -96,12 +96,35 @@ let test_deploy_workflow_created () =
   let path = "testapp/.github/workflows/deploy.yml" in
   check_bool "deploy.yml created" true (Sys.file_exists path)
 
+(* FEAT-026: deploy.yml's real (non-comment) `sun deploy` invocation passes
+   a target via a SUN_TARGET repo variable, documented in the header. *)
+let test_deploy_workflow_passes_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/deploy.yml" in
+  assert_contains "deploy.yml" content "SUN_TARGET";
+  assert_contains "deploy.yml" content "sun deploy \"$SUN_TARGET\""
+
 (* Verify that sun-ci.yml contains 'sun deploy' *)
 let test_ci_contains_sun_deploy () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
   let content = read_file "testapp/.github/workflows/sun-ci.yml" in
   assert_contains "sun-ci.yml" content "sun deploy"
+
+(* FEAT-026: sun-ci.yml's two real (non-comment) `main.exe deploy` steps —
+   Export deployment plan, Emit GitOps manifests — must actually pass a
+   target, not just have a comment above them claiming one. An earlier
+   pass of this ticket updated only the comments and missed this: the
+   generated workflow failed with "required argument TARGET is missing"
+   on the very first push, since a substring check on "sun deploy" alone
+   (test_ci_contains_sun_deploy above) passes either way. *)
+let test_ci_deploy_steps_pass_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "SUN_TARGET";
+  assert_contains "sun-ci.yml" content {|main.exe deploy "$SUN_TARGET"|}
 
 (* Verify that sun-ci.yml contains '--emit-plan-to' (FEAT-008 integration) *)
 let test_ci_contains_emit_plan_to () =
@@ -157,9 +180,10 @@ let test_ci_contract_deploy_phase_uses_sun_deploy () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
   let content = read_file "testapp/.github/workflows/sun-ci.yml" in
-  (* The contract comment block must reference the sun deploy command *)
-  assert_contains "sun-ci.yml" content "sun deploy --emit-plan-to";
-  assert_contains "sun-ci.yml" content "sun deploy --emit-to"
+  (* The contract comment block must reference the sun deploy command,
+     including the required <env>/<provider>/<region> target (FEAT-026) *)
+  assert_contains "sun-ci.yml" content "sun deploy <target> --emit-plan-to";
+  assert_contains "sun-ci.yml" content "sun deploy <target> --emit-to"
 
 (* Verify that no raw kubectl apply appears in the generated workflow — all
    cluster changes must go through sun deploy *)
@@ -197,6 +221,7 @@ let test_existing_files_still_generated () =
     "testapp/app/comms/notify_worker/bin/main.ml";
     "testapp/app/comms/notify_worker/sun.toml";
     "testapp/db/migrations/0001_notifications.sql";
+    "testapp/sun/prod/aws/us-east-1.yml";
   ] in
   List.iter (fun path ->
     check_bool (Printf.sprintf "%s exists" path) true (Sys.file_exists path)
@@ -213,6 +238,24 @@ let test_existing_files_still_generated () =
   in
   walk "testapp";
   check_bool "at least 21 files generated" true (!count >= 21)
+
+(* FEAT-026 follow-up: `sun deploy` refuses to run against a target with no
+   sun/<env>/<provider>/<region>.yml file, even an empty one (see
+   cmd_deploy.ml's strict target-file check) -- a freshly scaffolded
+   workspace must ship one so the acceptance criteria's own
+   `sun deploy prod/aws/us-east-1 --dry-run` works with zero manual setup. *)
+let test_scaffolded_workspace_has_a_real_deploy_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  Sys.chdir "testapp";
+  match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+  | Error e -> Alcotest.fail ("load_for_target failed: " ^ Sun_cli_config.error_to_string e)
+  | Ok cfg ->
+    match Sun_cli_config.target cfg with
+    | None -> Alcotest.fail "expected a resolved target"
+    | Some target ->
+      check_bool "sun/prod/aws/us-east-1.yml exists" true
+        (Sys.file_exists (Sun_cli_config.target_file target))
 
 let test_workspace_has_dune_project () =
   in_temp_dir @@ fun () ->
@@ -636,7 +679,9 @@ let () =
     [ "ci_workflow", [
         Alcotest.test_case "sun-ci.yml created"           `Quick test_ci_workflow_created
       ; Alcotest.test_case "deploy.yml still created"     `Quick test_deploy_workflow_created
+      ; Alcotest.test_case "deploy.yml passes target"     `Quick test_deploy_workflow_passes_target
       ; Alcotest.test_case "contains sun deploy"          `Quick test_ci_contains_sun_deploy
+      ; Alcotest.test_case "deploy steps pass target"     `Quick test_ci_deploy_steps_pass_target
       ; Alcotest.test_case "--emit-plan-to present"       `Quick test_ci_contains_emit_plan_to
       ; Alcotest.test_case "--emit-to present"            `Quick test_ci_contains_emit_to
       ; Alcotest.test_case "dune build + runtest"         `Quick test_ci_contains_dune_commands
@@ -649,6 +694,7 @@ let () =
       ]
     ; "existing_files", [
         Alcotest.test_case "all prior files still present" `Quick test_existing_files_still_generated
+      ; Alcotest.test_case "has a real deploy target"       `Quick test_scaffolded_workspace_has_a_real_deploy_target
       ; Alcotest.test_case "dune-project generated"        `Quick test_workspace_has_dune_project
       ; Alcotest.test_case "Dockerfile paths relative"      `Quick test_dockerfile_paths_are_workspace_relative
       ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted

@@ -21,14 +21,24 @@ type up_request = {
 
 (** A validated request for [sun deploy]: deploy pre-built images (CI/CD path). *)
 type deploy_request = {
-  filter_path          : string option;
-  dry_run              : bool;
-  emit_to              : string option;
-  emit_plan_to         : string option;
-  image_tag            : string;
-  registry             : string;
-  secret_backend       : Sun_cli_manifest.secret_backend;
-  confirm_group_change : bool;
+  target                : string;
+  (** Deployment target path, [<env>/<provider>/<region>] — resolved via
+      [Sun_cli_config.load_for_target]. Required: [sun deploy]'s positional
+      target argument, matching [sun plan]'s existing convention. *)
+  filter_path           : string option;
+  dry_run               : bool;
+  emit_to               : string option;
+  emit_plan_to          : string option;
+  image_tag             : string;
+  registry              : string option;
+  (** Raw [--registry] value, unresolved. [None] means "use the target
+      file's registry, or fail if it has none" — that resolution (no
+      hardcoded local-registry fallback; [sun deploy] is always the
+      customer-cluster path) happens in [cmd_deploy.ml] once the target
+      loads, not here, since this constructor never touches
+      [Sun_cli_config]. *)
+  secret_backend        : Sun_cli_manifest.secret_backend;
+  confirm_group_change  : bool;
 }
 
 val make_up_request
@@ -43,7 +53,8 @@ val make_up_request
     Returns [Error msg] if validation fails. *)
 
 val make_deploy_request
-  :  filter_path:string option
+  :  target:string
+  -> filter_path:string option
   -> dry_run:bool
   -> emit_to:string option
   -> emit_plan_to:string option
@@ -55,4 +66,6 @@ val make_deploy_request
   -> (deploy_request, string) result
 (** Validate raw Cmdliner values for [sun deploy] into a [deploy_request].
     [git_sha] is a thunk so callers can inject a real or stub implementation.
-    Returns [Error msg] if validation fails. *)
+    Returns [Error msg] if validation fails — including [target] being
+    empty (cmdliner's [required] should already prevent this, but this
+    constructor doesn't assume its caller enforced that). *)

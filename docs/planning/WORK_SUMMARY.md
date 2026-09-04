@@ -1326,8 +1326,8 @@ New `cli/sun/bin/cmd_deploy.ml`:
 YAML rendering logic extracted from `cmd_up.ml` into `cli/sun/lib/sun_cli_manifest.ml` (new library module) so both commands share it. `Sun_cli_manifest` exports `discover_services`, `render`, `apply`, `emit_to_dir`, and all template helpers. Added `unix` to `cli/sun/lib/dune` deps for `Unix.mkdir` in `emit_to_dir`.
 
 Verified end-to-end:
-- `sun deploy --dry-run` → correct YAML with `sun-registry:5000` image refs
-- `sun deploy --emit-to /tmp/pluto-manifests --image-tag abc1234 --registry 123456789.dkr.ecr.us-east-1.amazonaws.com` → wrote `pluto-comms-notify-worker.yaml` and `pluto-payments-charge-svc.yaml`; `image:` field contains `123456789.dkr.ecr.us-east-1.amazonaws.com/pluto/charge-svc:abc1234` ✓
+- `sun deploy prod/aws/us-east-1 --dry-run` → correct YAML with `sun-registry:5000` image refs
+- `sun deploy prod/aws/us-east-1 --emit-to /tmp/pluto-manifests --image-tag abc1234 --registry 123456789.dkr.ecr.us-east-1.amazonaws.com` → wrote `pluto-comms-notify-worker.yaml` and `pluto-payments-charge-svc.yaml`; `image:` field contains `123456789.dkr.ecr.us-east-1.amazonaws.com/pluto/charge-svc:abc1234` ✓
 
 ### Terraform modules
 
@@ -1365,12 +1365,12 @@ Verified end-to-end:
 
 **`platform/infra/ci/github-actions-deploy.yml`** — direct deploy mode:
 1. Build OCaml binaries, build + push Docker images to ECR
-2. `sun deploy --image-tag $SHA --registry $ECR_REGISTRY`
+2. `sun deploy "$SUN_TARGET" --image-tag $SHA --registry $ECR_REGISTRY`
 3. `sun status`
 
 **`platform/infra/ci/github-actions-gitops.yml`** — GitOps mode:
 1. Build + push images to ECR
-2. `sun deploy --emit-to manifests/ --image-tag $SHA`
+2. `sun deploy "$SUN_TARGET" --emit-to manifests/ --image-tag $SHA`
 3. Commit + push `manifests/*.yaml` to separate GitOps repo
 4. Argo CD reconciles cluster
 

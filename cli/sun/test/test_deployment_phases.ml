@@ -115,6 +115,7 @@ let local_env : Sun_cli_deployment_plan.env_config = {
   mode           = Sun_cli_deployment_plan.Local;
   registry       = "sun-registry:5000";
   image_tag      = "dev";
+  env            = None;
   region         = None;
   base_domain    = None;
   secret_backend = Sun_cli_manifest.Kubernetes_live;
@@ -125,6 +126,7 @@ let customer_env : Sun_cli_deployment_plan.env_config = {
   mode           = Sun_cli_deployment_plan.Customer_cloud;
   registry       = "123456789.dkr.ecr.us-east-1.amazonaws.com";
   image_tag      = "abc123";
+  env            = Some "prod";
   region         = Some "us-east-1";
   base_domain    = Some "example.com";
   secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
@@ -176,6 +178,7 @@ let test_up_request_preserves_dry_run () =
 
 let test_deploy_request_uses_explicit_tag () =
   let r = Sun_cli_command_request.make_deploy_request
+    ~target:"dev/aws/us-east-1"
     ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
     ~image_tag:(Some "sha-abc") ~registry:(Some "reg.example.com")
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
@@ -189,6 +192,7 @@ let test_deploy_request_uses_explicit_tag () =
 
 let test_deploy_request_local_mode_builds_request () =
   let r = Sun_cli_command_request.make_deploy_request
+    ~target:"dev/aws/us-east-1"
     ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
     ~image_tag:(Some "v2") ~registry:(Some "gcr.io/myproject")
     ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
@@ -198,6 +202,7 @@ let test_deploy_request_local_mode_builds_request () =
 
 let test_deploy_request_gitops_emit_to_stored () =
   let r = Sun_cli_command_request.make_deploy_request
+    ~target:"dev/aws/us-east-1"
     ~filter_path:None ~dry_run:false ~emit_to:(Some "/tmp/gitops")
     ~emit_plan_to:None ~image_tag:(Some "tag")
     ~registry:(Some "reg") ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
@@ -207,6 +212,33 @@ let test_deploy_request_gitops_emit_to_stored () =
   | Ok req ->
     Alcotest.(check (option string)) "emit_to stored"
       (Some "/tmp/gitops") req.Sun_cli_command_request.emit_to
+  | Error msg -> Alcotest.fail msg
+
+(* FEAT-026: target is required — make_deploy_request rejects an empty one
+   even though cmdliner's `required` positional should already prevent
+   this from reaching here in practice. *)
+let test_deploy_request_rejects_empty_target () =
+  let r = Sun_cli_command_request.make_deploy_request
+    ~target:"" ~filter_path:None ~dry_run:false ~emit_to:None ~emit_plan_to:None
+    ~image_tag:(Some "tag") ~registry:(Some "reg")
+    ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
+    ~confirm_group_change:false ~git_sha:(fun () -> "")
+  in
+  Alcotest.(check bool) "empty target rejected" true (Result.is_error r)
+
+(* --registry omitted stores None, not a hardcoded default — the
+   resolution (target file, or fail if it has none too) happens in
+   cmd_deploy.ml once the target loads, not in this constructor. *)
+let test_deploy_request_registry_omitted_stays_none () =
+  let r = Sun_cli_command_request.make_deploy_request
+    ~target:"dev/aws/us-east-1" ~filter_path:None ~dry_run:false
+    ~emit_to:None ~emit_plan_to:None ~image_tag:(Some "tag") ~registry:None
+    ~secret_backend:Sun_cli_manifest.Kubernetes_placeholder
+    ~confirm_group_change:false ~git_sha:(fun () -> "")
+  in
+  match r with
+  | Ok req -> Alcotest.(check (option string)) "registry stays None"
+                None req.Sun_cli_command_request.registry
   | Error msg -> Alcotest.fail msg
 
 (* ── Phase 2: plan construction ─────────────────────────────────────────── *)
@@ -538,6 +570,8 @@ let () =
       ; Alcotest.test_case "deploy: explicit tag used"      `Quick test_deploy_request_uses_explicit_tag
       ; Alcotest.test_case "deploy: local mode Ok"          `Quick test_deploy_request_local_mode_builds_request
       ; Alcotest.test_case "deploy: emit_to stored"         `Quick test_deploy_request_gitops_emit_to_stored
+      ; Alcotest.test_case "deploy: empty target rejected"  `Quick test_deploy_request_rejects_empty_target
+      ; Alcotest.test_case "deploy: registry omitted stays None" `Quick test_deploy_request_registry_omitted_stays_none
       ]
     ; "plan_construction", [
         Alcotest.test_case "local mode fields"              `Quick test_plan_local_mode_fields

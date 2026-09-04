@@ -130,7 +130,7 @@ cd pluto
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
-This generates 27 files. Here is what was created and why:
+This generates 28 files. Here is what was created and why:
 
 ```
 pluto/
@@ -138,6 +138,8 @@ pluto/
   .ocamlformat                    ← OCaml formatter config
   .dockerignore                   ← excludes _build/ and .git/ from Docker build context
   README.md                       ← workspace-level docs
+
+  sun/prod/aws/us-east-1.yml      ← placeholder deploy target — rename to your real target
 
   .github/workflows/
     deploy.yml                    ← CI deploy workflow
@@ -475,8 +477,8 @@ sun dev run                                       run services as native process
 
 sun plan TARGET                                   print merged app/resource/service plan
 sun up [path] [--dry-run] [--tag]                 build images and deploy to local cluster
-sun deploy [--image-tag TAG] [--registry URL]     deploy pre-built images (CI mode)
-sun deploy --emit-to DIR [--image-tag TAG] ...    write YAML for Argo CD (GitOps mode)
+sun deploy TARGET [--image-tag TAG] [--registry URL]  deploy pre-built images (CI mode)
+sun deploy TARGET --emit-to DIR [--image-tag TAG] ...  write YAML for Argo CD (GitOps mode)
 sun status [domain]                               show running pods and port-forward hints
 
 sun migrate [apply]                               apply pending migrations
@@ -501,11 +503,13 @@ sun cloud destroy TARGET [--plan|--apply]         destroy cloud infrastructure v
 
 The `sun deploy` command is `sun up` without the build step. It is designed to run in CI after images have already been built and pushed to a production registry.
 
+`sun deploy` takes a required `<env>/<provider>/<region>` target — same convention as `sun plan` — and the target file it resolves must exist first, even if empty. `sun new workspace` scaffolds a placeholder at `sun/prod/aws/us-east-1.yml`; rename it to match your real target if it isn't `prod/aws/us-east-1`.
+
 ### Direct deploy (CI pushes to the cluster)
 
 ```bash
 # In CI, after docker build && docker push:
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --image-tag "$GIT_SHA" \
   --registry  "123456789.dkr.ecr.us-east-1.amazonaws.com"
 ```
@@ -516,7 +520,7 @@ Sun generates the same Kubernetes manifests as `sun up` but uses the provided re
 
 ```bash
 # In CI:
-sun deploy \
+sun deploy prod/aws/us-east-1 \
   --emit-to   manifests/ \
   --image-tag "$GIT_SHA" \
   --registry  "123456789.dkr.ecr.us-east-1.amazonaws.com"

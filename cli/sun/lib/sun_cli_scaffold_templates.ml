@@ -125,6 +125,15 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 #   REGISTRY_USER      registry username (or "AWS" for ECR)
 #   REGISTRY_PASSWORD  registry password / access token
 #
+# Required GitHub repo variable (Settings -> Secrets and variables -> Actions ->
+# Variables -- not a secret, this is just a path):
+#   SUN_TARGET         deployment target, <env>/<provider>/<region>, e.g.
+#                      prod/aws/us-east-1. Requires a matching
+#                      sun/<env>/<provider>/<region>.yml file committed in
+#                      this repo -- this workspace ships a placeholder at
+#                      sun/prod/aws/us-east-1.yml; rename it to match your
+#                      real target if it isn't prod/aws/us-east-1.
+#
 # Optional (GitOps push step):
 #   GITOPS_TOKEN       GitHub token with repo-write access to commit manifests/.
 #                      ${{ secrets.GITHUB_TOKEN }} works when pushing to the same repo.
@@ -141,8 +150,8 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 #   Sun does not own this step today; a future `sun build` command will replace it.
 #
 # PHASE 2 — Deploy (Sun-owned, typed contract):
-#   sun deploy --emit-plan-to plan.json --dry-run   # capture typed deployment intent
-#   sun deploy --emit-to manifests/ --image-tag $SHA  # render K8s YAML (GitOps)
+#   sun deploy <target> --emit-plan-to plan.json --dry-run   # capture typed deployment intent
+#   sun deploy <target> --emit-to manifests/ --image-tag $SHA  # render K8s YAML (GitOps)
 #
 # Never duplicate the plan/render/execute logic from sun deploy in CI.
 # All deployment decisions (image tags, namespaces, service discovery, secrets)
@@ -157,8 +166,9 @@ on:
   pull_request:
 
 env:
-  REGISTRY:  ${{ secrets.REGISTRY }}
-  IMAGE_TAG: ${{ github.sha }}
+  REGISTRY:   ${{ secrets.REGISTRY }}
+  IMAGE_TAG:  ${{ github.sha }}
+  SUN_TARGET: ${{ vars.SUN_TARGET }}
 
 # ── Job 1: compile + unit tests ──────────────────────────────────────────── #
 jobs:
@@ -248,9 +258,9 @@ jobs:
 
 # ── Job 3: emit deployment plan + GitOps manifests ──────────────────────── #
 # This job runs only on pushes to main (not on pull requests).
-# `sun deploy --emit-plan-to plan.json` records the full deployment intent
+# `sun deploy <target> --emit-plan-to plan.json` records the full deployment intent
 # (images, namespaces, config) without applying anything — useful for auditing.
-# `sun deploy --emit-to manifests/` renders Kubernetes YAML to manifests/.
+# `sun deploy <target> --emit-to manifests/` renders Kubernetes YAML to manifests/.
 # An Argo CD Application watching that directory reconciles the change
 # automatically; no KUBECONFIG or cluster credentials are required in CI.
   deploy:
@@ -282,8 +292,8 @@ jobs:
       - name: Export deployment plan
         run: |
           eval $(opam env)
-          # Equivalent Sun command: sun deploy --emit-plan-to plan.json --dry-run
-          _build/default/cli/sun/bin/main.exe deploy \
+          # Equivalent Sun command: sun deploy <target> --emit-plan-to plan.json --dry-run
+          _build/default/cli/sun/bin/main.exe deploy "$SUN_TARGET" \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \
             --emit-plan-to plan.json \
@@ -299,8 +309,8 @@ jobs:
       - name: Emit GitOps manifests
         run: |
           eval $(opam env)
-          # Equivalent Sun command: sun deploy --emit-to manifests/
-          _build/default/cli/sun/bin/main.exe deploy \
+          # Equivalent Sun command: sun deploy <target> --emit-to manifests/
+          _build/default/cli/sun/bin/main.exe deploy "$SUN_TARGET" \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \
             --emit-to   manifests/
@@ -325,6 +335,14 @@ let tpl_github_deploy = {tpl|# CI/CD — deploy to your Sun cluster on every pus
 #                      AWS ECR:  123456789.dkr.ecr.us-east-1.amazonaws.com
 #                      GCP AR:   us-central1-docker.pkg.dev/my-project/{{name}}
 #                      Docker Hub: docker.io/myorg
+#
+# Required repo variable (Settings → Secrets and variables → Actions → Variables —
+# not a secret, this is just a path):
+#   SUN_TARGET       deployment target, <env>/<provider>/<region>, e.g. prod/aws/us-east-1.
+#                    Requires a matching sun/<env>/<provider>/<region>.yml file
+#                    committed in this repo -- this workspace ships a placeholder
+#                    at sun/prod/aws/us-east-1.yml; rename it to match your real
+#                    target if it isn't prod/aws/us-east-1.
 #
 # For ECR add AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION and
 # uncomment the ECR login step below.
@@ -396,13 +414,14 @@ jobs:
 
       - name: Deploy
         env:
-          REGISTRY: ${{ secrets.REGISTRY }}
-          SHA:      ${{ github.sha }}
+          REGISTRY:   ${{ secrets.REGISTRY }}
+          SHA:        ${{ github.sha }}
+          SUN_TARGET: ${{ vars.SUN_TARGET }}
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBECONFIG_B64 }}" | base64 -d > ~/.kube/config
           eval $(opam env)
-          sun deploy \
+          sun deploy "$SUN_TARGET" \
             --image-tag "${SHA::7}" \
             --registry  "$REGISTRY"
 
@@ -437,6 +456,21 @@ CMD ["/usr/local/bin/{{binary}}"]
 let tpl_dockerignore = {tpl|_build/
 .git/
 *.docker-ctx/
+|tpl}
+
+(* sun deploy deliberately refuses to run against a target with no
+   sun/<env>/<provider>/<region>.yml file, even an empty one -- otherwise a
+   typo'd target would silently inherit sun.yml's shared defaults and
+   deploy anyway. This placeholder exists so a freshly scaffolded workspace
+   has a real first target instead of failing before its first deploy;
+   rename/move it (and update SUN_TARGET below) to your actual target. *)
+let tpl_deploy_target = {tpl|# Placeholder target for `sun deploy prod/aws/us-east-1`.
+# Rename this file's path (sun/<env>/<provider>/<region>.yml) to your real
+# deployment target, and set the SUN_TARGET repository variable in GitHub
+# (used by .github/workflows/deploy.yml) to match.
+#
+# target:
+#   registry: <your-registry-url>
 |tpl}
 
 (* ── Workspace scaffold templates ─────────────────────────────────────────── *)

@@ -43,14 +43,14 @@ let gitops ~workspace ~dir ?(secret_backend = Sun_cli_manifest.Kubernetes_placeh
 
 (* ── plan-level executor ─────────────────────────────────────────────────── *)
 
-let run_plan ~workspace ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) services =
+let run_plan ~workspace ?env ~mode ?(secret_backend = Sun_cli_manifest.Kubernetes_placeholder) services =
   let backend = match mode with
     | Emit_to _ -> Sun_cli_manifest.Kubernetes_placeholder
     | Dry_run | Apply -> secret_backend
   in
   (* Render all specs upfront; surface the first error before any side effect. *)
   let rendered = List.map
-    (fun spec -> match Sun_cli_deployment_render.render_spec ~workspace ~secret_backend:backend spec with
+    (fun spec -> match Sun_cli_deployment_render.render_spec ~workspace ?env ~secret_backend:backend spec with
       | Error msg -> Error (spec, msg)
       | Ok yaml   -> Ok (spec, yaml))
     services

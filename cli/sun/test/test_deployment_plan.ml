@@ -160,6 +160,7 @@ let sample_plan () : Sun_cli_deployment_plan.t =
     mode           = Sun_cli_deployment_plan.Customer_cloud;
     registry       = "123.dkr.ecr.us-east-1.amazonaws.com";
     image_tag      = "abc1234";
+    env            = Some "prod";
     region         = Some "us-east-1";
     base_domain    = Some "example.com";
     secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
@@ -216,6 +217,14 @@ let test_to_json_no_secret_values () =
   if String.length (Str.global_replace (Str.regexp "also-secret") "" s) < String.length s then
     Alcotest.fail "secret value 'also-secret' leaked into plan JSON"
 
+(* FEAT-026: sample_plan's environment.env = Some "prod" must reach
+   --emit-plan-to's JSON output, same as region/base_domain already did. *)
+let test_to_json_env_present () =
+  let plan = sample_plan () in
+  let s    = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
+  assert (let re = Str.regexp {|"env":"prod"|} in
+          (contains re s))
+
 let test_to_json_secret_keys_present () =
   let plan = sample_plan () in
   let s    = Yojson.Safe.to_string (Sun_cli_deployment_plan.to_json plan) in
@@ -235,7 +244,7 @@ let test_to_json_config_values_present () =
 let test_to_json_mode_strings () =
   let check_mode mode expected =
     let env : Sun_cli_deployment_plan.env_config = {
-      name = "env"; mode; registry = "r"; image_tag = "t";
+      name = "env"; mode; registry = "r"; image_tag = "t"; env = None;
       region = None; base_domain = None; secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
     } in
     let plan : Sun_cli_deployment_plan.t = {
@@ -746,6 +755,7 @@ let test_of_services_result_surfaces_toml_parse_error () =
       mode = Sun_cli_deployment_plan.Local;
       registry = "sun-registry:5000";
       image_tag = "dev";
+      env = None;
       region = None;
       base_domain = None;
       secret_backend = Sun_cli_manifest.Kubernetes_live;
@@ -865,6 +875,7 @@ let () =
       ; Alcotest.test_case "deterministic"           `Quick test_to_json_deterministic
       ; Alcotest.test_case "no secret values"        `Quick test_to_json_no_secret_values
       ; Alcotest.test_case "secret keys present"     `Quick test_to_json_secret_keys_present
+      ; Alcotest.test_case "env present"             `Quick test_to_json_env_present
       ; Alcotest.test_case "config values present"   `Quick test_to_json_config_values_present
       ; Alcotest.test_case "mode strings"            `Quick test_to_json_mode_strings
       ; Alcotest.test_case "secret_backend present"  `Quick test_to_json_secret_backend

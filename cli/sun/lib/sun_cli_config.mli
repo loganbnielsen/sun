@@ -48,6 +48,19 @@ type error = { path : string; line : int; message : string }
 
 val error_to_string : error -> string
 val load_for_target : target:string -> (t, error) result
+
+(** [target_file target] is the target file path a resolved [target] was
+    (or would be) overlaid from: [sun/<env>/<provider>/<region>.yml].
+    [load_for_target] itself tolerates this file being absent (a target
+    can legitimately rely on [sun.yml] alone) -- callers that mutate real
+    infrastructure and need the stronger guarantee that this exact target
+    was deliberately declared, not just shaped like one, should check
+    [Sys.file_exists] on this path themselves. [sun deploy] always does;
+    [sun cloud apply]/[destroy] do for their mutating action only (not
+    their [--plan]/[Plan] preview mode); [sun plan] (genuinely read-only)
+    doesn't. *)
+val target_file : target -> string
+
 val target : t -> target option
 val resources : t -> resource list
 val services : t -> service list

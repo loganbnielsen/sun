@@ -16,6 +16,11 @@
 #
 # Required variables (application repo):
 #   GITOPS_REPO               — e.g. git@github.com:myorg/acme-gitops.git
+#   SUN_TARGET                — deployment target, <env>/<provider>/<region>, e.g.
+#                                prod/aws/us-east-1. Requires a matching
+#                                sun/<env>/<provider>/<region>.yml file committed in
+#                                this repo -- create one before the first deploy, even
+#                                empty: mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml
 #
 # Argo CD Application (create once in the cluster after platform/infra/base/ apply):
 #   kubectl apply -f platform/infra/argocd/application.yaml
@@ -74,12 +79,13 @@ jobs:
 
       - name: Emit manifests
         env:
-          SHA:      ${{ github.sha }}
-          REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          SHA:        ${{ github.sha }}
+          REGISTRY:   ${{ secrets.ECR_REGISTRY }}
+          SUN_TARGET: ${{ vars.SUN_TARGET }}
         run: |
           eval $(opam env)
           SHORT_SHA=${SHA::7}
-          sun deploy \
+          sun deploy "$SUN_TARGET" \
             --emit-to  manifests/ \
             --image-tag "$SHORT_SHA" \
             --registry  "$REGISTRY"

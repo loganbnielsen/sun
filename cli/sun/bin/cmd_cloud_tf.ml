@@ -235,37 +235,57 @@ let run_terraform_init run_log infra_dir =
     (Sun_cli_run_log.run_phase run_log ~name:"terraform-init"
        (fun () -> Sun_cli_terraform.init ~chdir:infra_dir))
 
-let config_vars target =
+let config_vars ~strict target =
   match target with
   | None -> [], None
-  | Some target ->
-    match Sun_cli_config.load_for_target ~target with
+  | Some target_path ->
+    match Sun_cli_config.load_for_target ~target:target_path with
     | Error e ->
       Printf.eprintf "error: %s\n" (Sun_cli_config.error_to_string e);
       exit 1
     | Ok cfg ->
-      match Sun_cli_config.terraform_vars cfg with
-      | Error msg ->
-        Printf.eprintf "error: %s\n" msg;
+      match Sun_cli_config.target cfg with
+      | None ->
+        Printf.eprintf "error: target %S not found\n" target_path;
         exit 1
-      | Ok vars ->
-        let var_file =
-          match Sun_cli_config.target cfg with
-          | None -> None
-          | Some target -> target.Sun_cli_config.terraform_var_file
-        in
-        vars, var_file
+      | Some resolved_target ->
+        (* Only Apply/destroy mutate real infrastructure; Plan and
+           plan-destroy are previews, matching sun plan's own permissive
+           contract. Same reasoning as cmd_deploy.ml's check: a typo'd or
+           unintended target must not silently inherit sun.yml's shared
+           defaults and terraform apply/destroy anyway. *)
+        if strict &&
+           not (Sys.file_exists (Sun_cli_config.target_file resolved_target))
+        then begin
+          Printf.eprintf "error: no %s for target %S -- terraform \
+                           apply/destroy require an explicit target file, \
+                           even an empty one, so a typo'd or unintended \
+                           target can't silently inherit sun.yml's shared \
+                           defaults and mutate infrastructure anyway.\n"
+            (Sun_cli_config.target_file resolved_target) target_path;
+          exit 1
+        end;
+        match Sun_cli_config.terraform_vars cfg with
+        | Error msg ->
+          Printf.eprintf "error: %s\n" msg;
+          exit 1
+        | Ok vars ->
+          vars, resolved_target.Sun_cli_config.terraform_var_file
 
 let cloud_init ~target ~var_file ~vars ~action () =
   check_terraform ();
   let provider = provider_of_target_path target in
   let pname, infra_dir = infra_dir provider in
   let run_log = Sun_cli_run_log.create ~prefix:"cloud-apply" () in
+  (* Check the target before terraform-init, same order cloud_destroy
+     already uses -- a typo'd target should fail fast, not after a
+     terraform init that does nothing wrong but wastes the run. *)
+  let config_vars, config_var_file =
+    config_vars ~strict:(action = Apply) (Some target) in
   Printf.printf "\nInitializing cloud infrastructure (%s)...\n%!" pname;
 
   run_terraform_init run_log infra_dir;
 
-  let config_vars, config_var_file = config_vars (Some target) in
   let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
   let vars = config_vars @ vars in
   let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in
@@ -289,7 +309,8 @@ let cloud_destroy ~target ~var_file ~vars ~action () =
   let provider = provider_of_target_path target in
   let pname, infra_dir = infra_dir provider in
   let run_log = Sun_cli_run_log.create ~prefix:"cloud-destroy" () in
-  let config_vars, config_var_file = config_vars (Some target) in
+  let config_vars, config_var_file =
+    config_vars ~strict:(action = Apply) (Some target) in
   let var_file = match var_file with Some _ -> var_file | None -> config_var_file in
   let vars = config_vars @ vars in
   let var_files = match var_file with None -> [] | Some f -> [normalize_var_file f] in

@@ -205,7 +205,7 @@ sun dev up
 sun up
 sun status
 sun migrate
-sun deploy --dry-run
+sun deploy dev/aws/us-east-1 --dry-run  # requires sun/dev/aws/us-east-1.yml with a registry set
 sun rollback
 ```
 

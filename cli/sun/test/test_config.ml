@@ -382,6 +382,38 @@ let test_parent_target_path_fails () =
     | Error e ->
       check_str "message" "target path must not contain '..'" e.message)
 
+(* FEAT-026 round 1: load_for_target requires at least one of sun.yml or
+   the target file to exist -- a target that's neither declared in a
+   sun.yml nor has its own overlay file is just a well-shaped path
+   (e.g. an old-style service path like app/payments/charge_svc
+   misinterpreted after sun deploy's positional-arg change), not a real
+   target. *)
+let test_target_with_neither_file_fails () =
+  with_temp_dir (fun () ->
+    (* deliberately no write_base (), no sun.yml, no target file *)
+    match Sun_cli_config.load_for_target ~target:"app/payments/charge_svc" with
+    | Ok _ -> Alcotest.fail "expected target with no sun.yml and no \
+                             target file to fail"
+    | Error e ->
+      check_bool "message names the target" true
+        (let needle = "app/payments/charge_svc" and s = e.message in
+         let n = String.length needle and l = String.length s in
+         let found = ref false in
+         for i = 0 to l - n do
+           if String.sub s i n = needle then found := true
+         done; !found))
+
+let test_target_with_only_sun_yml_succeeds () =
+  with_temp_dir (fun () ->
+    write_base ();
+    (* prod/aws/us-east-1 has no sun/prod/aws/us-east-1.yml overlay --
+       load_for_target itself stays permissive about that (only
+       cmd_deploy.ml enforces the file must exist, for its own stronger
+       mutating-cluster guarantee). *)
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail e.message
+    | Ok _ -> ())
+
 let test_root_target_defaults_survive () =
   with_temp_dir (fun () ->
     write "sun.yml" {|
@@ -498,6 +530,8 @@ let () =
         Alcotest.test_case "observability_backend absent when unset" `Quick test_target_observability_backend_absent_when_unset;
         Alcotest.test_case "bad target path fails" `Quick test_bad_target_path_fails;
         Alcotest.test_case "parent target path fails" `Quick test_parent_target_path_fails;
+        Alcotest.test_case "target with neither sun.yml nor overlay fails" `Quick test_target_with_neither_file_fails;
+        Alcotest.test_case "target with only sun.yml succeeds" `Quick test_target_with_only_sun_yml_succeeds;
         Alcotest.test_case "duplicate resource fails" `Quick test_duplicate_resource_fails;
         Alcotest.test_case "unknown key fails" `Quick test_unknown_key_fails;
         Alcotest.test_case "duplicate top-level section fails" `Quick test_duplicate_top_level_section_fails;

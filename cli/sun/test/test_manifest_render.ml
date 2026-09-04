@@ -7,8 +7,8 @@ let check_string = Alcotest.(check string)
 let check_bool   = Alcotest.(check bool)
 
 (** Unwrap a [render_spec] result, failing the test on [Error]. *)
-let render_spec_ok ?(workspace = "myapp") ?image ?secret_backend spec =
-  match Sun_cli_deployment_render.render_spec ~workspace ?image ?secret_backend spec with
+let render_spec_ok ?(workspace = "myapp") ?env ?image ?secret_backend spec =
+  match Sun_cli_deployment_render.render_spec ~workspace ?env ?image ?secret_backend spec with
   | Ok v    -> v
   | Error e -> Alcotest.fail ("render_spec unexpectedly failed: " ^ e)
 
@@ -184,6 +184,25 @@ let test_svc_replicas () =
 let test_svc_extra_config () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
+
+(* FEAT-026: sun deploy's resolved target's env is threaded through to a
+   real env taxonomy label — omitted (not a fake default) when no target
+   resolved one, e.g. sun up. *)
+let test_svc_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"prod" svc_spec in
+  assert_contains "svc env label" workload {|env: "prod"|}
+
+let test_svc_env_label_absent_by_default () =
+  let (_ns, workload) = render_spec_ok svc_spec in
+  assert_absent "svc env label" workload {|env: "|}
+
+let test_worker_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"staging" worker_spec in
+  assert_contains "worker env label" workload {|env: "staging"|}
+
+let test_fn_env_label_present_when_resolved () =
+  let (_ns, workload) = render_spec_ok ~env:"dev" fn_spec in
+  assert_contains "fn env label" workload {|env: "dev"|}
 
 let test_svc_default_postgres_url () =
   (* POSTGRES_URL must be in the Secret with an empty value (no hardcoded cred) *)
@@ -1237,6 +1256,56 @@ let test_sanitize_label_value_strips_leading_non_alnum () =
   check_string "leading hyphens stripped" "app"
     (Sun_cli_manifest.sanitize_label_value "---app")
 
+(* ── discover_services filter matching ──────────────────────────────────── *)
+
+(* Run [f] inside a fresh temp workspace root, then restore cwd and delete it. *)
+let in_temp_workspace f =
+  let orig_cwd = Sys.getcwd () in
+  let tmpdir   = Filename.temp_file "sun-manifest-test-" "" in
+  Sys.remove tmpdir;
+  Unix.mkdir tmpdir 0o755;
+  Sys.chdir tmpdir;
+  Fun.protect
+    ~finally:(fun () ->
+      Sys.chdir orig_cwd;
+      ignore (Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote tmpdir))))
+    f
+
+(* charge_svc is the on-disk (underscored) directory name; sun new/scaffold's
+   own normalize converts hyphens to underscores, so a filter typed
+   hyphenated (as in FEAT-026's acceptance criteria,
+   "app/payments/charge-svc") must match it too. *)
+let with_charge_svc_workspace f =
+  in_temp_workspace @@ fun () ->
+  let dir = "app/payments/charge_svc" in
+  ignore (Sys.command (Printf.sprintf "mkdir -p %s" (Filename.quote dir)));
+  let oc = open_out (Filename.concat dir "Dockerfile") in
+  output_string oc "FROM scratch\n";
+  close_out oc;
+  f ()
+
+let names services = List.map (fun (s : Sun_cli_manifest.service) -> s.name) services
+
+let test_discover_services_hyphenated_filter_matches_underscored_dir () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "app/payments/charge-svc") in
+  Alcotest.(check (list string)) "hyphenated full path matches" ["charge_svc"] (names found)
+
+let test_discover_services_hyphenated_basename_filter_matches () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "charge-svc") in
+  Alcotest.(check (list string)) "hyphenated basename matches" ["charge_svc"] (names found)
+
+let test_discover_services_underscored_filter_still_matches () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "charge_svc") in
+  Alcotest.(check (list string)) "underscored basename still matches" ["charge_svc"] (names found)
+
+let test_discover_services_non_matching_filter_excludes () =
+  with_charge_svc_workspace @@ fun () ->
+  let found = Sun_cli_manifest.discover_services ~filter_path:(Some "notify-worker") in
+  Alcotest.(check (list string)) "non-matching filter excludes" [] (names found)
+
 let () =
   Alcotest.run "manifest_render"
     [ "svc", [
@@ -1248,6 +1317,8 @@ let () =
       ; Alcotest.test_case "has containerPort"      `Quick test_svc_has_ports
       ; Alcotest.test_case "replicas from spec"     `Quick test_svc_replicas
       ; Alcotest.test_case "extra config in map"    `Quick test_svc_extra_config
+      ; Alcotest.test_case "env label when resolved" `Quick test_svc_env_label_present_when_resolved
+      ; Alcotest.test_case "env label absent by default" `Quick test_svc_env_label_absent_by_default
       ; Alcotest.test_case "default postgres url"   `Quick test_svc_default_postgres_url
       ; Alcotest.test_case "POSTGRES_URL not in ConfigMap" `Quick test_postgres_url_not_in_configmap
       ; Alcotest.test_case "POSTGRES_URL in Secret"        `Quick test_postgres_url_in_secret
@@ -1269,12 +1340,14 @@ let () =
       ; Alcotest.test_case "metrics containerPort"  `Quick test_worker_metrics_port
       ; Alcotest.test_case "has Deployment"         `Quick test_worker_has_deployment
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_worker_user_secret_key_in_secret_resource
+      ; Alcotest.test_case "env label when resolved" `Quick test_worker_env_label_present_when_resolved
       ]
     ; "fn", [
         Alcotest.test_case "namespace yaml"         `Quick test_fn_namespace
       ; Alcotest.test_case "image"                  `Quick test_fn_image
       ; Alcotest.test_case "kind CronJob"           `Quick test_fn_cronjob
       ; Alcotest.test_case "schedule from spec"     `Quick test_fn_schedule
+      ; Alcotest.test_case "env label when resolved" `Quick test_fn_env_label_present_when_resolved
       ; Alcotest.test_case "no Deployment"          `Quick test_fn_no_deployment
       ; Alcotest.test_case "default schedule"       `Quick test_fn_default_schedule
       ; Alcotest.test_case "user secret key in Secret resource" `Quick test_fn_user_secret_key_in_secret_resource
@@ -1367,5 +1440,11 @@ let () =
       ; Alcotest.test_case "sanitize_label_value lowercases + replaces underscores" `Quick test_sanitize_label_value_lowercases_and_replaces_underscores
       ; Alcotest.test_case "sanitize_label_value replaces internal space" `Quick test_sanitize_label_value_replaces_internal_space
       ; Alcotest.test_case "sanitize_label_value strips leading non-alnum" `Quick test_sanitize_label_value_strips_leading_non_alnum
+      ]
+    ; "discover_services_filter", [
+        Alcotest.test_case "hyphenated full path matches underscored dir" `Quick test_discover_services_hyphenated_filter_matches_underscored_dir
+      ; Alcotest.test_case "hyphenated basename matches"                  `Quick test_discover_services_hyphenated_basename_filter_matches
+      ; Alcotest.test_case "underscored filter still matches"             `Quick test_discover_services_underscored_filter_still_matches
+      ; Alcotest.test_case "non-matching filter excludes"                 `Quick test_discover_services_non_matching_filter_excludes
       ]
     ]

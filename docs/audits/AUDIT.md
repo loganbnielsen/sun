@@ -121,7 +121,7 @@ sun up
 docker ps --filter label=sun.workspace=audit_test  # must be empty
 
 # 2. Simulate a manifest validation failure
-sun deploy --image-tag "!invalid-ref" --dry-run
+sun deploy dev/aws/us-east-1 --image-tag "!invalid-ref" --dry-run
 # Expected: exits non-zero before any kubectl apply
 
 # 3. Restore
@@ -163,7 +163,7 @@ KAFKA_BROKERS=localhost:9092 dune exec examples/local-demo/bin/demo.exe 2>&1 \
 ### 5.4 Generated Manifest Security Scan
 
 ```bash
-sun deploy --image-tag audit-01 --registry <registry> --dry-run 2>&1 \
+sun deploy dev/aws/us-east-1 --image-tag audit-01 --registry <registry> --dry-run 2>&1 \
   | tee /tmp/sun-manifest.yaml
 
 grep "type: NodePort"         /tmp/sun-manifest.yaml  # must be empty
@@ -189,7 +189,7 @@ grep "kind: Secret"           /tmp/sun-manifest.yaml  # must appear for credenti
 rpk group describe <group_id> --brokers localhost:9092 | grep LAG
 
 # Trigger a rolling deploy
-sun deploy --image-tag audit-02 --registry <registry>
+sun deploy dev/aws/us-east-1 --image-tag audit-02 --registry <registry>
 
 # Poll consumer lag while rollout is in progress
 watch -n2 "rpk group describe <group_id> --brokers localhost:9092 | grep LAG"

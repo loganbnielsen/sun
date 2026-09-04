@@ -58,6 +58,7 @@ let hosted_plan ?progressive_delivery () =
     mode = Sun_cli_deployment_plan.Sun_hosted;
     registry = "registry.sun.dev/acct_123";
     image_tag = "abc123";
+    env = Some "prod";
     region = Some "us-east-1";
     base_domain = Some "sun.example";
     secret_backend = Sun_cli_manifest.Kubernetes_placeholder;
@@ -138,6 +139,13 @@ let test_rendered_manifest_diagnostics () =
       manifests
   in
   check_string "rollout kind" "Rollout" rollout.kind;
+  (* FEAT-026: rollout_doc (progressive-delivery path) gets ?env too, and
+     rendered_manifests_of_plan threads it from plan.environment.env -- the
+     only other render paths tested for this are deployment_doc/cronjob_doc
+     (test_manifest_render.ml), not rollout_doc, and this is also the one
+     place that previously dropped plan.environment.env entirely. *)
+  check_bool "rollout carries env label" true
+    (contains_substring ~needle:{|env: "prod"|} rollout.yaml);
   let ingress =
     List.find
       (fun (m : Sun_cli_release_inspection.rendered_manifest) ->
