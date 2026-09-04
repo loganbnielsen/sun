@@ -30,14 +30,15 @@ let run (req : Sun_cli_command_request.deploy_request) =
         exit 1
       | Some target -> target
   in
-  (* sun deploy is the only command in this file's family that writes to a
-     real cluster, so unlike sun plan / sun cloud tf (read-only,
-     Sun_cli_config.load_for_target's own permissive-overlay contract is
-     fine for them) it needs the stronger guarantee that this target was
-     deliberately declared, not just shaped like <env>/<provider>/<region>.
-     A typo'd region (prod/aws/us-east-2 when only .../us-east-1.yml
-     exists) would otherwise silently inherit sun.yml's shared defaults
-     and apply anyway. *)
+  (* sun deploy always mutates a real cluster, so unlike sun plan
+     (genuinely read-only, Sun_cli_config.load_for_target's own
+     permissive-overlay contract is fine for it) it needs the stronger
+     guarantee that this target was deliberately declared, not just
+     shaped like <env>/<provider>/<region>. A typo'd region
+     (prod/aws/us-east-2 when only .../us-east-1.yml exists) would
+     otherwise silently inherit sun.yml's shared defaults and apply
+     anyway. sun cloud apply/destroy carry the same check for their own
+     mutating action, in cmd_cloud_tf.ml's config_vars ~strict. *)
   if not (Sys.file_exists (Sun_cli_config.target_file target_cfg)) then begin
     Printf.eprintf "error: no %s for target %S -- sun deploy requires an \
                      explicit target file, even an empty one, so a typo'd \

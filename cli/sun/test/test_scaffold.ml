@@ -112,6 +112,20 @@ let test_ci_contains_sun_deploy () =
   let content = read_file "testapp/.github/workflows/sun-ci.yml" in
   assert_contains "sun-ci.yml" content "sun deploy"
 
+(* FEAT-026: sun-ci.yml's two real (non-comment) `main.exe deploy` steps —
+   Export deployment plan, Emit GitOps manifests — must actually pass a
+   target, not just have a comment above them claiming one. An earlier
+   pass of this ticket updated only the comments and missed this: the
+   generated workflow failed with "required argument TARGET is missing"
+   on the very first push, since a substring check on "sun deploy" alone
+   (test_ci_contains_sun_deploy above) passes either way. *)
+let test_ci_deploy_steps_pass_target () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let content = read_file "testapp/.github/workflows/sun-ci.yml" in
+  assert_contains "sun-ci.yml" content "SUN_TARGET";
+  assert_contains "sun-ci.yml" content {|main.exe deploy "$SUN_TARGET"|}
+
 (* Verify that sun-ci.yml contains '--emit-plan-to' (FEAT-008 integration) *)
 let test_ci_contains_emit_plan_to () =
   in_temp_dir @@ fun () ->
@@ -648,6 +662,7 @@ let () =
       ; Alcotest.test_case "deploy.yml still created"     `Quick test_deploy_workflow_created
       ; Alcotest.test_case "deploy.yml passes target"     `Quick test_deploy_workflow_passes_target
       ; Alcotest.test_case "contains sun deploy"          `Quick test_ci_contains_sun_deploy
+      ; Alcotest.test_case "deploy steps pass target"     `Quick test_ci_deploy_steps_pass_target
       ; Alcotest.test_case "--emit-plan-to present"       `Quick test_ci_contains_emit_plan_to
       ; Alcotest.test_case "--emit-to present"            `Quick test_ci_contains_emit_to
       ; Alcotest.test_case "dune build + runtest"         `Quick test_ci_contains_dune_commands

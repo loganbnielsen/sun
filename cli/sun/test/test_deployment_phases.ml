@@ -226,8 +226,8 @@ let test_deploy_request_rejects_empty_target () =
   in
   Alcotest.(check bool) "empty target rejected" true (Result.is_error r)
 
-(* --registry omitted stores None, not a hardcoded default — the default
-   resolution (target file, then sun-registry:5000) happens in
+(* --registry omitted stores None, not a hardcoded default — the
+   resolution (target file, or fail if it has none too) happens in
    cmd_deploy.ml once the target loads, not in this constructor. *)
 let test_deploy_request_registry_omitted_stays_none () =
   let r = Sun_cli_command_request.make_deploy_request

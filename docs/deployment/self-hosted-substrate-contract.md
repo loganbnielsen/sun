@@ -225,8 +225,9 @@ What Sun does in step 2:
 2. Reads `sun.toml` for service metadata (domain, primitive type, schedule,
    secret names, config keys, `ingress_host`).
 3. Resolves the registry — explicit `--registry`, falling back to the
-   target file's `registry`, falling back to the local k3d default — and
-   validates the result is non-empty for customer cluster modes.
+   target file's `registry` — and fails before any build/apply step if
+   neither is set. There is no hardcoded local-registry fallback: `sun
+   deploy` is always the customer-cluster path.
 4. Renders namespaces, service accounts, Deployments/Services/CronJobs,
    Ingress (when `ingress_host` is set in `sun.toml`), and NetworkPolicies.
 5. Applies manifests via `kubectl apply` (direct mode) or writes YAML files

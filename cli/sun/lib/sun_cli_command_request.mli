@@ -32,9 +32,11 @@ type deploy_request = {
   image_tag             : string;
   registry              : string option;
   (** Raw [--registry] value, unresolved. [None] means "use the target
-      file's registry, falling back to the local k3d default" — that
-      resolution happens in [cmd_deploy.ml] once the target loads, not
-      here, since this constructor never touches [Sun_cli_config]. *)
+      file's registry, or fail if it has none" — that resolution (no
+      hardcoded local-registry fallback; [sun deploy] is always the
+      customer-cluster path) happens in [cmd_deploy.ml] once the target
+      loads, not here, since this constructor never touches
+      [Sun_cli_config]. *)
   secret_backend        : Sun_cli_manifest.secret_backend;
   confirm_group_change  : bool;
 }

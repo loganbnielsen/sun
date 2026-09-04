@@ -125,6 +125,15 @@ let tpl_github_ci = {tpl|# Sun CI - build, test, and deploy on every push to mai
 #   REGISTRY_USER      registry username (or "AWS" for ECR)
 #   REGISTRY_PASSWORD  registry password / access token
 #
+# Required GitHub repo variable (Settings -> Secrets and variables -> Actions ->
+# Variables -- not a secret, this is just a path):
+#   SUN_TARGET         deployment target, <env>/<provider>/<region>, e.g.
+#                      prod/aws/us-east-1. Requires a matching
+#                      sun/<env>/<provider>/<region>.yml file committed in
+#                      this repo -- create one before the first deploy,
+#                      even empty: mkdir -p sun/prod/aws && touch
+#                      sun/prod/aws/us-east-1.yml
+#
 # Optional (GitOps push step):
 #   GITOPS_TOKEN       GitHub token with repo-write access to commit manifests/.
 #                      ${{ secrets.GITHUB_TOKEN }} works when pushing to the same repo.
@@ -157,8 +166,9 @@ on:
   pull_request:
 
 env:
-  REGISTRY:  ${{ secrets.REGISTRY }}
-  IMAGE_TAG: ${{ github.sha }}
+  REGISTRY:   ${{ secrets.REGISTRY }}
+  IMAGE_TAG:  ${{ github.sha }}
+  SUN_TARGET: ${{ vars.SUN_TARGET }}
 
 # ── Job 1: compile + unit tests ──────────────────────────────────────────── #
 jobs:
@@ -283,7 +293,7 @@ jobs:
         run: |
           eval $(opam env)
           # Equivalent Sun command: sun deploy <target> --emit-plan-to plan.json --dry-run
-          _build/default/cli/sun/bin/main.exe deploy \
+          _build/default/cli/sun/bin/main.exe deploy "$SUN_TARGET" \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \
             --emit-plan-to plan.json \
@@ -300,7 +310,7 @@ jobs:
         run: |
           eval $(opam env)
           # Equivalent Sun command: sun deploy <target> --emit-to manifests/
-          _build/default/cli/sun/bin/main.exe deploy \
+          _build/default/cli/sun/bin/main.exe deploy "$SUN_TARGET" \
             --registry  "$REGISTRY" \
             --image-tag "${IMAGE_TAG::7}" \
             --emit-to   manifests/
@@ -329,7 +339,9 @@ let tpl_github_deploy = {tpl|# CI/CD — deploy to your Sun cluster on every pus
 # Required repo variable (Settings → Secrets and variables → Actions → Variables —
 # not a secret, this is just a path):
 #   SUN_TARGET       deployment target, <env>/<provider>/<region>, e.g. prod/aws/us-east-1.
-#                    Must match a sun/<env>/<provider>/<region>.yml file in this repo.
+#                    Requires a matching sun/<env>/<provider>/<region>.yml file
+#                    committed in this repo -- create one before the first deploy,
+#                    even empty: mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml
 #
 # For ECR add AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION and
 # uncomment the ECR login step below.

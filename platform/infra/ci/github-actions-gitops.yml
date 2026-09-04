@@ -17,8 +17,10 @@
 # Required variables (application repo):
 #   GITOPS_REPO               — e.g. git@github.com:myorg/acme-gitops.git
 #   SUN_TARGET                — deployment target, <env>/<provider>/<region>, e.g.
-#                                prod/aws/us-east-1. Must match a
-#                                sun/<env>/<provider>/<region>.yml file in this repo.
+#                                prod/aws/us-east-1. Requires a matching
+#                                sun/<env>/<provider>/<region>.yml file committed in
+#                                this repo -- create one before the first deploy, even
+#                                empty: mkdir -p sun/prod/aws && touch sun/prod/aws/us-east-1.yml
 #
 # Argo CD Application (create once in the cluster after platform/infra/base/ apply):
 #   kubectl apply -f platform/infra/argocd/application.yaml
