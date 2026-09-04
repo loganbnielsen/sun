@@ -64,4 +64,5 @@ val target_file : target -> string
 val target : t -> target option
 val resources : t -> resource list
 val services : t -> service list
+val format_use_ref : string -> string
 val terraform_vars : t -> (string list, string) result
