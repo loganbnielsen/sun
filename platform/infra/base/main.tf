@@ -666,6 +666,105 @@ locals {
   }
 }
 
+# OBS-040: starter alerting rule set. This chart (`prometheus-community/
+# prometheus`, plain server + alertmanager -- no Prometheus Operator, so no
+# `PrometheusRule` CRD) takes rule/alertmanager config as chart `values`,
+# not CRDs. Confirmed against the pinned chart version (25.20.1) via
+# `helm show values prometheus-community/prometheus --version 25.20.1`:
+#   - `serverFiles.alerting_rules.yml` is the current (non-deprecated) key
+#     for Prometheus alerting rules -- a plain `groups: [...]` document,
+#     rendered into /etc/config/alerting_rules.yml and wired into
+#     prometheus.yml's rule_files by the chart's own default.
+#   - Alertmanager is bundled as an actual subchart dependency
+#     (`alertmanager` 1.10.*), not the old bundled-values shape --
+#     `alertmanagerFiles.alertmanager.yml` is NOT a key this chart version
+#     recognizes (confirmed absent from its values.yaml; it would be
+#     silently ignored). The subchart's own config lives under the
+#     top-level `alertmanager.config` passthrough (same pattern this file
+#     already uses for `kube-state-metrics.enabled` below), shaped as
+#     `alertmanager` 1.10.0's own `config.route`/`config.receivers` block.
+locals {
+  # Both rules use Sun's own label taxonomy (docs/architecture/
+  # observability-design.md) rather than a hardcoded domain/service, so
+  # they apply workspace-wide to every deployed service by default.
+  prometheus_alerting_rules = {
+    groups = [
+      {
+        name = "sun-starter-alerts"
+        rules = [
+          {
+            # sun_svc_requests_total / status_class come from sun-svc's own
+            # auto-metrics (framework/sun-svc/lib/service.ml) and carry the
+            # workspace/env/domain/service taxonomy labels via pod-label
+            # scraping (Sun_cli_manifest_yaml.render_taxonomy_labels) --
+            # same metric and label set as the "5xx error rate by service"
+            # panel in dashboards/domain-overview.json.
+            alert = "SunHighErrorRate"
+            expr = join(" ", [
+              "(sum by (workspace, env, domain, service) (rate(sun_svc_requests_total{status_class=\"5xx\"}[5m]))",
+              "/",
+              "sum by (workspace, env, domain, service) (rate(sun_svc_requests_total[5m]))) > 0.05"
+            ])
+            for = "5m"
+            labels = {
+              severity = "warning"
+            }
+            annotations = {
+              summary     = "High 5xx error rate for {{ $labels.service }} ({{ $labels.domain }}/{{ $labels.workspace }})"
+              description = "{{ $labels.service }} in domain {{ $labels.domain }} (workspace {{ $labels.workspace }}, env {{ $labels.env }}) has served a 5xx rate of {{ $value | humanizePercentage }} over the last 5 minutes."
+            }
+          },
+          {
+            # kube_pod_container_status_restarts_total comes from
+            # kube-state-metrics, bundled and enabled by default in this
+            # chart's own subchart defaults (confirmed via `helm show
+            # values`: `kube-state-metrics.enabled: true`, not overridden
+            # anywhere in this file) and reachable via the chart's default
+            # `kubernetes-service-endpoints` scrape job. This metric
+            # carries kube-state-metrics' own namespace/pod/container
+            # labels, not Sun's taxonomy labels directly (those live on
+            # the monitored pod, not on kube-state-metrics' pod) -- Sun
+            # namespaces are named `<workspace>-<domain>` (see
+            # Sun_cli_kubernetes_name.namespace_of_parts), so the alert is
+            # still workspace/domain-identifiable via namespace/pod
+            # without a hardcoded value. No `by (...)` grouping needed:
+            # the source metric is already per-pod/per-container, not an
+            # aggregate.
+            alert = "SunPodRestartLoop"
+            expr  = "increase(kube_pod_container_status_restarts_total[15m]) > 3"
+            for   = "5m"
+            labels = {
+              severity = "warning"
+            }
+            annotations = {
+              summary     = "Pod {{ $labels.pod }} restarting repeatedly"
+              description = "Container {{ $labels.container }} in pod {{ $labels.pod }} (namespace {{ $labels.namespace }}) restarted {{ $value }} times in the last 15 minutes. Namespace is `<workspace>-<domain>`; join with `kube_pod_labels` for an exact workspace/domain/service breakdown."
+            }
+          }
+        ]
+      }
+    ]
+  }
+
+  # No notification receiver by default -- a "null" receiver (declared,
+  # zero configs) still shows fired/resolved alerts in Alertmanager's own
+  # UI/API, it just sends nothing anywhere. Pointing this at a real
+  # Slack/PagerDuty/email receiver is documented as a per-user override in
+  # docs/deployment/observability-backends.md, not shipped here.
+  prometheus_alertmanager_config = {
+    route = {
+      receiver        = "null"
+      group_by        = ["alertname", "workspace", "domain", "service"]
+      group_wait      = "30s"
+      group_interval  = "5m"
+      repeat_interval = "4h"
+    }
+    receivers = [
+      { name = "null" }
+    ]
+  }
+}
+
 # Thanos's object-store config file, mounted into the sidecar and Bitnami
 # Thanos components. IRSA supplies credentials; no access keys in this config.
 resource "kubernetes_secret" "thanos_objstore_config" {
@@ -711,12 +810,14 @@ resource "helm_release" "prometheus" {
   }
   set {
     name  = "alertmanager.enabled"
-    value = "false"
+    value = "true"
   }
 
   values = concat(
     [yamlencode({ server = { remoteWrite = local.prometheus_remote_write } })],
-    local.prometheus_thanos_enabled ? [yamlencode(local.prometheus_thanos_server_fields)] : []
+    local.prometheus_thanos_enabled ? [yamlencode(local.prometheus_thanos_server_fields)] : [],
+    [yamlencode({ serverFiles = { "alerting_rules.yml" = local.prometheus_alerting_rules } })],
+    [yamlencode({ alertmanager = { config = local.prometheus_alertmanager_config } })]
   )
 
   depends_on = [
