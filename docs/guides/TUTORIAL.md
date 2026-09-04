@@ -130,7 +130,7 @@ cd pluto
 >
 > The CLI uses `SUN_HOME` to locate the framework and create the vendor symlinks automatically.
 
-This generates 27 files. Here is what was created and why:
+This generates 28 files. Here is what was created and why:
 
 ```
 pluto/
@@ -138,6 +138,8 @@ pluto/
   .ocamlformat                    ← OCaml formatter config
   .dockerignore                   ← excludes _build/ and .git/ from Docker build context
   README.md                       ← workspace-level docs
+
+  sun/prod/aws/us-east-1.yml      ← placeholder deploy target — rename to your real target
 
   .github/workflows/
     deploy.yml                    ← CI deploy workflow
