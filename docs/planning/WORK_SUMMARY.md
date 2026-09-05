@@ -1,5 +1,24 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: CODE_LAYER-004 — obs-eio spans carry parent_span_id (2026-09-05)
+
+Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-004.md`
+(code-layer audit finding). `Obs_eio.span_event` only carried the current
+span's own `trace_ctx`, so `obs-tempo-eio` had no way to set OTLP's
+`parent_span_id` — spans opened with `with_span ot ?parent` shared a trace
+id in Tempo but never rendered as a connected parent/child waterfall.
+`span_event` now carries `parent_span_id : int64 option`
+(`Some parent.span_id` when opened with `?parent`, `None` for a root
+span), deliberately kept separate from `with_context`'s metadata channel.
+`obs-tempo-eio` maps it directly to OTLP's `parent_span_id`.
+`obs-loki-eio`/`obs-prometheus-eio` rebuilt and retested against the
+change with no source changes needed — both ignore the new field.
+Sun's `framework/sun-svc`/`framework/sun-worker` only call the existing
+`Obs_eio.with_span`/`with_context` API surface (no field changed there),
+so there is no sun-side code change beyond this note. PRs (not merged
+yet): [obs-eio#14](https://github.com/loganbnielsen/obs-eio/pull/14),
+[obs-tempo-eio#1](https://github.com/loganbnielsen/obs-tempo-eio/pull/1).
+
 ## Latest: FEAT-025/028 landed in parallel; picking up FEAT-026 (2026-09-03)
 
 A parallel session implemented and merged `FEAT-025` (PR #96, "Harden target
