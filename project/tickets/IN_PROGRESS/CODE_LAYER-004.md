@@ -3,6 +3,8 @@ id: CODE_LAYER-004
 type: code-layer-finding
 severity: medium
 source: project/audits/2026-09-05_code_layer_audit.md
+branch: CODE_LAYER-004/parent-span-id
+worktree: ../sun-CODE_LAYER-004-parent-span-id
 ---
 
 Obs trace model cannot represent parent span IDs

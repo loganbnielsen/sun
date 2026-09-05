@@ -3,6 +3,8 @@ id: CODE_LAYER-002
 type: code-layer-finding
 severity: medium
 source: project/audits/2026-09-05_code_layer_audit.md
+branch: CODE_LAYER-002/dynamodb-table-object
+worktree: ../sun-CODE_LAYER-002-dynamodb-table-object
 ---
 
 DynamoDB table layer is missing an object representation step
