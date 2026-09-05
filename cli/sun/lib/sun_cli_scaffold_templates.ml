@@ -607,7 +607,7 @@ let ws_svc_handler_ml = {tpl|(* POST /charges  — publish Charged to Kafka
    GET  /health      — liveness probe
    GET  /notifications — list notifications written by notify_worker *)
 
-let routes pool ~publish_charged = [
+let routes pool ~publish_charged ~obs = [
   Route.get "/health" ~auth:`Public (fun _req ->
     Response.ok "ok"
   );
@@ -639,21 +639,25 @@ let routes pool ~publish_charged = [
     | Error msg ->
       Response.bad_request msg
     | Ok (customer_id, amount_cents, currency) ->
-      let charge_id = Printf.sprintf "ch_%06d" (Random.int 999999) in
-      let event : Charged.t = {
-        id             = charge_id;
-        customer_id;
-        amount_cents;
-        currency;
-        correlation_id = Option.value (Request.header req "x-correlation-id")
-                           ~default:charge_id;
-      } in
-      match publish_charged event with
-      | Ok () ->
-        Response.json ~status:202
-          (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
-      | Error msg ->
-        Response.internal_error ("publish failed: " ^ msg)
+      Sun_obs.with_span obs ?parent:req.trace_ctx "charges" (fun sp ->
+        let charge_id = Printf.sprintf "ch_%06d" (Random.int 999999) in
+        let event : Charged.t = {
+          id             = charge_id;
+          customer_id;
+          amount_cents;
+          currency;
+          correlation_id = Option.value (Request.header req "x-correlation-id")
+                             ~default:charge_id;
+        } in
+        Sun_obs.log sp Sun_obs.Info
+          ~fields:[("charge_id", charge_id); ("customer_id", customer_id)]
+          "charge accepted";
+        match publish_charged event with
+        | Ok () ->
+          Response.json ~status:202
+            (Printf.sprintf {|{"id":"%s","accepted":true}|} charge_id)
+        | Error msg ->
+          Response.internal_error ("publish failed: " ^ msg))
   );
   Route.get "/notifications" ~auth:`Public (fun _req ->
     match Notification.list_recent pool with
@@ -677,7 +681,7 @@ let ws_svc_lib_dune = {tpl|(library
  (name {{name}}_payments_charge_svc)
  (wrapped false)
  (modules Handler)
- (libraries {{name}}_storage {{name}}_payments_events sun_svc yojson))
+ (libraries {{name}}_storage {{name}}_payments_events sun_svc sun_obs yojson))
 |tpl}
 
 (* app/payments/charge_svc/bin/main.ml *)
@@ -713,7 +717,7 @@ let () =
     | Ok () -> Ok ()
     | Error e -> Error (Kafka.Error.to_string e)
   in
-  Service.run (Handler.routes pool ~publish_charged) ~env
+  Service.run (Handler.routes pool ~publish_charged ~obs) ~env
     ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
   |> Result.map_error Service.run_error_to_string
   |> function Ok () -> () | Error e -> fatal e

@@ -40,6 +40,22 @@ diff): `BUG-007`, `sun new fn`'s generated `lib/dune` never depended on
 surfaced because verifying this ticket meant actually building a
 standalone generic `fn` scaffold instead of just the bundled workspace one.
 
+## Latest: CODE_LAYER-002 — dynamodb-eio gets an object representation layer (2026-09-05)
+
+Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-002.md`
+(code-layer audit finding). `Dynamodb_table.Index` gave typed key/index
+access, but reads still returned raw `Dynamodb_client.item`, and callers
+had to remember to compose `Entity.stamp`/`Entity.check` by hand before
+decoding a domain value. Added `Dynamodb_table.Object`, a functor that owns
+caller-supplied `encode`/`decode` plus automatic entity-discriminator
+stamping (on encode) and checking (before decode runs), with
+`decode_option`/`decode_list`/`decode_page` helpers matching `Index`'s
+result shapes. `Index` and `Entity` are unchanged; `Object` is built on
+`Entity` as a higher-level default path. This repo has no current consumer
+of `dynamodb-eio` yet, so there is no sun-side code change beyond this
+note. PR (not merged yet):
+[dynamodb-eio#17](https://github.com/loganbnielsen/dynamodb-eio/pull/17).
+
 ## Latest: FEAT-025/028 landed in parallel; picking up FEAT-026 (2026-09-03)
 
 A parallel session implemented and merged `FEAT-025` (PR #96, "Harden target

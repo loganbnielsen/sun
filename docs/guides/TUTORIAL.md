@@ -207,14 +207,16 @@ The `topic` and `schema` fields satisfy the `Kafka_service.MESSAGE` module type.
 `app/payments/charge_svc/lib/handler.ml` defines routes:
 
 ```ocaml
-let routes pool = [
+let routes pool ~publish_charged ~ot = [
   Route.get  "/health"        ~auth:`Public (fun _req -> Response.ok "ok");
   Route.post "/charges"       ~auth:`Public (fun req -> ...);
   Route.get  "/notifications" ~auth:`Public (fun _req -> ...);
 ]
 ```
 
-`POST /charges` generates a charge ID, writes it to PostgreSQL via `Notification.insert`, and returns `{"id":"ch_XXXXXX","accepted":true}`. `GET /notifications` reads the last 20 rows back.
+`POST /charges` generates a charge ID, publishes a `Charged` event to Kafka, and returns `{"id":"ch_XXXXXX","accepted":true}`. `GET /notifications` reads the last 20 rows notify-worker wrote back from PostgreSQL.
+
+`~ot` is the observability handle (Part 6 shows how it's constructed) — `/charges` wraps its work in `Obs_eio.with_span ot ?parent:req.trace_ctx "charges" (fun sp -> ...)` so the request gets both a Tempo trace and a correlated Loki log line, matching the upstream trace if the caller sent a `traceparent` header.
 
 Auth is always declared explicitly on each route. There is no implicit auth based on path conventions.
 
@@ -231,7 +233,7 @@ end) = struct
   let group_id = "pluto-comms-notify-worker"
 
   let handle (msg : Message.t) ~trace_ctx:_ =
-    Obs_eio.log_t Config.ot Obs_eio.Info
+    Obs_eio.log_standalone Config.ot Obs_eio.Info
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id)]
       "charge event received";
     (match Config.pool with
@@ -358,7 +360,7 @@ curl localhost:8080/notifications
 
 ---
 
-## Part 6 — Observe logs and metrics
+## Part 6 — Observe logs, metrics, traces, and alerts
 
 Open Grafana at `http://localhost:3000` (admin / admin).
 
@@ -370,7 +372,7 @@ Go to **Explore → Loki** and query:
 {service=~"pluto-.*"} | logfmt
 ```
 
-You will see structured log lines from both services. Each line includes `level`, `msg`, `span`, and any fields the handler added. W3C `traceparent` headers propagate across the Kafka boundary, so a charge request's trace ID appears in both the `charge-svc` logs and the `notify-worker` logs when the event is consumed.
+You will see structured log lines from both services. Each line includes `level`, `msg`, `span`, `trace_id`, and any fields the handler added. W3C `traceparent` headers propagate across the Kafka boundary, so a charge request's `trace_id` appears in both the `charge-svc` logs and the `notify-worker` logs when the event is consumed.
 
 ### Metrics
 
@@ -383,6 +385,25 @@ sun_svc_request_duration_seconds_bucket
 ```
 
 Sun registers these metrics automatically when `?ot` is wired in the service entrypoint. No instrumentation code is needed in the handler.
+
+### Traces
+
+Unlike metrics, tracing isn't automatic — a handler opts in by wrapping its work in `Obs_eio.with_span`, as `POST /charges` does (Part 2). `sun dev up` provisions Tempo and wires `TEMPO_URL` in automatically, so any handler that calls `with_span` gets a real trace with no extra setup. Click a `charge-svc` log line in the Loki view above: next to `trace_id=...` Grafana shows a **Tempo** button (a derived-field link, no copy-pasting IDs) that jumps straight to that request's span waterfall in **Explore → Tempo**.
+
+Tracing is `-svc`-only for now. `notify-worker` receives the same trace context and logs the matching `trace_id` for correlation, but doesn't wrap its work in a span, so it doesn't emit its own spans to Tempo yet.
+
+### Alerting
+
+Sun ships two starter Prometheus alert rules by default, scoped to the same `workspace`/`domain`/`service` labels as everything above — no extra instrumentation needed:
+
+| Alert | Fires when |
+|---|---|
+| `SunHighErrorRate` | A service's 5xx rate exceeds 5% of requests, sustained 5 minutes |
+| `SunPodRestartLoop` | A pod's container restarts more than 3 times in 15 minutes |
+
+View rule state at `http://localhost:9090/alerts` (`kubectl port-forward -n monitoring svc/prometheus-server 9090:80` if not already forwarded) — each rule shows `inactive`, `pending`, or `firing`. Once a rule fires it also shows up in Alertmanager's own UI (`kubectl port-forward -n monitoring svc/prometheus-alertmanager 9093:9093`, then `http://localhost:9093`).
+
+Alertmanager ships with a `null` receiver by default — alerts fire and are visible in its UI/API, but nothing pages or texts anyone until you point it at a real receiver (Slack, PagerDuty, email). See [`docs/deployment/observability-backends.md`](../deployment/observability-backends.md) for how to wire one up, and to add your own alert rules.
 
 ---
 
@@ -453,15 +474,17 @@ in
 `Sun_obs.of_env` reads `LOKI_URL`/`TEMPO_URL` from the environment, composes
 whichever backends are configured (Prometheus is always included), and
 applies `~context` as ambient labels (`team = payments`) that appear on
-every log line and metric from this handle — without passing them
+every log line, metric, and trace from this handle — without passing them
 explicitly to every call. Handlers use `Sun_obs.log_info`/`log_warn`/
 `with_span` instead of calling `Obs_eio` directly; `Sun_obs.obs_eio obs`
 and `Sun_obs.metrics_renderer obs` hand the lower-level pieces to
 `Service.run`'s `?ot`/`?metrics_renderer`.
 
 When `LOKI_URL`/`TEMPO_URL` are absent (local `dune exec` dev), logs go to
-stdout in logfmt format and no trace backend is wired. In the cluster,
-they go to Loki/Tempo. The code is identical either way.
+stdout in logfmt format and no traces are emitted. In the cluster,
+`sun dev up` sets Loki/Tempo automatically. The code is identical either way.
+Workers follow the same pattern, but only service handlers currently opt into
+application spans.
 
 ---
 
