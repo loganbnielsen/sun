@@ -20,6 +20,7 @@
   obs-eio
   obs-loki-eio
   obs-prometheus-eio
+  obs-tempo-eio
   https-eio
   mtime
   caqti-eio

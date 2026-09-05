@@ -39,6 +39,7 @@ jobs:
           opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#main -y
           opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#main -y
           opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#main -y
+          opam pin add obs-tempo-eio https://github.com/loganbnielsen/obs-tempo-eio.git#main -y
           opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#main -y
           opam pin add aws-eio https://github.com/loganbnielsen/aws-eio.git#main -y
           opam pin add s3-eio https://github.com/loganbnielsen/s3-eio.git#main -y

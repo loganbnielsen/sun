@@ -540,7 +540,7 @@ resource "kubernetes_config_map" "grafana_loki_datasource" {
         jsonData = {
           derivedFields = [{
             datasourceUid = "tempo"
-            matcherRegex  = "trace_id=(\\w+)"
+            matcherRegex  = "trace_id=([0-9a-f]{32})"
             name          = "TraceID"
             url           = "$${__value.raw}"
           }]

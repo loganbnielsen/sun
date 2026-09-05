@@ -48,7 +48,7 @@ let test_loki_datasource_configmap () =
   assert_contains "datasource" yaml "name: Loki";
   assert_contains "url" yaml "url: http://loki:3100";
   assert_contains "derivedFields datasourceUid" yaml "datasourceUid: tempo";
-  assert_contains "derivedFields matcherRegex" yaml "matcherRegex: \"trace_id=(\\w+)\"";
+  assert_contains "derivedFields matcherRegex" yaml "matcherRegex: \"trace_id=([0-9a-f]{32})\"";
   assert_contains "derivedFields name" yaml "name: TraceID";
   assert_contains "derivedFields url" yaml "url: \"${__value.raw}\""
 
