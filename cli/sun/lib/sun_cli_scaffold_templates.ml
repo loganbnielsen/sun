@@ -664,10 +664,6 @@ let optional_log_backend ~net ~clock = function
     Obs_loki.create ~net ~clock ~url
       ~label_names:[Obs_loki.stream_label_exn "team"] ()
 
-let require_ok label = function
-  | Ok value -> value
-  | Error e  -> fatal (label ^ ": " ^ e)
-
 let require_kafka label = function
   | Ok value -> value
   | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
@@ -783,10 +779,6 @@ let require_db_pool ~sw ~stdenv =
   | Ok pool -> pool
   | Error e -> fatal ("db pool: " ^ Pg_error.to_string e)
 
-let require_ok label = function
-  | Ok value -> value
-  | Error e  -> fatal (label ^ ": " ^ e)
-
 let require_kafka label = function
   | Ok value -> value
   | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
@@ -859,7 +851,7 @@ let () =
       | Ok () ->
         Printf.printf "schema compatibility: ok\n%!"
       | Error e ->
-        Printf.eprintf "schema compatibility FAILED: %s\n%!" e;
+        Printf.eprintf "schema compatibility FAILED: %s\n%!" (Kafka_service.error_to_string e);
         exit 1
     )
 |tpl}
