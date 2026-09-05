@@ -340,15 +340,14 @@ let test_workspace_startup_helpers_are_flattened () =
   let worker_main = read_file "testapp/app/comms/notify_worker/bin/main.ml" in
   List.iter (fun (label, content) ->
     assert_contains label content "let fatal msg";
-    assert_contains label content "let env_nonempty name";
-    assert_contains label content "let optional_log_backend";
     assert_contains label content "let require_db_pool";
+    assert_contains label content "Sun_obs.of_env";
     check_bool (label ^ " avoids failwith") false
       (contains content "failwith");
     check_bool (label ^ " avoids nested postgres_url match") false
       (contains content "let pool = match postgres_url");
-    check_bool (label ^ " avoids nested loki_url match") false
-      (contains content "let log_backend = match loki_url")
+    check_bool (label ^ " no longer hand-composes a Loki backend") false
+      (contains content "Obs_loki.create")
   ) [
     "svc main", svc_main;
     "worker main", worker_main;

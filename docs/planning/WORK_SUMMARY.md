@@ -1,5 +1,45 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: CODE_LAYER-003 — new framework/sun-obs, Sun_obs.t facade (2026-09-05)
+
+Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-003.md`
+(code-layer audit finding), via the `add-package` skill. Scaffolded app
+entrypoints used to construct Loki/Prometheus/Tempo backends, compose them
+with `Obs_eio.compose`, parse `LOKI_URL`/`TEMPO_URL` by hand, and pass
+`?ot`/`?metrics_renderer` separately; app handlers called `Obs_eio.*`
+directly. Added `framework/sun-obs/lib` (`sun_obs`, depends on `obs-eio`,
+`obs-loki-eio`, `obs-prometheus-eio`, `obs-tempo-eio`): `Sun_obs.of_env`
+owns reading those env vars and composing whichever backends are
+configured (Prometheus always present); `log_debug`/`log_info`/`log_warn`/
+`log_error`, `with_span`/`log`, `counter`/`gauge`/`histogram` (forwarding
+straight to `Obs_eio.register_*` — no new metric DSL), and `with_context`
+are the app-facing surface. Three bridge accessors (`obs_eio`,
+`metrics_renderer`, `backend_and_renderer`) hand the framework primitives
+exactly the shapes their existing `.mli`s already expect, so `sun-svc`/
+`sun-worker`/`sun-fn` needed no signature changes.
+
+Rewired all four scaffold templates that touched this (`ws_svc_bin_ml`,
+`ws_worker_ml`+`ws_worker_bin_ml`, generic `worker_bin_ml`, generic
+`fn_bin_ml`) to use `Sun_obs` instead of manual composition, and their
+`dune` files to depend on `sun_obs` instead of the raw provider packages.
+This is a net new capability for `-worker`/`-fn`, not just a refactor: the
+generic worker/fn scaffolds previously had no way to pick up `LOKI_URL`/
+`TEMPO_URL` at all (worker had Loki+Prometheus hardcoded manually, fn had
+Prometheus only) — both now get all three backends automatically, the same
+as `-svc`. Verified by actually running the built CLI's `sun new
+workspace`/`sun new svc`/`sun new worker`/`sun new fn` and building every
+generated scaffold (not just the source templates) — all compiled clean.
+Updated one scaffold test's assertions (`cli/sun/test/test_scaffold.ml`'s
+"startup helpers are flattened") to match the new expected generated
+content (removed helpers no longer generated; asserts `Sun_obs.of_env` is
+present, `Obs_loki.create` is not).
+
+Found and ticketed (not fixed here — pre-existing, unrelated to this
+diff): `BUG-007`, `sun new fn`'s generated `lib/dune` never depended on
+`sun_fn`, so a bare `sun new fn` scaffold fails to build on its own; only
+surfaced because verifying this ticket meant actually building a
+standalone generic `fn` scaffold instead of just the bundled workspace one.
+
 ## Latest: FEAT-025/028 landed in parallel; picking up FEAT-026 (2026-09-03)
 
 A parallel session implemented and merged `FEAT-025` (PR #96, "Harden target

@@ -302,14 +302,16 @@ direct `helm`/`kubectl` calls in `cmd_dev.ml` and
 `Sun_cli_dev_observability.ml`, so local dev and Terraform-provisioned
 clusters both get tracing the same way ("Dev mirrors prod exactly").
 
-**Wired for `-svc` only.** `obs-tempo-eio` (OBS-041) is composed into the
-`-svc` scaffold's backend (`Obs_eio.compose backend (Obs_tempo.create ...)`,
-alongside the existing Loki/Prometheus composition) via `TEMPO_URL`, an
-optional environment variable following the same pattern as `LOKI_URL` —
-absent means no traces, not a startup failure. `-worker`/`-fn` are a
-deliberate non-goal, matching `OBS-035`'s precedent of landing
-observability primitives one primitive at a time; a follow-up ticket can
-retrofit them once this pattern proves out.
+**Wired for `-svc`, `-worker`, and `-fn` alike, through `Sun_obs`.**
+`obs-tempo-eio` (OBS-041) is composed in by `Sun_obs.of_env`
+(`framework/sun-obs`, CODE_LAYER-003) whenever `TEMPO_URL` — an optional
+environment variable following the same pattern as `LOKI_URL` — is set;
+absent means no traces, not a startup failure. Since every scaffolded
+primitive now bootstraps its `Obs_eio.t` through the same `Sun_obs.of_env`
+call rather than composing providers by hand per template, Tempo wiring is
+no longer `-svc`-specific: `-worker` and `-fn` scaffolds pick it up
+automatically too, closing the gap `OBS-035`'s one-primitive-at-a-time
+precedent had left open.
 
 **Two ports, two purposes.** Spans push to Tempo's OTLP/HTTP receiver on
 port 4318 (`TEMPO_URL`, what `-svc` and `examples/local-demo`'s order-svc

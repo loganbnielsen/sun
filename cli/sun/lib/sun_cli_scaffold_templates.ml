@@ -685,17 +685,6 @@ let ws_svc_bin_ml = {tpl|let fatal msg =
   prerr_endline ("error: " ^ msg);
   exit 1
 
-let env_nonempty name =
-  match Sys.getenv_opt name with
-  | Some value when value <> "" -> Some value
-  | _ -> None
-
-let optional_log_backend ~net ~clock = function
-  | None     -> Obs_eio.stdout
-  | Some url ->
-    Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label_exn "team"] ()
-
 let require_kafka label = function
   | Ok value -> value
   | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
@@ -706,22 +695,11 @@ let require_db_pool ~sw ~stdenv =
   | Error e -> fatal ("db pool: " ^ Pg_error.to_string e)
 
 let () =
-  let loki_url     = env_nonempty "LOKI_URL" in
-  let tempo_url    = env_nonempty "TEMPO_URL" in
   let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
-  let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
-  let prom, render = Obs_prometheus.create () in
-  let backend = Obs_eio.compose log_backend prom in
-  let backend = match tempo_url with
-    | None     -> backend
-    | Some url -> Obs_eio.compose backend (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
-  in
-  let ot =
-    Obs_eio.with_context
-      (Obs_eio.create ~service:"{{name}}-charge-svc" ~mono_clock:env#mono_clock
-         ~backend ())
-      [("team", "payments")]
+  let obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"{{name}}-charge-svc" ~context:[("team", "payments")] ()
   in
   Eio.Switch.run @@ fun sw ->
   let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) in
@@ -735,7 +713,8 @@ let () =
     | Ok () -> Ok ()
     | Error e -> Error (Kafka.Error.to_string e)
   in
-  Service.run (Handler.routes pool ~publish_charged) ~env ~ot ~metrics_renderer:render ()
+  Service.run (Handler.routes pool ~publish_charged) ~env
+    ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
   |> Result.map_error Service.run_error_to_string
   |> function Ok () -> () | Error e -> fatal e
 |tpl}
@@ -745,7 +724,7 @@ let ws_svc_bin_dune = {tpl|(executable
  (name main)
  (libraries
   {{name}}_payments_charge_svc
-  sun_svc kafka_eio_service obs-eio obs-loki-eio obs-prometheus-eio obs-tempo-eio
+  sun_svc kafka_eio_service sun_obs
   pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))
 |tpl}
@@ -755,7 +734,7 @@ let ws_worker_ml = {tpl|(* Inject pool and observability handle via functor so t
    Worker.Make requires module Message, group_id, and handle inside the functor. *)
 module Make (Config : sig
   val pool : Pg_db.pool
-  val ot   : Obs_eio.t
+  val obs  : Sun_obs.t
 end) = struct
 
   module Message = Charged
@@ -763,7 +742,7 @@ end) = struct
   let group_id = "{{name}}-comms-notify-worker"
 
   let handle (msg : Message.t) ~trace_ctx:_ =
-    Obs_eio.log_standalone Config.ot Obs_eio.Info
+    Sun_obs.log_info Config.obs
       ~fields:[("charge_id", msg.id); ("customer_id", msg.customer_id);
                ("amount_cents", string_of_int msg.amount_cents)]
       "charge event received";
@@ -772,7 +751,7 @@ end) = struct
             ~amount_cents:msg.amount_cents ~currency:msg.currency with
     | Ok ()   -> Ok ()
     | Error e ->
-      Obs_eio.log_standalone Config.ot Obs_eio.Error
+      Sun_obs.log_error Config.obs
         ~fields:[("error", Pg_error.to_string e)]
         "db insert failed";
       Error (Pg_error.to_string e)
@@ -787,24 +766,13 @@ let ws_worker_lib_dune = {tpl|(library
  (modules Notify_worker)
  (libraries
   {{name}}_storage {{name}}_payments_events
-  kafka_eio_service obs-eio pg-eio))
+  kafka_eio_service sun_obs pg-eio))
 |tpl}
 
 (* app/comms/notify_worker/bin/main.ml *)
 let ws_worker_bin_ml = {tpl|let fatal msg =
   prerr_endline ("error: " ^ msg);
   exit 1
-
-let env_nonempty name =
-  match Sys.getenv_opt name with
-  | Some value when value <> "" -> Some value
-  | _ -> None
-
-let optional_log_backend ~net ~clock = function
-  | None     -> Obs_eio.stdout
-  | Some url ->
-    Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label_exn "team"] ()
 
 let require_db_pool ~sw ~stdenv =
   match Pg_db.of_env ~sw ~stdenv () with
@@ -816,25 +784,21 @@ let require_kafka label = function
   | Error e  -> fatal (label ^ ": " ^ Kafka_service.error_to_string e)
 
 let () =
-  let loki_url     = env_nonempty "LOKI_URL" in
   let kafka_config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
   Eio_main.run @@ fun env ->
-  let log_backend = optional_log_backend ~net:env#net ~clock:env#clock loki_url in
-  let prom, render = Obs_prometheus.create () in
-  let ot =
-    Obs_eio.with_context
-      (Obs_eio.create ~service:"{{name}}-notify-worker" ~mono_clock:env#mono_clock
-         ~backend:(Obs_eio.compose log_backend prom) ())
-      [("team", "comms")]
+  let obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"{{name}}-notify-worker" ~context:[("team", "comms")] ()
   in
   Eio.Switch.run @@ fun sw ->
   let pool = require_db_pool ~sw ~stdenv:(env :> Caqti_eio.stdenv) in
   let module W = Notify_worker.Make(struct
     let pool = pool
-    let ot   = ot
+    let obs  = obs
   end) in
   let module WR = Worker.Make(W) in
-  WR.run ~env ~config:kafka_config ~ot ~metrics_renderer:render ()
+  WR.run ~env ~config:kafka_config
+    ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -843,8 +807,7 @@ let () =
 let ws_worker_bin_dune = {tpl|(executable
  (name main)
  (libraries
-  {{name}}_comms_notify sun_worker kafka_eio_service
-  obs-eio obs-loki-eio obs-prometheus-eio
+  {{name}}_comms_notify sun_worker kafka_eio_service sun_obs
   pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))
 |tpl}
@@ -980,11 +943,12 @@ let require_kafka label = function
 
 let () = Eio_main.run @@ fun env ->
   let config = Kafka_service.config_of_env () |> require_kafka "kafka config" in
-  let backend, render = Obs_prometheus.create () in
-  let ot = Obs_eio.create ~service:"{{name}}-worker"
-             ~mono_clock:env#mono_clock ~backend () in
+  let obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"{{name}}-worker" ()
+  in
   let module W = Worker.Make({{Mod}}) in
-  W.run ~env ~config ~ot ~metrics_renderer:render ()
+  W.run ~env ~config ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -992,7 +956,7 @@ let () = Eio_main.run @@ fun env ->
 (* Generic worker: bin/dune *)
 let worker_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_worker kafka_eio_service obs-eio obs-prometheus-eio eio_main))
+ (libraries {{lib}} sun_worker kafka_eio_service sun_obs eio_main))
 |tpl}
 
 (* Generic fn: lib/<name>_fn.ml — satisfies Fn.FN *)
@@ -1016,8 +980,12 @@ let fn_bin_ml = {tpl|let fatal msg =
   exit 1
 
 let () = Eio_main.run @@ fun env ->
+  let obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"{{name}}-fn" ()
+  in
   let module F = Fn.Make({{Mod}}) in
-  match F.run ~env () with
+  match F.run ~env ~backend:(Sun_obs.backend_and_renderer obs) () with
   | Ok () -> ()
   | Error `Signalled -> exit 130
   | Error e -> fatal (Fn.run_error_to_string e)
@@ -1026,7 +994,7 @@ let () = Eio_main.run @@ fun env ->
 (* Generic fn: bin/dune *)
 let fn_bin_dune = {tpl|(executable
  (name main)
- (libraries {{lib}} sun_fn eio_main))
+ (libraries {{lib}} sun_fn sun_obs eio_main))
 |tpl}
 
 (* Generic event: <name>.ml — satisfies Kafka_service.MESSAGE *)

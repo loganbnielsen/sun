@@ -438,26 +438,30 @@ Generates `app/billing/invoice_fn/` with a `schedule` field (default `"0 * * * *
 
 ## How observability wiring works
 
-Every service entrypoint follows the same pattern. Here is the charge-svc `bin/main.ml`:
+Every service entrypoint follows the same pattern, through `Sun_obs` — the
+app-facing observability facade (`framework/sun-obs`). Here is the
+charge-svc `bin/main.ml`:
 
 ```ocaml
-let loki_url = Sys.getenv_opt "LOKI_URL" in
 Eio_main.run @@ fun env ->
-let log_backend = match loki_url with
-  | None     -> Obs_eio.stdout
-  | Some url -> Obs_loki.create ~net:env#net ~clock:env#clock ~url
-                  ~label_names:[Obs_loki.stream_label_exn "team"] ()
+let obs =
+  Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+    ~service:"pluto-charge-svc" ~context:[("team", "payments")] ()
 in
-let prom, render = Obs_prometheus.create () in
-let ot = Obs_eio.with_context
-  (Obs_eio.create ~service:"pluto-charge-svc" ~mono_clock:env#mono_clock
-     ~backend:(Obs_eio.compose log_backend prom))
-  [("team", "payments")] in
 ```
 
-`Obs_eio.compose` fans out to both Loki and Prometheus from a single `Obs_eio.t` handle. `Obs_eio.with_context` binds ambient labels (`team = payments`) that appear on every log line and metric from this handle — without passing them explicitly to every call.
+`Sun_obs.of_env` reads `LOKI_URL`/`TEMPO_URL` from the environment, composes
+whichever backends are configured (Prometheus is always included), and
+applies `~context` as ambient labels (`team = payments`) that appear on
+every log line and metric from this handle — without passing them
+explicitly to every call. Handlers use `Sun_obs.log_info`/`log_warn`/
+`with_span` instead of calling `Obs_eio` directly; `Sun_obs.obs_eio obs`
+and `Sun_obs.metrics_renderer obs` hand the lower-level pieces to
+`Service.run`'s `?ot`/`?metrics_renderer`.
 
-When `LOKI_URL` is absent (local `dune exec` dev), logs go to stdout in logfmt format. In the cluster, they go to Loki. The code is identical either way.
+When `LOKI_URL`/`TEMPO_URL` are absent (local `dune exec` dev), logs go to
+stdout in logfmt format and no trace backend is wired. In the cluster,
+they go to Loki/Tempo. The code is identical either way.
 
 ---
 
