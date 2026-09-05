@@ -459,32 +459,32 @@ Generates `app/billing/invoice_fn/` with a `schedule` field (default `"0 * * * *
 
 ## How observability wiring works
 
-Every service entrypoint follows the same pattern. Here is the charge-svc `bin/main.ml`:
+Every service entrypoint follows the same pattern, through `Sun_obs` — the
+app-facing observability facade (`framework/sun-obs`). Here is the
+charge-svc `bin/main.ml`:
 
 ```ocaml
-let loki_url  = Sys.getenv_opt "LOKI_URL" in
-let tempo_url = Sys.getenv_opt "TEMPO_URL" in
 Eio_main.run @@ fun env ->
-let log_backend = match loki_url with
-  | None     -> Obs_eio.stdout
-  | Some url -> Obs_loki.create ~net:env#net ~clock:env#clock ~url
-                  ~label_names:[Obs_loki.stream_label_exn "team"] ()
+let obs =
+  Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+    ~service:"pluto-charge-svc" ~context:[("team", "payments")] ()
 in
-let prom, render = Obs_prometheus.create () in
-let backend = Obs_eio.compose log_backend prom in
-let backend = match tempo_url with
-  | None     -> backend
-  | Some url -> Obs_eio.compose backend (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
-in
-let ot = Obs_eio.with_context
-  (Obs_eio.create ~service:"pluto-charge-svc" ~mono_clock:env#mono_clock
-     ~backend ())
-  [("team", "payments")] in
 ```
 
-`Obs_eio.compose` fans out to Loki, Prometheus, and (when `TEMPO_URL` is set) Tempo from a single `Obs_eio.t` handle. `Obs_eio.with_context` binds ambient labels (`team = payments`) that appear on every log line, metric, and trace from this handle — without passing them explicitly to every call.
+`Sun_obs.of_env` reads `LOKI_URL`/`TEMPO_URL` from the environment, composes
+whichever backends are configured (Prometheus is always included), and
+applies `~context` as ambient labels (`team = payments`) that appear on
+every log line, metric, and trace from this handle — without passing them
+explicitly to every call. Handlers use `Sun_obs.log_info`/`log_warn`/
+`with_span` instead of calling `Obs_eio` directly; `Sun_obs.obs_eio obs`
+and `Sun_obs.metrics_renderer obs` hand the lower-level pieces to
+`Service.run`'s `?ot`/`?metrics_renderer`.
 
-When `LOKI_URL`/`TEMPO_URL` are absent (local `dune exec` dev), logs go to stdout in logfmt format and no traces are emitted. In the cluster, `sun dev up` sets both automatically. The code is identical either way. Workers follow the same pattern minus the Tempo branch — tracing is `-svc`-only today.
+When `LOKI_URL`/`TEMPO_URL` are absent (local `dune exec` dev), logs go to
+stdout in logfmt format and no traces are emitted. In the cluster,
+`sun dev up` sets Loki/Tempo automatically. The code is identical either way.
+Workers follow the same pattern, but only service handlers currently opt into
+application spans.
 
 ---
 

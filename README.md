@@ -143,6 +143,7 @@ See [docs/guides/TUTORIAL.md](docs/guides/TUTORIAL.md) for a full walkthrough of
 | Function layer (`-fn`, cron) | Complete |
 | Worker layer (`-worker`, Kafka consumer) | Complete |
 | Observability auto-wiring (`-svc`, `-fn`, `-worker`) | Complete |
+| Observability app facade (`framework/sun-obs` — `Sun_obs.t`) | Complete — scaffold templates and app handler examples use it instead of composing Loki/Prometheus/Tempo providers directly |
 | Storage (PostgreSQL) | Complete |
 | Sun CLI — scaffold (`sun new workspace/svc/worker/fn/event`) | Complete |
 | Sun CLI — local infra (`sun dev up/down/status/run`) | Complete |
@@ -521,6 +522,7 @@ sun/
     sun/                  # customer CLI: sun new / dev / up / deploy / migrate
     sundev/               # internal repo workflow and ticket pipeline tooling
   framework/
+    sun-obs/              # Sun_obs.t app-facing observability facade
     sun-svc/              # REST routing, auth, graceful shutdown, metrics
     sun-worker/           # Kafka consumer, schema registration, metrics
     sun-fn/               # scheduled function, Pushgateway metrics push

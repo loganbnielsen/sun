@@ -3,9 +3,6 @@ id: CODE_LAYER-003
 type: code-layer-finding
 severity: medium
 source: project/audits/2026-09-05_code_layer_audit.md
-branch: CODE_LAYER-003/sun-obs-facade
-worktree: ../sun-CODE_LAYER-003-sun-obs-facade
-pr: https://github.com/loganbnielsen/sun/pull/115
 ---
 
 Sun needs a single app-facing observability object
