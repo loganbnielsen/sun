@@ -288,6 +288,20 @@ let test_sun_sources_linked () =
   check_bool "integrations source linked" true
     (Sys.file_exists "testapp/vendor/integrations/kafka/kafka-eio-service/lib/dune")
 
+(* Regression test: the scaffold templates compiled to string literals in
+   sun_cli_scaffold_templates.ml are never type-checked by this test suite
+   itself (only string-matched) -- a template with a real type error or an
+   unused-value warning promoted to an error by dune's default dev profile
+   can silently ship. Actually building the generated workspace is the only
+   way to catch that. This is slow (a real `dune build`) relative to the
+   rest of this suite, deliberately -- there is no cheaper way to verify a
+   generated OCaml program actually compiles. *)
+let test_scaffold_compiles () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  let rc = Sys.command "cd testapp && dune build 2>&1" in
+  check_bool "freshly scaffolded workspace builds with `dune build`" true (rc = 0)
+
 let test_charge_svc_publishes_kafka_event () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
@@ -699,6 +713,7 @@ let () =
       ; Alcotest.test_case "Dockerfile paths relative"      `Quick test_dockerfile_paths_are_workspace_relative
       ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted
       ; Alcotest.test_case "Sun sources linked"             `Quick test_sun_sources_linked
+      ; Alcotest.test_case "scaffold actually compiles"     `Quick test_scaffold_compiles
       ; Alcotest.test_case "charge_svc publishes event"     `Quick test_charge_svc_publishes_kafka_event
       ; Alcotest.test_case "JSON decoders are result based" `Quick test_workspace_generated_json_decoders_are_result_based
       ; Alcotest.test_case "startup helpers are flattened"  `Quick test_workspace_startup_helpers_are_flattened
