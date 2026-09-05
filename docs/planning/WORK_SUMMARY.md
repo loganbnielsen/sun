@@ -1,23 +1,24 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
-## Latest: CODE_LAYER-004 — obs-eio spans carry parent_span_id (2026-09-05)
+## Latest: CODE_LAYER-001 — aws-eio HTTP layer stops over-classifying responses (2026-09-05)
 
-Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-004.md`
-(code-layer audit finding). `Obs_eio.span_event` only carried the current
-span's own `trace_ctx`, so `obs-tempo-eio` had no way to set OTLP's
-`parent_span_id` — spans opened with `with_span ot ?parent` shared a trace
-id in Tempo but never rendered as a connected parent/child waterfall.
-`span_event` now carries `parent_span_id : int64 option`
-(`Some parent.span_id` when opened with `?parent`, `None` for a root
-span), deliberately kept separate from `with_context`'s metadata channel.
-`obs-tempo-eio` maps it directly to OTLP's `parent_span_id`.
-`obs-loki-eio`/`obs-prometheus-eio` rebuilt and retested against the
-change with no source changes needed — both ignore the new field.
-Sun's `framework/sun-svc`/`framework/sun-worker` only call the existing
-`Obs_eio.with_span`/`with_context` API surface (no field changed there),
-so there is no sun-side code change beyond this note. PRs (not merged
-yet): [obs-eio#14](https://github.com/loganbnielsen/obs-eio/pull/14),
-[obs-tempo-eio#1](https://github.com/loganbnielsen/obs-tempo-eio/pull/1).
+Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-001.md`
+(code-layer audit finding). `aws-eio`'s `Aws.Http.request`/`signed_request`
+used to turn every non-2xx received HTTP response into `Error (Http_error
+(status, body))`, forcing `s3-eio` and `dynamodb-eio` to carry a
+`reclassify_transport_result` shim just to undo it. Both functions now
+return `Ok (status, headers, body)` for any received response regardless
+of status; `Error` means no usable response was ever received. Credential-
+bootstrap call sites in `Aws_credentials` (STS/IMDSv2/ECS) now explicitly
+classify non-2xx responses themselves, and the now-unconstructed
+`Http_error` variant was removed from `Aws_error.t`. This repo has no
+current consumer of `aws-eio`/`dynamodb-eio` (nothing under `framework/`
+or `cli/` references them yet), so there is no sun-side code change beyond
+this note — CI already tracks each package's `main` branch. Three PRs
+opened against their respective repos, none merged yet:
+[aws-eio#26](https://github.com/loganbnielsen/aws-eio/pull/26),
+[s3-eio#19](https://github.com/loganbnielsen/s3-eio/pull/19),
+[dynamodb-eio#16](https://github.com/loganbnielsen/dynamodb-eio/pull/16).
 
 ## Latest: CODE_LAYER-002 — dynamodb-eio gets an object representation layer (2026-09-05)
 
