@@ -282,14 +282,14 @@ AWS source checks:
 Tracking tickets:
 
 - `project/tickets/READY_FOR_ENGINEERING/AWS-001.md` covers the low-cost `aws-eio` live smoke lane.
-- `project/tickets/BACKLOG/DOGFOOD-010.md` covers full AWS dogfood. Keep it blocked until the cheaper AWS smoke tests pass.
+- `project/tickets/BACKLOG/DOGFOOD-011.md` covers full AWS dogfood. Keep it blocked until the cheaper AWS smoke tests pass.
 
 ## Decision Log
 
 - 2026-08-26: No separate package scope documents. READMEs carry package boundaries.
 - 2026-08-26: This work is framed as foundation readiness, not bloat cleanup.
 - 2026-08-26: Live AWS testing starts with minimal API/resource smoke tests; no EKS first.
-- 2026-08-26: Created `AWS-001` for the cheap live AWS lane; full `DOGFOOD-010` stays behind it.
+- 2026-08-26: Created `AWS-001` for the cheap live AWS lane; full `DOGFOOD-011` stays behind it.
 - 2026-08-26: Merged README fixes for `obs-loki-eio` and `obs-prometheus-eio` so docs now match the extracted `https-eio` TLS wrapper.
 - 2026-08-26: Submitted `https-eio.0.1.0` to opam-repository as PR #30570.
 - 2026-08-26: Found published `awskit`/`awskit-eio`/`awskit-s3-eio`; require explicit comparison before publishing `aws-eio`.

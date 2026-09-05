@@ -27,7 +27,7 @@ and worker `/metrics`) all merged; ticket pipeline is fully drained
 e2e suite now exercises both. Local observability (log levels, metrics,
 Grafana Explore/dashboard links) verified working end-to-end against a live
 local stack. AWS self-hosted durable remains unproven against a real
-account — gated on `DOGFOOD-010` (blocked on an AWS account/cost decision),
+account — gated on `DOGFOOD-011` (blocked on an AWS account/cost decision),
 and `alertmanager.enabled = false` plus the missing `env` label are known
 gaps not covered by that dogfood ticket.
 
@@ -102,7 +102,7 @@ bug found along the way. Filed, chained via `Depends on`:
   (`sun plan` must print a resolved absolute ref as cross-region access,
   not silently the same as a local one).
 
-Chose Target Files over `DOGFOOD-010`/Worker-Retry/Changed-Service-Build as
+Chose Target Files over `DOGFOOD-011`/Worker-Retry/Changed-Service-Build as
 the entry point because "Project 2: Changed-Service Build and Deploy" has
 nothing to resolve "changed" against without a target model — but per the
 adversarial review, most of that model turned out to already exist, so the
@@ -487,7 +487,7 @@ All post-dogfood hardening tickets are complete:
 | HARDEN-001 | DONE | Post-alpha security/reliability audit |
 
 **Current open tickets:** DOCS-007 and DOCS-008 (docs cleanup from self-hosted refocus),
-DOGFOOD-010 in BACKLOG (real AWS dogfood — blocked on AWS account).
+DOGFOOD-011 in BACKLOG (real AWS dogfood — blocked on AWS account).
 
 ---
 

@@ -1,5 +1,5 @@
 ---
-id: DOGFOOD-010
+id: DOGFOOD-011
 type: feature
 severity: high
 source: product-planning-2026-06-22
