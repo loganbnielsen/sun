@@ -2632,6 +2632,11 @@
           "commit": "deab3c2",
           "duration_s": 2.509,
           "baseline": true
+        },
+        {
+          "date": "2026-09-04",
+          "commit": "89611d8",
+          "duration_s": 2.430
         }
       ]
     },
@@ -4612,6 +4617,11 @@
           "commit": "deab3c2",
           "duration_s": 1.086,
           "baseline": true
+        },
+        {
+          "date": "2026-09-04",
+          "commit": "89611d8",
+          "duration_s": 1.089
         }
       ]
     },
@@ -6410,6 +6420,11 @@
           "commit": "deab3c2",
           "duration_s": 1.230,
           "baseline": true
+        },
+        {
+          "date": "2026-09-04",
+          "commit": "89611d8",
+          "duration_s": 1.191
         }
       ]
     }

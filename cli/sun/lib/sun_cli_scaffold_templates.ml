@@ -435,9 +435,41 @@ FROM ocaml/opam:ubuntu-24.04-ocaml-5.4 AS build
 RUN sudo apt-get update && sudo apt-get install -y \
     librdkafka-dev libpq-dev libssl-dev libgmp-dev pkg-config && \
     sudo rm -rf /var/lib/apt/lists/*
+# obs-eio/obs-loki-eio/obs-prometheus-eio/obs-tempo-eio/pg-eio/https-eio
+# are extracted opam packages (see ~/Code/CLAUDE.md's repo layout notes),
+# not vendored into vendor/framework or vendor/integrations, and not yet
+# published to the public opam-repository -- every generated service's
+# bin/dune depends on some subset of them, so the build stage needs the
+# same opam pin this repo's own .github/workflows/ci.yml uses.
+# `opam repository set-url` first: the ocaml/opam base image's default
+# remote is a local git+file:// checkout frozen at whatever
+# opam-repository snapshot existed when the image was built, which can
+# predate a version https-eio's #main branch now requires (observed:
+# https-eio needing tls-eio >= 2.1.0, unsatisfiable against the frozen
+# local snapshot even after `opam update`, since there's no upstream for
+# a local remote to fetch from). Pointing at the real opam.ocaml.org
+# resolves it. Pin before the plain `opam install` below -- pinning
+# https-eio after a plain install already resolved a lower tls-eio fails,
+# since a pin alone doesn't upgrade an already-installed package's
+# already-installed dependencies. CI doesn't hit any of this since
+# ocaml/setup-ocaml always initializes a fresh index. Tracking #main,
+# matching CI, until these packages settle and cut real releases.
+RUN opam repository set-url default https://opam.ocaml.org && \
+    opam update && \
+    opam pin add https-eio https://github.com/loganbnielsen/https-eio.git#main -y && \
+    opam pin add kafka-eio https://github.com/loganbnielsen/kafka-eio.git#main -y && \
+    opam pin add obs-eio https://github.com/loganbnielsen/obs-eio.git#main -y && \
+    opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#main -y && \
+    opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#main -y && \
+    opam pin add obs-tempo-eio https://github.com/loganbnielsen/obs-tempo-eio.git#main -y && \
+    opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#main -y
+# http/jose: framework/sun-svc/lib/dune's own real (published) opam
+# dependencies for its HTTP server and JWT auth verification -- missing
+# from this list entirely before, so any generated -svc failed to build
+# with "Library \"jose\" not found" the moment its Dockerfile actually ran.
 RUN opam install -y --no-self-upgrade \
-    eio eio_main cohttp-eio yojson cmdliner base64 uri cstruct mtime \
-    tls-eio x509 domain-name ptime otoml \
+    eio eio_main cohttp-eio http yojson cmdliner base64 uri cstruct mtime \
+    tls-eio x509 domain-name ptime otoml jose \
     caqti-eio caqti-driver-postgresql
 COPY --chown=opam:opam . /workspace
 WORKDIR /workspace
