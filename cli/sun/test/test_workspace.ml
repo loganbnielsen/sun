@@ -37,6 +37,33 @@ let test_app_must_be_a_directory () =
     check_bool "a plain file named app/ doesn't count" true
       (Sun_cli_workspace.find_root ~dir:tmpdir = None))
 
+(* OBS-042: obs-tempo-eio in a dune file's libraries stanza should flip
+   [tempo] the same way obs-loki-eio/obs-prometheus-eio already flip
+   [loki]/[prometheus] -- this is what lets `sun dev up` install Tempo only
+   for workspaces that actually wired a -svc up to it. *)
+let test_scan_detects_tempo () =
+  with_tmpdir (fun tmpdir ->
+    let svc_dir = Filename.concat tmpdir "app/payments/charge_svc/bin" in
+    mkdir_p svc_dir;
+    let oc = open_out (Filename.concat svc_dir "dune") in
+    output_string oc
+      "(executable\n (name main)\n (libraries sun_svc obs-eio obs-loki-eio obs-prometheus-eio obs-tempo-eio))\n";
+    close_out oc;
+    let req = Sun_cli_workspace.scan ~dir:tmpdir in
+    check_bool "tempo detected"      true  req.Sun_cli_workspace.tempo;
+    check_bool "loki still detected" true  req.Sun_cli_workspace.loki;
+    check_bool "kafka not falsely detected" false req.Sun_cli_workspace.kafka)
+
+let test_scan_tempo_absent_by_default () =
+  with_tmpdir (fun tmpdir ->
+    let svc_dir = Filename.concat tmpdir "app/payments/charge_svc/bin" in
+    mkdir_p svc_dir;
+    let oc = open_out (Filename.concat svc_dir "dune") in
+    output_string oc "(executable\n (name main)\n (libraries sun_svc))\n";
+    close_out oc;
+    let req = Sun_cli_workspace.scan ~dir:tmpdir in
+    check_bool "no tempo dep -> not detected" false req.Sun_cli_workspace.tempo)
+
 let () =
   Alcotest.run "workspace" [
     "find_root", [
@@ -44,5 +71,9 @@ let () =
       Alcotest.test_case "nested service dir"        `Quick test_finds_root_from_nested_service_dir;
       Alcotest.test_case "none outside a workspace"  `Quick test_none_outside_any_workspace;
       Alcotest.test_case "app must be a directory"   `Quick test_app_must_be_a_directory;
+    ];
+    "scan", [
+      Alcotest.test_case "detects tempo dependency"      `Quick test_scan_detects_tempo;
+      Alcotest.test_case "tempo absent by default"       `Quick test_scan_tempo_absent_by_default;
     ];
   ]

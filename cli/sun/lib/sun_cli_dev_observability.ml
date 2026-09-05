@@ -27,6 +27,11 @@ data:
 %s
 |} name namespace labels_yaml data_yaml
 
+(* OBS-042: uid is pinned explicitly (rather than left for Grafana to derive
+   from the datasource name) so grafana_loki_datasource's derivedFields entry
+   below can reference it by a stable value. *)
+let tempo_datasource_uid = "tempo"
+
 let prometheus_datasource_yaml ~namespace =
   Printf.sprintf
     {|apiVersion: 1
@@ -363,6 +368,27 @@ let prometheus_datasource_configmap_yaml ~namespace =
     ~labels:["grafana_datasource", "1"]
     ~data:["prometheus.yaml", prometheus_datasource_yaml ~namespace]
 
+(* OBS-042: Tempo query API (chart/service port 3200, distinct from the
+   OTLP/HTTP ingestion port 4318 obs-tempo-eio pushes spans to) exposed as a
+   Grafana datasource, mirroring prometheus_datasource_yaml above. *)
+let tempo_datasource_yaml =
+  Printf.sprintf
+    {|apiVersion: 1
+datasources:
+  - name: Tempo
+    type: tempo
+    access: proxy
+    uid: %s
+    url: http://tempo:3200
+    isDefault: false|} tempo_datasource_uid
+
+let tempo_datasource_configmap_yaml ~namespace =
+  configmap_yaml
+    ~name:"grafana-tempo-datasource"
+    ~namespace
+    ~labels:["grafana_datasource", "1"]
+    ~data:["tempo.yaml", tempo_datasource_yaml]
+
 (* OBS-039: loki-stack's bundled Grafana subchart auto-provisioned a "Loki"
    datasource itself (a chart-internal template, not just the generic
    sidecar-ConfigMap convention). Now that `sun dev up` installs the
@@ -371,14 +397,26 @@ let prometheus_datasource_configmap_yaml ~namespace =
    datasource named exactly "Loki". Matches
    platform/infra/base's helm_release.grafana bundle:
    kubernetes_config_map.grafana_loki_datasource. *)
+(* OBS-042: derivedFields turns a trace_id in a Loki log line into a click-
+   through to its Tempo waterfall. matcherRegex must match obs-loki-eio's
+   real logfmt output -- trace_id is an unquoted 32-hex-char field
+   (Obs_loki.trace_id_hex, "%016Lx%016Lx"), never quoted since hex digits
+   never trigger Obs_loki.logfmt_val's quoting rule. *)
 let loki_datasource_yaml =
-  {|apiVersion: 1
+  Printf.sprintf
+    {|apiVersion: 1
 datasources:
   - name: Loki
     type: loki
     access: proxy
     url: http://loki:3100
-    isDefault: false|}
+    isDefault: false
+    jsonData:
+      derivedFields:
+        - datasourceUid: %s
+          matcherRegex: "trace_id=([0-9a-f]{32})"
+          name: TraceID
+          url: "${__value.raw}"|} tempo_datasource_uid
 
 let loki_datasource_configmap_yaml ~namespace =
   configmap_yaml

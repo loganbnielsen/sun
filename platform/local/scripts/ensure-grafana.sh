@@ -3,6 +3,7 @@ set -euo pipefail
 
 NETWORK=sun-obs
 LOKI_URL=http://loki:3100
+TEMPO_URL=http://tempo:3200
 GRAFANA_PORT=3000
 
 # ------------------------------------------------------------------ #
@@ -24,6 +25,17 @@ if docker ps --format '{{.Names}}' | grep -q '^loki$'; then
   fi
 else
   echo "WARNING: Loki container is not running — run ensure-loki.sh first" >&2
+fi
+
+if docker ps --format '{{.Names}}' | grep -q '^tempo$'; then
+  if ! docker network inspect "$NETWORK" \
+       --format '{{range .Containers}}{{.Name}} {{end}}' \
+       | grep -qw tempo; then
+    echo "Connecting tempo to $NETWORK"
+    docker network connect "$NETWORK" tempo
+  fi
+else
+  echo "WARNING: Tempo container is not running — run ensure-tempo.sh first for trace lookup" >&2
 fi
 
 # ------------------------------------------------------------------ #
@@ -61,28 +73,58 @@ else
 fi
 
 # ------------------------------------------------------------------ #
-# Provision Loki datasource (idempotent)                              #
+# Provision datasources (idempotent)                                  #
 # ------------------------------------------------------------------ #
 
-EXISTING=$(curl -sf "http://localhost:${GRAFANA_PORT}/api/datasources/name/Loki" \
-             -H "Content-Type: application/json" 2>/dev/null || echo "")
+upsert_datasource () {
+  local name="$1"
+  local payload="$2"
+  local existing uid
 
-if [ -z "$EXISTING" ]; then
-  echo "Provisioning Loki datasource -> $LOKI_URL"
-  curl -sf -X POST \
-    "http://localhost:${GRAFANA_PORT}/api/datasources" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"name\":      \"Loki\",
-      \"type\":      \"loki\",
-      \"url\":       \"${LOKI_URL}\",
-      \"access\":    \"proxy\",
-      \"isDefault\": true
-    }" > /dev/null
-  echo "Loki datasource provisioned"
-else
-  echo "Loki datasource already provisioned"
-fi
+  existing=$(curl -sf "http://localhost:${GRAFANA_PORT}/api/datasources/name/${name}" \
+               -H "Content-Type: application/json" 2>/dev/null || echo "")
+  if [ -z "$existing" ]; then
+    echo "Provisioning ${name} datasource"
+    curl -sf -X POST \
+      "http://localhost:${GRAFANA_PORT}/api/datasources" \
+      -H "Content-Type: application/json" \
+      -d "$payload" > /dev/null
+  else
+    uid=$(printf '%s' "$existing" | sed -n 's/.*"uid":"\([^"]*\)".*/\1/p')
+    echo "Updating ${name} datasource"
+    curl -sf -X PUT \
+      "http://localhost:${GRAFANA_PORT}/api/datasources/uid/${uid}" \
+      -H "Content-Type: application/json" \
+      -d "$payload" > /dev/null
+  fi
+}
+
+upsert_datasource "Loki" "{
+  \"name\": \"Loki\",
+  \"type\": \"loki\",
+  \"url\": \"${LOKI_URL}\",
+  \"access\": \"proxy\",
+  \"isDefault\": true,
+  \"jsonData\": {
+    \"derivedFields\": [{
+      \"datasourceUid\": \"tempo\",
+      \"matcherRegex\": \"trace_id=([0-9a-f]{32})\",
+      \"name\": \"TraceID\",
+      \"url\": \"\${__value.raw}\"
+    }]
+  }
+}"
+
+upsert_datasource "Tempo" "{
+  \"name\": \"Tempo\",
+  \"type\": \"tempo\",
+  \"uid\": \"tempo\",
+  \"url\": \"${TEMPO_URL}\",
+  \"access\": \"proxy\",
+  \"isDefault\": false
+}"
+
+echo "Datasources provisioned"
 
 echo ""
 echo "  Grafana  -> http://localhost:${GRAFANA_PORT}"

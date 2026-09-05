@@ -7,16 +7,17 @@
           ▼
       order-svc  (sun-svc)
           │  Loki span: "receive_order"  ·  Prometheus: svc request metrics
+          │  Tempo trace: "receive_order" (OBS-042, -svc only)
           │  publishes OrderPlaced event with W3C traceparent header
           ▼
-      Kafka  sun-demo-orders
+      Kafka  sun-demo-orders-<run-id>
           │
           ▼
       fulfillment-worker  (sun-worker)
           │  Loki span: "fulfill_order"  ·  Prometheus: worker message metrics
           │  records fulfilled order in PostgreSQL  (pg-eio)
           ▼
-      Loki (logs) · Prometheus (metrics) · PostgreSQL (storage)
+      Loki (logs) · Prometheus (metrics) · Tempo (traces, order-svc only) · PostgreSQL (storage)
       Grafana  http://localhost:3000
 
     Run:
@@ -25,10 +26,12 @@
       bash platform/local/scripts/ensure-loki.sh           # optional — logs to stdout if absent
       bash platform/local/scripts/ensure-grafana.sh        # optional
       bash platform/local/scripts/ensure-prometheus.sh     # optional
+      bash platform/local/scripts/ensure-tempo.sh          # optional — order-svc traces skipped if absent
 
       KAFKA_BROKERS=localhost:9092 \
       POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
       LOKI_URL=http://localhost:3100 \
+      TEMPO_URL=http://localhost:4318 \
         dune exec examples/local-demo/bin/demo.exe
 *)
 
@@ -37,6 +40,7 @@
 let loki_url        = Sys.getenv_opt "LOKI_URL"
 let pushgateway_url = Sys.getenv_opt "PUSHGATEWAY_URL"
 let postgres_url    = Sys.getenv_opt "POSTGRES_URL"
+let tempo_url       = Sys.getenv_opt "TEMPO_URL"
 
 let kafka_config : Kafka_service.config =
   let config =
@@ -74,6 +78,19 @@ let loki_port url =
     let s = match String.index_opt s '/' with Some j -> String.sub s 0 j | None -> s in
     Option.value ~default:3100 (int_of_string_opt s)
 
+let http_port ~default url =
+  match String.rindex_opt url ':' with
+  | None -> default
+  | Some i ->
+    let s = String.sub url (i+1) (String.length url - i - 1) in
+    let s = match String.index_opt s '/' with Some j -> String.sub s 0 j | None -> s in
+    Option.value ~default (int_of_string_opt s)
+
+let tempo_query_port url =
+  match http_port ~default:3200 url with
+  | 4318 -> 3200
+  | port -> port
+
 let str_contains haystack needle =
   let h = String.length haystack and n = String.length needle in
   if n = 0 then true else if n > h then false
@@ -95,6 +112,8 @@ let metric_nonzero render name =
     match List.rev (String.split_on_char ' ' line) with
     | v :: _ -> (match float_of_string_opt v with Some f -> f > 0.0 | None -> false)
     | []     -> false)
+
+let trace_id_hex (hi, lo) = Printf.sprintf "%016Lx%016Lx" hi lo
 
 (* ── HTTP helper ──────────────────────────────────────────────────────────── *)
 
@@ -151,6 +170,8 @@ let () =
   Printf.printf "  Schema registry: %s\n" kafka_config.schema_registry_url;
   Printf.printf "  Loki:            %s\n" (Option.value ~default:"(stdout fallback)" loki_url);
   Printf.printf "  Pushgateway:     %s\n" (Option.value ~default:"(disabled)" pushgateway_url);
+  Printf.printf "  Tempo:           %s  (order-svc only)\n"
+    (Option.value ~default:"(disabled)" tempo_url);
   Printf.printf "  Postgres:        %s\n%!" (Option.value ~default:"(disabled)" postgres_url);
 
   Eio_main.run @@ fun env ->
@@ -166,13 +187,40 @@ let () =
       Printf.printf "\n  Logs -> Loki at %s\n%!" url;
       Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
   in
-  let backend   = Obs_eio.compose log_backend prom_backend in
+  let backend = Obs_eio.compose log_backend prom_backend in
+  (* OBS-042: Tempo wired in for -svc only, matching OBS-035's precedent of
+     landing observability primitives service-by-service rather than all at
+     once (see the ticket's non-goal on -worker/-fn). fulfillment-worker
+     below keeps [backend] unchanged. *)
+  let svc_backend =
+    match tempo_url with
+    | None ->
+      Printf.printf "\n  Note: TEMPO_URL not set — order-svc traces disabled.\n%!";
+      backend
+    | Some url ->
+      Printf.printf "\n  Traces -> Tempo at %s\n%!" url;
+      Obs_eio.compose backend
+        (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
+  in
   let svc_ot    = Obs_eio.create ~service:"order-svc"
-                    ~mono_clock:env#mono_clock ~backend () in
+                    ~mono_clock:env#mono_clock ~backend:svc_backend () in
   let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
                     ~mono_clock:env#mono_clock ~backend () in
 
   Eio.Switch.run @@ fun sw ->
+
+  let run_id = Printf.sprintf "%06x" (Random.int 0xFFFFFF) in
+  let module Demo_order = struct
+    include Events.OrderPlaced
+    let topic_name = Kafka_service.topic_name_exn ("sun-demo-orders-" ^ run_id)
+  end in
+  let orders = [
+    ("order-" ^ run_id ^ "-001", "Mechanical Keyboard",  1);
+    ("order-" ^ run_id ^ "-002", "USB-C Hub",            2);
+    ("order-" ^ run_id ^ "-003", "Standing Desk Riser",  1);
+  ] in
+  let order_ids = List.map (fun (order_id, _, _) -> order_id) orders in
+  let orders_count = List.length orders in
 
   (* ── Storage (optional) ────────────────────────────────────────────────── *)
   let db_pool = match postgres_url with
@@ -191,7 +239,7 @@ let () =
   in
 
   (* ── Shared Kafka handle ────────────────────────────────────────────────── *)
-  say "registering topic %S ..." (Kafka_service.topic_name_to_string Events.OrderPlaced.topic_name);
+  say "registering topic %S ..." (Kafka_service.topic_name_to_string Demo_order.topic_name);
   let svc =
     match Kafka_service.create kafka_config ~sw with
     | Ok s    -> s
@@ -199,19 +247,20 @@ let () =
   in
   let topic =
     match Kafka_service.register svc ~net:env#net ~clock:env#clock
-            (module Events.OrderPlaced) with
+            (module Demo_order) with
     | Ok t    -> t
     | Error e -> failwith ("register: " ^ Kafka_service.error_to_string e)
   in
   say "topic ready.";
 
   (* ── Fulfillment worker ────────────────────────────────────────────────── *)
-  let orders_count = 3 in
   let worker_ready_p, worker_ready_r = Eio.Promise.create () in
   let worker_done_p,  worker_done_r  = Eio.Promise.create () in
+  let current_processed = Hashtbl.create orders_count in
+  let trace_ids = ref [] in
 
   let module W = struct
-    module Message = Events.OrderPlaced
+    module Message = Demo_order
     let group_id = "sun-demo-fulfillment-worker"
 
     let handle msg ~trace_ctx =
@@ -237,23 +286,28 @@ let () =
             Printf.eprintf "[worker] db error: %s\n%!" (Pg_error.to_string e)));
       Printf.printf "[worker] fulfilled  order=%-12s item=%-22s\n%!"
         msg.Message.order_id msg.Message.item;
+      if List.mem msg.Message.order_id order_ids then begin
+        Hashtbl.replace current_processed msg.Message.order_id ();
+        if Hashtbl.length current_processed = orders_count then
+          (try Eio.Promise.resolve worker_done_r () with _ -> ())
+      end;
       Ok ()
   end in
 
-  Eio.Fiber.fork ~sw (fun () ->
+  Eio.Fiber.fork_daemon ~sw (fun () ->
     (try
       let module WR = Worker.Make(W) in
       WR.run ~env ~config:kafka_config ~ot:worker_ot
         ~on_ready:(fun () ->
           Printf.printf "[worker] partition assigned — ready\n%!";
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
-        ~max_messages:orders_count
         ()
       |> Result.map_error Worker.run_error_to_string
       |> function Ok () -> () | Error msg -> failwith msg
     with Failure msg ->
       Printf.eprintf "[worker] error: %s\n%!" msg);
     (try Eio.Promise.resolve worker_done_r () with _ -> ())
+    ; `Stop_daemon
   );
 
   (* ── Order svc ─────────────────────────────────────────────────────────── *)
@@ -268,7 +322,7 @@ let () =
     let i k = match body_j with
       | `Assoc fs -> (match List.assoc_opt k fs with Some (`Int n) -> n | _ -> 0)
       | _ -> 0 in
-    let msg = Events.OrderPlaced.{
+    let msg = Demo_order.{
       order_id = s "order_id"; item = s "item"; quantity = i "quantity";
       correlation_id = corr_id;
     } in
@@ -279,6 +333,7 @@ let () =
         "order received";
       Obs_eio.current_trace_context span
     ) in
+    trace_ids := trace_id_hex trace_ctx.Obs_trace.trace_id :: !trace_ids;
     Printf.printf "[svc]    received    order=%-12s item=%-22s corr=%s\n%!"
       msg.order_id msg.item corr_id;
     (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
@@ -311,11 +366,6 @@ let () =
 
   (* ── Send 3 orders ──────────────────────────────────────────────────────── *)
   Printf.printf "\n%s\n%!" sep;
-  let orders = [
-    ("order-001", "Mechanical Keyboard",  1);
-    ("order-002", "USB-C Hub",            2);
-    ("order-003", "Standing Desk Riser",  1);
-  ] in
   let http_statuses = List.map (fun (order_id, item, qty) ->
     let corr_id = new_corr_id () in
     let body = Printf.sprintf {|{"order_id":%S,"item":%S,"quantity":%d}|}
@@ -399,13 +449,30 @@ let () =
    | None -> ()
    | Some url ->
      let port = loki_port url in
-     let path = "/loki/api/v1/query?query=%7Bservice%3D%22order-svc%22%7D&limit=5" in
+     let path =
+       "/loki/api/v1/query?query=%7Bservice%3D%22order-svc%22%7D%20%7C%20logfmt%20%7C%20order_id%3D%22"
+       ^ List.hd order_ids ^ "%22&limit=5"
+     in
      (match (try Some (http_get env ~sw ~port ~path ()) with _ -> None) with
       | None -> check "Loki: logs received" false "connection failed"
       | Some resp ->
-        check "Loki: logs received for service=order-svc"
+        check "Loki: logs received for current order-svc request"
           (str_contains resp {|"values":[[|})
           "no log streams in response"));
+
+  (match tempo_url, !trace_ids with
+   | None, _ -> ()
+   | Some _, [] ->
+     check "Tempo: order-svc trace lookup by trace_id" false "no trace ids captured"
+   | Some url, trace_id :: _ ->
+     let port = tempo_query_port url in
+     let path = "/api/traces/" ^ trace_id in
+     (match (try Some (http_get env ~sw ~port ~path ()) with _ -> None) with
+      | None ->
+        check "Tempo: order-svc trace lookup by trace_id" false "connection failed"
+      | Some resp ->
+        check "Tempo: order-svc trace lookup by trace_id"
+          (str_contains resp {|receive_order|}) "trace missing"));
 
   (match db_pool with
    | None -> ()
@@ -413,9 +480,14 @@ let () =
      (match FulfilledOrders.list pool () with
       | Error e -> check "PostgreSQL" false (Pg_error.to_string e)
       | Ok rows ->
-        let n = List.length rows in
-        check (Printf.sprintf "PostgreSQL: %d fulfilled orders stored" orders_count)
-          (n >= orders_count) (Printf.sprintf "found %d rows" n)));
+        let n =
+          List.filter
+            (fun (r : FulfilledOrderSchema.t) -> List.mem r.order_id order_ids)
+            rows
+          |> List.length
+        in
+        check (Printf.sprintf "PostgreSQL: %d current-run fulfilled orders stored" orders_count)
+          (n = orders_count) (Printf.sprintf "found %d current-run rows" n)));
 
   Printf.printf "%s\n%!" sep;
   if !fails > 0 then begin
@@ -428,4 +500,7 @@ let () =
   Printf.printf "  Grafana:  http://localhost:3000\n";
   Printf.printf "    Logs:    Explore > Loki > {service=~\".*\"}\n";
   Printf.printf "    Metrics: Explore > Prometheus > sun_svc_requests_total\n";
+  (match !trace_ids with
+   | trace_id :: _ -> Printf.printf "    Trace:   Explore > Tempo > %s\n" trace_id
+   | [] -> ());
   Printf.printf "%s\n%!" sep

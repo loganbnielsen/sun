@@ -39,15 +39,22 @@ let apply_yaml yaml =
            (Sun_cli_process.error_to_string e);
          exit 1)
 
-let install_local_grafana_config ~prometheus =
+let install_local_grafana_config ~prometheus ~tempo =
   apply_yaml (Sun_cli_dev_observability.dashboard_configmap_yaml ~namespace:"monitoring");
   (* OBS-039: no longer auto-provisioned by a bundled loki-stack Grafana
-     subchart -- see Sun_cli_dev_observability.loki_datasource_configmap_yaml. *)
+     subchart -- see Sun_cli_dev_observability.loki_datasource_configmap_yaml.
+     OBS-042: this datasource also carries the derivedFields link to Tempo,
+     applied regardless of `tempo` -- harmless if Tempo isn't installed, and
+     avoids two near-identical Loki datasource YAMLs. *)
   apply_yaml
     (Sun_cli_dev_observability.loki_datasource_configmap_yaml ~namespace:"monitoring");
   if prometheus then
     apply_yaml
       (Sun_cli_dev_observability.prometheus_datasource_configmap_yaml
+         ~namespace:"monitoring");
+  if tempo then
+    apply_yaml
+      (Sun_cli_dev_observability.tempo_datasource_configmap_yaml
          ~namespace:"monitoring")
 
 (* ── dev up ──────────────────────────────────────────────────────────────── *)
@@ -84,12 +91,12 @@ let dev_up () =
   (* 2. Scan *)
   Printf.printf "\n[2/4] Scanning workspace...\n%!";
   let req = Sun_cli_workspace.scan ~dir:"." in
-  Printf.printf "  kafka=%-5b  postgres=%-5b  loki=%-5b  prometheus=%b\n%!"
-    req.kafka req.postgres req.loki req.prometheus;
+  Printf.printf "  kafka=%-5b  postgres=%-5b  loki=%-5b  prometheus=%-5b  tempo=%b\n%!"
+    req.kafka req.postgres req.loki req.prometheus req.tempo;
 
   (* 3. Infra *)
   Printf.printf "\n[3/4] Deploying infra...\n%!";
-  let need_any = req.kafka || req.postgres || req.loki || req.prometheus in
+  let need_any = req.kafka || req.postgres || req.loki || req.prometheus || req.tempo in
   if need_any then begin
     ignore (Sun_cli_helm.repo_add ~name:"redpanda"             ~url:"https://charts.redpanda.com");
     (* Alloy stays on this repo -- only loki/grafana moved (see
@@ -131,7 +138,7 @@ let dev_up () =
     if rc <> 0 then (Printf.eprintf "error: PostgreSQL install failed\n"; exit 1)
   end;
 
-  let need_grafana = req.loki || req.prometheus in
+  let need_grafana = req.loki || req.prometheus || req.tempo in
   if need_grafana then begin
     (* OBS-039: loki-stack is deprecated (no longer updated/supported per
        Grafana Labs' own chart README) and its bundled Promtail reached
@@ -188,6 +195,23 @@ let dev_up () =
     if rc <> 0 then (Printf.eprintf "error: Alloy install failed\n"; exit 1)
   end;
 
+  if req.tempo then begin
+    Printf.printf "\n  Installing Tempo...\n%!";
+    (* OBS-042: grafana-community/tempo (not the deprecated grafana/tempo --
+       same grafana.github.io -> grafana-community.github.io chart move
+       OBS-039 already found for loki/grafana; confirmed via each repo's
+       index.yaml `deprecated` field). "Single Binary Mode" is this chart's
+       only mode (replicas: 1, no deploymentMode split to zero out the way
+       loki's SimpleScalable default requires) -- no extra `set`s needed for
+       single-replica local storage, which is already the chart default.
+       Spans push to the OTLP/HTTP receiver on port 4318
+       (obs-tempo-eio's TEMPO_URL); Grafana's Tempo datasource queries port
+       3200. Uses the `grafana-community` repo already added above for
+       Loki/Grafana. *)
+    let rc = helm_install "tempo" "grafana-community/tempo" ~namespace:"monitoring" () in
+    if rc <> 0 then (Printf.eprintf "error: Tempo install failed\n"; exit 1)
+  end;
+
   if req.prometheus then begin
     Printf.printf "\n  Installing Prometheus...\n%!";
     (* prometheus-community/prometheus (not kube-prometheus-stack) — lighter weight for dev;
@@ -202,7 +226,8 @@ let dev_up () =
     if rc <> 0 then (Printf.eprintf "error: Prometheus install failed\n"; exit 1)
   end;
 
-  if need_grafana then install_local_grafana_config ~prometheus:req.prometheus;
+  if need_grafana then
+    install_local_grafana_config ~prometheus:req.prometheus ~tempo:req.tempo;
 
   (* 4. Port-forwards *)
   Printf.printf "\n[4/4] Starting port-forwards...\n%!";
@@ -238,6 +263,17 @@ let dev_up () =
     pf { name = "pushgateway"; namespace = "monitoring";
          target = "svc/prometheus-prometheus-pushgateway";
          local_port = 9091; remote_port = 9091 };
+  if req.tempo then begin
+    (* Two forwards, matching prometheus/pushgateway's split above: OTLP/HTTP
+       ingestion (obs-tempo-eio's TEMPO_URL, what -svc pushes spans to) and
+       the query API (what Grafana's Tempo datasource and a developer's own
+       curl/Explore session read from) are different ports on the same
+       Service. *)
+    pf { name = "tempo"; namespace = "monitoring";
+         target = "svc/tempo"; local_port = 4318; remote_port = 4318 };
+    pf { name = "tempo-query"; namespace = "monitoring";
+         target = "svc/tempo"; local_port = 3200; remote_port = 3200 };
+  end;
 
   (* Summary *)
   Printf.printf "\n";
@@ -250,6 +286,8 @@ let dev_up () =
   if need_grafana then Printf.printf "  grafana      ✓  http://localhost:3000  (port-forwarded)\n";
   if req.prometheus then Printf.printf "  prometheus   ✓  http://localhost:9090  (port-forwarded)\n";
   if req.prometheus then Printf.printf "  pushgateway  ✓  http://localhost:9091  (port-forwarded)\n";
+  if req.tempo    then Printf.printf "  tempo        ✓  http://localhost:4318  (OTLP, port-forwarded)\n";
+  if req.tempo    then Printf.printf "  tempo-query  ✓  http://localhost:3200  (port-forwarded)\n";
   Printf.printf "\n"
 
 (* ── dev down ────────────────────────────────────────────────────────────── *)
@@ -317,6 +355,7 @@ let dev_env_vars = [
   "POSTGRES_URL",        "postgresql://postgres:dev@localhost:5432/dev";
   "LOKI_URL",            "http://localhost:3100";
   "PUSHGATEWAY_URL",     "http://localhost:9091";
+  "TEMPO_URL",           "http://localhost:4318";
   "KAFKA_SECURITY_PROTOCOL", "Plaintext";
 ]
 
