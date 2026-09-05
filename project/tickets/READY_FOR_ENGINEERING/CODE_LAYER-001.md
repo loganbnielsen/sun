@@ -3,8 +3,6 @@ id: CODE_LAYER-001
 type: code-layer-finding
 severity: high
 source: project/audits/2026-09-05_code_layer_audit.md
-branch: CODE_LAYER-001/aws-http-response-classification
-worktree: ../sun-CODE_LAYER-001-aws-http-response-classification
 ---
 
 AWS HTTP transport classifies received responses too early
