@@ -22,8 +22,8 @@ let registry_port = 5000
 
 (* ── Helm helpers ────────────────────────────────────────────────────────── *)
 
-let helm_install release chart ~namespace ?(values = []) ?values_yaml () =
-  match upgrade_install ~release ~chart ~namespace ~values ?values_yaml () with
+let helm_install release chart ~namespace ?version ?(values = []) ?values_yaml () =
+  match upgrade_install ~release ~chart ~namespace ?version ~values ?values_yaml () with
   | Ok r -> r.Sun_cli_process.exit_code
   | Error _ -> 1
 
@@ -111,6 +111,7 @@ let dev_up () =
   if req.kafka then begin
     Printf.printf "\n  Installing Redpanda...\n%!";
     let rc = helm_install "redpanda" "redpanda/redpanda" ~namespace:"redpanda"
+      ~version:"5.8.12"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
       ~values:[
         ("statefulset.replicas",          Float 1.);
         ("resources.cpu.cores",           Str "1.5");  (* chart rejects int64 *)
@@ -122,6 +123,10 @@ let dev_up () =
         ("external.service.enabled",                            Bool false);
         ("external.addresses[0]",                               Str "localhost");
         ("listeners.kafka.external.default.advertisedPorts[0]", Float 9092.);
+        (* CODE_LAYER-008: matches base/main.tf's explicit
+           config.cluster.auto_create_topics_enabled -- previously left at
+           the chart's own default here, an unreconciled drift. *)
+        ("config.cluster.auto_create_topics_enabled", Bool true);
       ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: Redpanda install failed\n"; exit 1)
@@ -130,9 +135,20 @@ let dev_up () =
   if req.postgres then begin
     Printf.printf "\n  Installing PostgreSQL...\n%!";
     let rc = helm_install "postgresql" "bitnami/postgresql" ~namespace:"postgresql"
+      (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin. Not
+         15.5.1 -- confirmed live that version's default image tag
+         (bitnami/postgresql:16.3.0-debian-12-r12) no longer exists on
+         Docker Hub; main.tf was bumped to 18.8.17 in the same change. *)
+      ~version:"18.8.17"
       ~values:[
         ("auth.postgresPassword", Str "dev");
         ("auth.database",         Str "dev");
+        (* CODE_LAYER-008: base/main.tf sets this explicitly
+           (var.postgres_persistent_storage); dev's k3d cluster is
+           routinely torn down and recreated, so false matches the same
+           "ephemeral by default" choice already made for Loki/Prometheus's
+           local profile rather than leaving it at the chart's own default. *)
+        ("primary.persistence.enabled", Bool false);
       ] ()
     in
     if rc <> 0 then (Printf.eprintf "error: PostgreSQL install failed\n"; exit 1)
@@ -154,6 +170,7 @@ let dev_up () =
        replication_factor lands here automatically instead of requiring a
        second, independently-maintained edit (BUG-016). *)
     let rc = helm_install "loki" "grafana-community/loki" ~namespace:"monitoring"
+      ~version:"18.12.1"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
       ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
                       ~component:"loki" ~profile:"local") ()
     in
@@ -167,6 +184,13 @@ let dev_up () =
        explicit value since this chart (unlike loki-stack) defaults
        sidecar.datasources.enabled to false. *)
     let rc = helm_install "grafana" "grafana-community/grafana" ~namespace:"monitoring"
+      ~version:"13.2.1"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
+      (* CODE_LAYER-008: base/main.tf sets adminPassword explicitly
+         (var.grafana_admin_password); left at the chart's own default here
+         previously, making sun dev up's Grafana login undocumented and
+         chart-version-dependent. Fixed dev-only value, matching
+         PostgreSQL's hardcoded "dev" password convention above. *)
+      ~values:[("adminPassword", Str "dev")]
       ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
                       ~component:"grafana" ~profile:"local") ()
     in
@@ -180,6 +204,7 @@ let dev_up () =
        Sun_cli_dev_observability.alloy_values_yaml, kept in sync by hand
        with platform/infra/base/alloy/logs.alloy.tftpl. *)
     let rc = helm_install "alloy" "grafana/alloy" ~namespace:"monitoring"
+      ~version:"1.12.1"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
       ~values_yaml:Sun_cli_dev_observability.alloy_values_yaml ()
     in
     if rc <> 0 then (Printf.eprintf "error: Alloy install failed\n"; exit 1)
@@ -203,6 +228,7 @@ let dev_up () =
        anyway locks in the source of truth so the CI guardrail can catch the
        next Tempo value that would otherwise drift, see ADR 0001. *)
     let rc = helm_install "tempo" "grafana-community/tempo" ~namespace:"monitoring"
+      ~version:"2.3.0"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
       ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
                       ~component:"tempo" ~profile:"local") ()
     in
@@ -225,6 +251,7 @@ let dev_up () =
        this ~values entry silently and permanently win. *)
     let rc = helm_install "prometheus" "prometheus-community/prometheus"
       ~namespace:"monitoring"
+      ~version:"25.20.1"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
       ~values:[("prometheus-node-exporter.enabled", Bool false)]
       ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
                       ~component:"prometheus" ~profile:"local") ()

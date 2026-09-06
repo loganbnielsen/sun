@@ -230,8 +230,16 @@ resource "helm_release" "postgresql" {
   name       = "postgresql"
   repository = "https://charts.bitnami.com/bitnami"
   chart      = "postgresql"
-  version    = "15.5.1"
-  namespace  = kubernetes_namespace.postgresql[0].metadata[0].name
+  # CODE_LAYER-008: was pinned to 15.5.1, which defaults to image tag
+  # bitnami/postgresql:16.3.0-debian-12-r12 -- confirmed live (2026-09-06)
+  # that tag no longer exists on Docker Hub (Bitnami has a history of
+  # pruning old specific-build tags), so this pin was silently broken for
+  # any real `terraform apply` with install_postgresql = true. Bumped to
+  # 18.8.17, which defaults to `image.tag: latest` (no pinned build tag to
+  # go stale the same way) and is confirmed working live against this
+  # repo's own k3d cluster.
+  version   = "18.8.17"
+  namespace = kubernetes_namespace.postgresql[0].metadata[0].name
 
   set {
     name  = "auth.postgresPassword"
