@@ -202,6 +202,23 @@ let test_svc_replicas () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc replicas=2" workload "replicas: 2"
 
+(* CODE_LAYER-009: svc_spec above uses non-default replicas/cpu/memory so
+   test_svc_replicas has something to assert against; nothing else in this
+   file exercises render_spec's defaults (replicas=1, cpu=100m, memory=128Mi
+   — see Sun_cli_deployment_plan's Option.value ~default:... plan-building)
+   end to end. This was previously covered incidentally by a parity test
+   against the (now-deleted) legacy render path. *)
+let test_svc_default_resources () =
+  let default_spec = { svc_spec with
+    replicas = 1;
+    cpu      = cpu "100m";
+    memory   = memory "128Mi";
+  } in
+  let (_ns, workload) = render_spec_ok default_spec in
+  assert_contains "svc default replicas=1" workload "replicas: 1";
+  assert_contains "svc default cpu=100m"   workload "cpu: 100m";
+  assert_contains "svc default memory=128Mi" workload "memory: 128Mi"
+
 let test_svc_extra_config () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc extra configmap key" workload {|APP_ENV: "staging"|}
@@ -1300,6 +1317,7 @@ let () =
       ; Alcotest.test_case "NetworkPolicy allows monitoring ingress" `Quick test_svc_networkpolicy_allows_monitoring_ingress
       ; Alcotest.test_case "has containerPort"      `Quick test_svc_has_ports
       ; Alcotest.test_case "replicas from spec"     `Quick test_svc_replicas
+      ; Alcotest.test_case "default resources (replicas/cpu/memory)" `Quick test_svc_default_resources
       ; Alcotest.test_case "extra config in map"    `Quick test_svc_extra_config
       ; Alcotest.test_case "env label when resolved" `Quick test_svc_env_label_present_when_resolved
       ; Alcotest.test_case "env label absent by default" `Quick test_svc_env_label_absent_by_default
