@@ -150,6 +150,30 @@ let test_with_context_does_not_mutate_original () =
       Alcotest.(check bool) "obs_eio handles are distinct values" true
         (Sun_obs.obs_eio obs != Sun_obs.obs_eio derived))
 
+let test_current_trace_context_links_child_span () =
+  Eio_main.run @@ fun env ->
+  with_env [ ("LOKI_URL", ""); ("TEMPO_URL", "") ] (fun () ->
+      let obs =
+        Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock ~service:"test-svc" ()
+      in
+      let parent_ctx = Sun_obs.with_span obs "parent" Sun_obs.current_trace_context in
+      Sun_obs.with_span obs ~parent:parent_ctx "child" (fun child_span ->
+          let child_ctx = Sun_obs.current_trace_context child_span in
+          Alcotest.(check string) "child inherits the parent's trace id"
+            (Sun_obs.trace_id_string parent_ctx) (Sun_obs.trace_id_string child_ctx)))
+
+let test_trace_id_string_is_32_hex_chars () =
+  Eio_main.run @@ fun env ->
+  with_env [ ("LOKI_URL", ""); ("TEMPO_URL", "") ] (fun () ->
+      let obs =
+        Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock ~service:"test-svc" ()
+      in
+      let ctx = Sun_obs.with_span obs "op" Sun_obs.current_trace_context in
+      let s = Sun_obs.trace_id_string ctx in
+      Alcotest.(check int) "32 lowercase hex characters" 32 (String.length s);
+      Alcotest.(check bool) "every character is lowercase hex" true
+        (String.for_all (function '0'..'9' | 'a'..'f' -> true | _ -> false) s))
+
 let () =
   let open Alcotest in
   run "sun_obs"
@@ -169,5 +193,11 @@ let () =
             test_metrics_renderer_matches_backend_and_renderer;
           test_case "with_context derives without mutating the original" `Quick
             test_with_context_does_not_mutate_original;
+        ] );
+      ( "trace context",
+        [ test_case "current_trace_context links a child span to its parent" `Quick
+            test_current_trace_context_links_child_span;
+          test_case "trace_id_string is 32 lowercase hex characters" `Quick
+            test_trace_id_string_is_32_hex_chars;
         ] );
     ]

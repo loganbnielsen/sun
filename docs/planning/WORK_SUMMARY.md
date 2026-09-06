@@ -1,5 +1,43 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: FEAT-030 — examples/local-demo dogfoods Sun_obs; fulfillment-worker gets real tracing (2026-09-05)
+
+Picked up from `project/tickets/IN_PROGRESS/FEAT-030.md` (follow-up to
+CODE_LAYER-003, requested after that ticket merged). `examples/local-demo`
+predated `framework/sun-obs` and still hand-composed `Obs_eio`/`Obs_loki`/
+`Obs_prometheus`/`Obs_tempo` directly; both `order-svc` and
+`fulfillment-worker` now build their observability handle with one
+`Sun_obs.of_env` call each, matching what generated scaffolds do. Each
+keeps its own Prometheus registry (two real, separately-scraped
+processes); the demo's own snapshot/assertions render and stitch both
+together. `fulfillment-worker` gets a real `fulfill_order` Tempo span for
+the first time, a child of `order-svc`'s `receive_order` span for the same
+order (existing W3C trace-context propagation over Kafka) — Tempo tracing
+is no longer `-svc`-only.
+
+Reviewed with a new persona-based process (`/demo-review` skill, added
+this session): a "demo agent" (does it actually run and show off the
+platform) and a "client agent" (is the app-facing code proportionate, or
+hiding boilerplate a library helper should absorb) each reviewed
+independently, findings were fixed, both reconfirmed, then a fresh final
+reviewer approved. The client-agent round surfaced a real gap in the
+just-merged `Sun_obs` facade: it had no wrapper for
+`Obs_eio.current_trace_context`, forcing app code to reach past the
+facade for ordinary cross-service trace propagation — added
+`Sun_obs.current_trace_context`/`Sun_obs.trace_id_string` to close it,
+with new tests for parent/child trace-id inheritance and the hex format.
+
+Also surfaced (not fixed here — pre-existing, unrelated to this diff, each
+exhaustively investigated and ticketed): `BUG-008` (the local Docker Loki
+container used by tests/demo rejects every write with a replication-factor
+quorum error that persists even with a byte-for-byte upstream reference
+config, across two Loki versions, and under both bridge and host Docker
+networking — root cause not found, needs a non-sandboxed host or a
+debugger) and `BUG-009` (Tempo silently drops most spans when two
+independent `Sun_obs` handles push concurrently, reproduced twice). The
+demo's Loki/Tempo assertions still run and fail honestly, annotated with
+the ticket IDs, rather than being loosened or removed.
+
 ## Latest: CODE_LAYER-003 — new framework/sun-obs, Sun_obs.t facade (2026-09-05)
 
 Picked up from `project/tickets/READY_FOR_ENGINEERING/CODE_LAYER-003.md`

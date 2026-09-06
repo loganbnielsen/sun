@@ -38,6 +38,11 @@ let log_error t ?fields msg = Obs_eio.log_standalone t.ot Error ?fields msg
 
 let with_span t ?parent name f = Obs_eio.with_span t.ot ?parent name f
 let log = Obs_eio.log
+let current_trace_context = Obs_eio.current_trace_context
+
+let trace_id_string (ctx : Obs_trace.t) =
+  let hi, lo = ctx.trace_id in
+  Printf.sprintf "%016Lx%016Lx" hi lo
 
 let counter t ~name ~help ~label_names = Obs_eio.register_counter t.ot ~name ~help ~label_names
 let gauge t ~name ~help ~label_names = Obs_eio.register_gauge t.ot ~name ~help ~label_names

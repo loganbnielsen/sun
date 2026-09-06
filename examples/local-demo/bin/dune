@@ -3,7 +3,7 @@
  (libraries
   demo_events
   eio eio_main eio.unix
-  obs-eio obs-loki-eio obs-prometheus-eio obs-tempo-eio
+  sun_obs obs-prometheus-eio
   kafka_eio_service
   sun_svc sun_worker
   pg-eio

@@ -61,6 +61,18 @@ val with_span : t -> ?parent:Obs_trace.t -> string -> (span -> 'a) -> 'a
 val log : span -> level -> ?fields:(string * string) list -> string -> unit
 (** Log within an open {!with_span} callback — see {!Obs_eio.log}. *)
 
+val current_trace_context : span -> Obs_trace.t
+(** The open span's trace context — pass this as {!with_span}'s [?parent] to
+    link a child span (including one created by another process, e.g. a
+    Kafka consumer's handler receiving it from a producer's message header),
+    or as [Kafka_service.publish]'s [~trace_ctx] to propagate it over a W3C
+    [traceparent] header. See {!Obs_eio.current_trace_context}. *)
+
+val trace_id_string : Obs_trace.t -> string
+(** The trace ID as a lowercase hex string (W3C [traceparent] format) —
+    for logging, response headers, or a Grafana/Tempo lookup link, without
+    the caller needing to know {!Obs_trace.t}'s internal representation. *)
+
 val counter
   :  t -> name:string -> help:string -> label_names:string list -> Obs_eio.counter_fn
 val gauge
