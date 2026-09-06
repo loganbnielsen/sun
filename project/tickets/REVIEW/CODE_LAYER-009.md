@@ -5,6 +5,7 @@ severity: low
 source: project/audits/2026-09-06_code_layer_audit.md
 branch: CODE_LAYER-009/remove-legacy-render-path
 worktree: ../sun-CODE_LAYER-009-remove-legacy-render-path
+pr: https://github.com/loganbnielsen/sun/pull/124
 ---
 
 **Depends on:** None.
