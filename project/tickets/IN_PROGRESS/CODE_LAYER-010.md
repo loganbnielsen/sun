@@ -3,6 +3,8 @@ id: CODE_LAYER-010
 type: bug
 severity: medium
 source: CODE_LAYER-005 follow-up (scope deferred during implementation, 2026-09-06)
+branch: CODE_LAYER-010/redpanda-postgresql-component-values
+worktree: ../sun-CODE_LAYER-010-redpanda-postgresql-component-values
 ---
 
 **Depends on:** None.
