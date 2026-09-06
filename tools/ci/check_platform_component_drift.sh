@@ -48,6 +48,10 @@ migrated_keys=(
   "sidecar.datasources.enabled"
   "pushgateway.enabled"
   "alertmanager.enabled"
+  # CODE_LAYER-010 (Redpanda/PostgreSQL):
+  "tls.enabled"
+  "config.cluster.auto_create_topics_enabled"
+  "auth.database"
 )
 
 # Keys that stay as legitimate, var-driven `set {}` blocks in main.tf (so
@@ -60,6 +64,27 @@ migrated_keys=(
 cmd_dev_only_keys=(
   "singleBinary.persistence.enabled"
   "server.persistentVolume.enabled"
+  # CODE_LAYER-010 (Redpanda): main.tf keeps its own var-driven nested
+  # HCL attributes (statefulset.replicas, resources.cpu.cores) for these
+  # -- not a `set {}` dotted-string block, so main.tf was never checked
+  # for these anyway, but cmd_dev.ml must not reintroduce them inline.
+  # storage.persistentVolume.size and external.*/listeners.kafka.* have
+  # no main.tf equivalent at all (main.tf never sets a PV size, and
+  # real clusters don't need a port-forward-compatible external
+  # listener) -- genuine dev-only literals, same category as
+  # prometheus-node-exporter.enabled above.
+  "statefulset.replicas"
+  "resources.cpu.cores"
+  "storage.persistentVolume.size"
+  "external.enabled"
+  "external.service.enabled"
+  "external.addresses[0]"
+  "listeners.kafka.external.default.advertisedPorts[0]"
+  # CODE_LAYER-010 (PostgreSQL): main.tf keeps its own var-driven `set`
+  # for both -- a real secret (auth.postgresPassword) and the same
+  # persistence-knob pattern as Loki/Prometheus above.
+  "auth.postgresPassword"
+  "primary.persistence.enabled"
 )
 
 fail=0

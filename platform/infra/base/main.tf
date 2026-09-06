@@ -203,8 +203,15 @@ resource "helm_release" "redpanda" {
   namespace  = kubernetes_namespace.redpanda.metadata[0].name
   timeout    = 600
 
-  values = [
-    yamlencode({
+  # CODE_LAYER-010: tls.enabled/config.cluster.auto_create_topics_enabled
+  # now live in platform/components/redpanda/values-common.json (ADR 0001),
+  # shared with cmd_dev.ml's own Redpanda install. What's left here
+  # (replicas/cpu/memory/persistence) is genuinely Terraform-only --
+  # driven by operator variables cmd_dev.ml has no equivalent for, same
+  # reasoning as Loki's singleBinary.persistence.enabled `set` above.
+  values = concat(
+    local.redpanda_component_values,
+    [yamlencode({
       statefulset = { replicas = var.redpanda_replicas }
       resources = {
         cpu    = { cores = var.redpanda_cpu_cores }
@@ -213,14 +220,8 @@ resource "helm_release" "redpanda" {
       storage = {
         persistentVolume = { enabled = var.redpanda_persistent_storage }
       }
-      tls = { enabled = false }
-      config = {
-        cluster = {
-          auto_create_topics_enabled = true
-        }
-      }
-    })
-  ]
+    })]
+  )
 }
 
 # ── PostgreSQL (in-cluster; set install_postgresql=false to use RDS/Cloud SQL) #
@@ -263,13 +264,19 @@ resource "helm_release" "postgresql" {
     value = var.postgres_password
   }
   set {
-    name  = "auth.database"
-    value = "dev"
-  }
-  set {
     name  = "primary.persistence.enabled"
     value = tostring(var.postgres_persistent_storage)
   }
+
+  # CODE_LAYER-010: auth.database now lives in
+  # platform/components/postgresql/values-common.json (ADR 0001), shared
+  # with cmd_dev.ml's own PostgreSQL install -- was a hardcoded "dev" `set`
+  # in both files independently before. postgresPassword/persistence.enabled
+  # stay Terraform-only `set`s: the former is a real secret
+  # (var.postgres_password) with no cmd_dev.ml equivalent to share, the
+  # latter is the same var-driven, no-cmd_dev.ml-equivalent case Loki's
+  # persistence knob already established above.
+  values = local.postgresql_component_values
 }
 
 # ── Loki + Grafana + Alloy ──────────────────────────────────────────────── #
@@ -319,6 +326,22 @@ locals {
   prometheus_component_values = [
     jsonencode(jsondecode(file("${local.platform_components_dir}/prometheus/values-common.json"))),
     jsonencode(jsondecode(file("${local.platform_components_dir}/prometheus/values-${local.observability_profile}.json"))),
+  ]
+  # CODE_LAYER-010: Redpanda/PostgreSQL have no distinct local/durable
+  # branch of their own today (their persistence lives behind separate
+  # var.redpanda_persistent_storage/var.postgres_persistent_storage
+  # booleans, not observability_backend) -- reusing observability_profile
+  # here is just "which of the two profile files to layer over common",
+  # not a claim that these components' durability is driven by the
+  # observability backend choice. Both values-durable.json files are
+  # empty today; revisit if that ever needs to diverge.
+  redpanda_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/redpanda/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/redpanda/values-${local.observability_profile}.json"))),
+  ]
+  postgresql_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/postgresql/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/postgresql/values-${local.observability_profile}.json"))),
   ]
 
   # Alloy's loki.write target -- installed unconditionally (unlike Loki and

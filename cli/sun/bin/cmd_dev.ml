@@ -110,24 +110,20 @@ let dev_up () =
 
   if req.kafka then begin
     Printf.printf "\n  Installing Redpanda...\n%!";
+    (* CODE_LAYER-010: values come from
+       platform/components/redpanda/{values-common,values-local}.json
+       (ADR 0001), shared with platform/infra/base/main.tf. Local-only
+       content (statefulset.replicas/resources/storage, plus the
+       external.*/listeners.kafka.* block that advertises localhost:9092
+       so librdkafka reconnects to the port-forward after bootstrap
+       instead of the unresolvable internal cluster DNS -- main.tf has no
+       equivalent, real clusters don't need it) lives in values-local.json;
+       tls.enabled/config.cluster.auto_create_topics_enabled are genuinely
+       shared, in values-common.json. *)
     let rc = helm_install "redpanda" "redpanda/redpanda" ~namespace:"redpanda"
       ~version:"5.8.12"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
-      ~values:[
-        ("statefulset.replicas",          Float 1.);
-        ("resources.cpu.cores",           Str "1.5");  (* chart rejects int64 *)
-        ("storage.persistentVolume.size", Str "1Gi");
-        ("tls.enabled",                   Bool false);
-        (* Advertise localhost:9092 so librdkafka reconnects to the port-forward
-           after bootstrap instead of the unresolvable internal cluster DNS. *)
-        ("external.enabled",                                    Bool true);
-        ("external.service.enabled",                            Bool false);
-        ("external.addresses[0]",                               Str "localhost");
-        ("listeners.kafka.external.default.advertisedPorts[0]", Float 9092.);
-        (* CODE_LAYER-008: matches base/main.tf's explicit
-           config.cluster.auto_create_topics_enabled -- previously left at
-           the chart's own default here, an unreconciled drift. *)
-        ("config.cluster.auto_create_topics_enabled", Bool true);
-      ] ()
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"redpanda" ~profile:"local") ()
     in
     if rc <> 0 then (Printf.eprintf "error: Redpanda install failed\n"; exit 1)
   end;
@@ -145,16 +141,16 @@ let dev_up () =
          other tag to pin to). Fine for this ephemeral local cluster
          (no persistent volume to be incompatible with -- see below). *)
       ~version:"18.8.17"
-      ~values:[
-        ("auth.postgresPassword", Str "dev");
-        ("auth.database",         Str "dev");
-        (* CODE_LAYER-008: base/main.tf sets this explicitly
-           (var.postgres_persistent_storage); dev's k3d cluster is
-           routinely torn down and recreated, so false matches the same
-           "ephemeral by default" choice already made for Loki/Prometheus's
-           local profile rather than leaving it at the chart's own default. *)
-        ("primary.persistence.enabled", Bool false);
-      ] ()
+      (* CODE_LAYER-010: values come from
+         platform/components/postgresql/{values-common,values-local}.json
+         (ADR 0001) -- auth.database ("dev") is genuinely shared with
+         platform/infra/base/main.tf; auth.postgresPassword and
+         primary.persistence.enabled are dev-only local-profile content
+         (main.tf keeps its own var-driven `set` for both -- a real secret
+         and an "ephemeral by default" choice matching Loki/Prometheus's
+         local profile, neither with a value cmd_dev.ml should share). *)
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"postgresql" ~profile:"local") ()
     in
     if rc <> 0 then (Printf.eprintf "error: PostgreSQL install failed\n"; exit 1)
   end;

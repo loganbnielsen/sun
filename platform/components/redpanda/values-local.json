@@ -1,0 +1,17 @@
+{
+  "statefulset": { "replicas": 1 },
+  "resources": { "cpu": { "cores": "1.5" } },
+  "storage": { "persistentVolume": { "size": "1Gi" } },
+  "external": {
+    "enabled": true,
+    "service": { "enabled": false },
+    "addresses": ["localhost"]
+  },
+  "listeners": {
+    "kafka": {
+      "external": {
+        "default": { "advertisedPorts": [9092] }
+      }
+    }
+  }
+}
