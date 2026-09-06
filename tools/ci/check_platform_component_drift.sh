@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Guardrail for docs/architecture/adr/0001-layer2-platform-component-source-of-truth.md
+# (CODE_LAYER-005).
+#
+# Once a Helm value moves into platform/components/<name>/values-*.json, it
+# must not creep back as an independently hand-maintained literal in either
+# execution layer -- that's exactly how BUG-013 (fixed in
+# platform/infra/base/main.tf only) turned into BUG-016 (cmd_dev.ml still
+# missing the fix). Deliberately a grep over a fixed key list, not an
+# OCaml/HCL AST linter -- see the ADR's "No elaborate lint tooling" rule.
+#
+# This does not (and cannot, by grepping) prove a *value* is correct -- only
+# that a key CODE_LAYER-005 already migrated hasn't reappeared as the exact
+# dotted-string form the old `set { name = "..." }` / OCaml `~values:[...]`
+# literals used (e.g. "loki.commonConfig.replication_factor"). KNOWN GAP:
+# it will NOT catch the same value reintroduced as a nested HCL/OCaml object
+# literal instead (e.g. `yamlencode({ loki = { commonConfig = {
+# replication_factor = 3 } } })`) -- main.tf already uses that shape
+# elsewhere (loki_infra_bindings, prometheus_thanos_server_fields), so it's
+# a realistic way for drift to sneak back in undetected. Catching that would
+# need real HCL/OCaml parsing, which the ADR explicitly rules out ("No
+# elaborate lint tooling") -- reviewers should still eyeball new nested
+# object literals touching a migrated component's resource for this.
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cmd_dev="$repo_root/cli/sun/bin/cmd_dev.ml"
+main_tf="$repo_root/platform/infra/base/main.tf"
+
+# Keys CODE_LAYER-005 moved into platform/components/<name>/values-*.json,
+# checked against both files. Keys intentionally still set inline in main.tf
+# only (singleBinary.persistence.enabled, server.persistentVolume.enabled/
+# retention -- var-driven Terraform-only knobs; prometheus-node-exporter.
+# enabled -- a genuine dev-only literal main.tf never had) are deliberately
+# absent from this list and checked separately below.
+migrated_keys=(
+  "deploymentMode"
+  "singleBinary.replicas"
+  "write.replicas"
+  "read.replicas"
+  "backend.replicas"
+  "gateway.enabled"
+  "loki.auth_enabled"
+  "loki.commonConfig.replication_factor"
+  "loki.storage.type"
+  "loki.useTestSchema"
+  "sidecar.dashboards.enabled"
+  "sidecar.datasources.enabled"
+  "pushgateway.enabled"
+  "alertmanager.enabled"
+)
+
+# Keys that stay as legitimate, var-driven `set {}` blocks in main.tf (so
+# they're NOT in migrated_keys above -- main.tf hardcoding them is correct,
+# not drift) but whose cmd_dev.ml copy now comes entirely from
+# values-local.json, with no var to shadow it there. cmd_dev.ml
+# reintroducing either as an inline OCaml literal would silently duplicate
+# what the JSON already provides -- exactly the BUG-013/BUG-016 pattern,
+# just missed by migrated_keys since it's asymmetric across the two files.
+cmd_dev_only_keys=(
+  "singleBinary.persistence.enabled"
+  "server.persistentVolume.enabled"
+)
+
+fail=0
+
+for key in "${migrated_keys[@]}"; do
+  if grep -qF "\"${key}\"" "$cmd_dev"; then
+    echo "guardrail: $cmd_dev hardcodes \"${key}\" inline again -- this value belongs in platform/components/<name>/values-*.json (ADR 0001 / CODE_LAYER-005)." >&2
+    fail=1
+  fi
+  if grep -qF "\"${key}\"" "$main_tf"; then
+    echo "guardrail: $main_tf hardcodes \"${key}\" inline again -- this value belongs in platform/components/<name>/values-*.json (ADR 0001 / CODE_LAYER-005)." >&2
+    fail=1
+  fi
+done
+
+for key in "${cmd_dev_only_keys[@]}"; do
+  if grep -qF "\"${key}\"" "$cmd_dev"; then
+    echo "guardrail: $cmd_dev hardcodes \"${key}\" inline again -- this value now comes entirely from platform/components/<name>/values-local.json (ADR 0001 / CODE_LAYER-005); main.tf legitimately keeps its own var-driven \`set\` for this key, but cmd_dev.ml has no such var and must not duplicate it." >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" -eq 0 ]; then
+  echo "guardrail: no migrated platform-component keys found duplicated inline in cmd_dev.ml or main.tf."
+fi
+
+exit "$fail"

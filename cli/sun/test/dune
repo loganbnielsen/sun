@@ -24,5 +24,6 @@
   test_deploy_event
   test_open
   test_status
-  test_workspace)
+  test_workspace
+  test_platform_component)
  (libraries sun_cli alcotest unix yojson str))

@@ -50,3 +50,6 @@ jobs:
 
       - name: Unit tests (no broker/Postgres/Loki required)
         run: opam exec -- dune test framework/ cli/sun/test/
+
+      - name: Platform-component drift guardrail (ADR 0001 / CODE_LAYER-005)
+        run: tools/ci/check_platform_component_drift.sh

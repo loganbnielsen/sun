@@ -147,38 +147,28 @@ let dev_up () =
        exactly") -- loki (community-maintained), grafana (standalone), and
        alloy (Promtail's official successor, log-shipping role only). *)
     Printf.printf "\n  Installing Loki...\n%!";
-    (* Single Monolithic replica; explicit zeroing of write/read/backend is
-       required even though deploymentMode itself already defaults to
-       "Monolithic" -- see platform/infra/base/main.tf's helm_release.loki
-       comment for why. filesystem storage + useTestSchema: dev has no S3
-       backing, same footprint loki-stack had. *)
+    (* Values come from platform/components/loki/{values-common,values-local}.json
+       (ADR 0001 / CODE_LAYER-005) -- the same "local" profile
+       platform/infra/base/main.tf uses for its own non-durable
+       observability_backend branch, so a fix like BUG-013's
+       replication_factor lands here automatically instead of requiring a
+       second, independently-maintained edit (BUG-016). *)
     let rc = helm_install "loki" "grafana-community/loki" ~namespace:"monitoring"
-      ~values:[
-        ("deploymentMode",                   Str "Monolithic");
-        ("singleBinary.replicas",            Float 1.);
-        ("write.replicas",                   Float 0.);
-        ("read.replicas",                    Float 0.);
-        ("backend.replicas",                 Float 0.);
-        ("singleBinary.persistence.enabled", Bool false);
-        ("gateway.enabled",                  Bool false);
-        ("loki.auth_enabled",                Bool false);
-        ("loki.storage.type",                Str "filesystem");
-        ("loki.useTestSchema",               Bool true);
-      ] ()
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"loki" ~profile:"local") ()
     in
     if rc <> 0 then (Printf.eprintf "error: Loki install failed\n"; exit 1);
 
     Printf.printf "\n  Installing Grafana...\n%!";
-    (* sidecar.dashboards/datasources: moved from loki-stack's nested
-       grafana.sidecar.* passthrough naming to this standalone chart's own
-       top-level sidecar.* -- both now need an explicit `set` since this
-       chart (unlike loki-stack) defaults sidecar.datasources.enabled to
-       false. *)
+    (* Values come from platform/components/grafana/{values-common,values-local}.json
+       (ADR 0001 / CODE_LAYER-005). sidecar.dashboards/datasources: moved
+       from loki-stack's nested grafana.sidecar.* passthrough naming to this
+       standalone chart's own top-level sidecar.* -- both now need an
+       explicit value since this chart (unlike loki-stack) defaults
+       sidecar.datasources.enabled to false. *)
     let rc = helm_install "grafana" "grafana-community/grafana" ~namespace:"monitoring"
-      ~values:[
-        ("sidecar.dashboards.enabled",  Bool true);
-        ("sidecar.datasources.enabled", Bool true);
-      ] ()
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"grafana" ~profile:"local") ()
     in
     if rc <> 0 then (Printf.eprintf "error: Grafana install failed\n"; exit 1);
 
@@ -208,20 +198,36 @@ let dev_up () =
        (obs-tempo-eio's TEMPO_URL); Grafana's Tempo datasource queries port
        3200. Uses the `grafana-community` repo already added above for
        Loki/Grafana. *)
-    let rc = helm_install "tempo" "grafana-community/tempo" ~namespace:"monitoring" () in
+    (* platform/components/tempo/ has nothing to say today (both paths
+       already agree by relying on the chart's own defaults) -- wiring it up
+       anyway locks in the source of truth so the CI guardrail can catch the
+       next Tempo value that would otherwise drift, see ADR 0001. *)
+    let rc = helm_install "tempo" "grafana-community/tempo" ~namespace:"monitoring"
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"tempo" ~profile:"local") ()
+    in
     if rc <> 0 then (Printf.eprintf "error: Tempo install failed\n"; exit 1)
   end;
 
   if req.prometheus then begin
     Printf.printf "\n  Installing Prometheus...\n%!";
     (* prometheus-community/prometheus (not kube-prometheus-stack) — lighter weight for dev;
-       includes server, alertmanager, pushgateway, kube-state-metrics, node-exporter *)
+       includes server, alertmanager, pushgateway, kube-state-metrics, node-exporter.
+       server.persistentVolume/pushgateway/alertmanager come from
+       platform/components/prometheus/{values-common,values-local}.json
+       (ADR 0001 / CODE_LAYER-005), shared with platform/infra/base/main.tf.
+       node-exporter stays a dev-only literal here -- main.tf never disables
+       it (real clusters keep host metrics), so it isn't shared state.
+       Note for whoever migrates the next Prometheus key: Helm's --set
+       always outranks -f regardless of flag order, so if a key ever needs
+       to move from this ~values literal into the shared JSON, the literal
+       here must be deleted in the same change -- leaving both would let
+       this ~values entry silently and permanently win. *)
     let rc = helm_install "prometheus" "prometheus-community/prometheus"
       ~namespace:"monitoring"
-      ~values:[
-        ("server.persistentVolume.enabled",  Bool false);
-        ("prometheus-node-exporter.enabled", Bool false);
-      ] ()
+      ~values:[("prometheus-node-exporter.enabled", Bool false)]
+      ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
+                      ~component:"prometheus" ~profile:"local") ()
     in
     if rc <> 0 then (Printf.eprintf "error: Prometheus install failed\n"; exit 1)
   end;
