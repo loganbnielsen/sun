@@ -496,8 +496,10 @@ let render_alloy_config ~sun_home ~taxonomy_labels ~loki_push_url
     ~loki_push_basic_auth_username ~loki_push_basic_auth_password =
   let path = Filename.concat sun_home "platform/infra/base/alloy/logs.alloy.tftpl" in
   let ic = open_in_bin path in
-  let content = really_input_string ic (in_channel_length ic) in
-  close_in ic;
+  let content =
+    Fun.protect ~finally:(fun () -> close_in_noerr ic)
+      (fun () -> really_input_string ic (in_channel_length ic))
+  in
   let (before, loop_body, after) =
     slice_between
       ~marker_start:"%{ for label in taxonomy_labels ~}\n"

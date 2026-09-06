@@ -196,6 +196,39 @@ let test_alloy_values_yaml_against_real_file () =
       "__meta_kubernetes_pod_label_release";
     check_bool "no basic_auth block for sun dev up" false (contains "basic_auth" yaml)
 
+(* CODE_LAYER-006: this is the exact regression class the "found along the
+   way" YAML indentation bug was -- alloy_config_river's old template put
+   the `content: |-` block scalar's body at the SAME indentation as its
+   own key, which no test caught (every assertion above only checks
+   substring presence, not YAML well-formedness). Not a full YAML parser
+   (no new dependency, consistent with this project's pure-OCaml test
+   suite) -- just the one structural invariant that actually broke: every
+   line of a `|-` block scalar's body must be indented strictly more than
+   its key. *)
+let leading_spaces line =
+  let n = String.length line in
+  let rec go i = if i < n && line.[i] = ' ' then go (i + 1) else i in
+  go 0
+
+let test_alloy_values_yaml_is_valid_block_scalar_shape () =
+  let yaml = Sun_cli_dev_observability.alloy_values_yaml () in
+  let lines = String.split_on_char '\n' yaml in
+  let key_line = List.find (fun l -> contains "content: |-" l) lines in
+  let key_indent = leading_spaces key_line in
+  let rec check = function
+    | [] -> ()
+    | line :: rest when line == key_line ->
+      List.iter (fun body_line ->
+        if String.trim body_line <> "" then
+          check_bool
+            (Printf.sprintf "body line more indented than key (key=%d): %S"
+               key_indent body_line)
+            true (leading_spaces body_line > key_indent))
+        rest
+    | _ :: rest -> check rest
+  in
+  check lines
+
 let () =
   Alcotest.run "dev_observability"
     [ "grafana",
@@ -211,6 +244,7 @@ let () =
       [ Alcotest.test_case "render expands taxonomy loop"    `Quick test_alloy_render_expands_taxonomy_loop
       ; Alcotest.test_case "render omits empty basic_auth"   `Quick test_alloy_render_omits_basic_auth_when_empty
       ; Alcotest.test_case "render includes set basic_auth"  `Quick test_alloy_render_includes_basic_auth_when_set
-      ; Alcotest.test_case "values yaml (real file)"         `Quick test_alloy_values_yaml_against_real_file;
+      ; Alcotest.test_case "values yaml (real file)"         `Quick test_alloy_values_yaml_against_real_file
+      ; Alcotest.test_case "values yaml is valid block scalar shape" `Quick test_alloy_values_yaml_is_valid_block_scalar_shape;
       ];
     ]
