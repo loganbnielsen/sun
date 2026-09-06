@@ -382,6 +382,17 @@ resource "helm_release" "loki" {
     name  = "loki.auth_enabled"
     value = "false"
   }
+  # BUG-006/BUG-008: the chart's own default is replication_factor: 3,
+  # recommended for a real multi-instance ingester ring -- left at that
+  # default against this module's single singleBinary replica, every
+  # write and most reads fail with "too many unhealthy instances in the
+  # ring" (quorum requires 2 live replicas, only 1 exists). Confirmed live
+  # against a running cluster via Loki's own /config endpoint
+  # (common.replication_factor: 3) before this fix.
+  set {
+    name  = "loki.commonConfig.replication_factor"
+    value = "1"
+  }
   set {
     name  = "loki.storage.type"
     value = var.observability_backend == "self_hosted_durable" ? "s3" : "filesystem"
