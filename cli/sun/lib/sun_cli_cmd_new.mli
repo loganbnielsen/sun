@@ -10,8 +10,13 @@ val is_sun_home : string -> bool
 val find_ancestor : (string -> bool) -> string -> string option
 
 (** Infers the Sun home directory.
-    1. Checks [$SUN_HOME] if set — returns [Some dir] if it passes [is_sun_home].
-    2. Otherwise walks up from the directory containing the running binary. *)
+    1. Checks [$SUN_HOME] if set to a non-empty value — returns [Some dir] if
+       it passes [is_sun_home], [None] if it doesn't (an explicit but wrong
+       override is treated as an error, not silently ignored).
+    2. Otherwise (unset, or set to [""] — OCaml's [Unix.putenv] has no
+       portable way to truly unset a variable, so an empty string is treated
+       the same as unset) walks up from the directory containing the running
+       binary. *)
 val infer_sun_home : unit -> string option
 
 val parse_domain_name : string -> ((string * string), string) result

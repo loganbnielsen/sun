@@ -205,12 +205,13 @@ let dev_up () =
     (* Cluster-wide pod stdout/stderr scraping via DaemonSet -- same role
        promtail.enabled: true played, so 'sun logs' can fall back to real
        log content even for a pod that crashed before it could push its own
-       logs (OBS-004). River config (not Promtail YAML) lives in
-       Sun_cli_dev_observability.alloy_values_yaml, kept in sync by hand
-       with platform/infra/base/alloy/logs.alloy.tftpl. *)
+       logs (OBS-004). CODE_LAYER-006: River config is rendered from
+       platform/infra/base/alloy/logs.alloy.tftpl -- the single source,
+       shared with platform/infra/base/main.tf's own templatefile() call
+       for the same file -- instead of a second, hand-synced OCaml copy. *)
     let rc = helm_install "alloy" "grafana/alloy" ~namespace:"monitoring"
       ~version:"1.12.1"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
-      ~values_yaml:Sun_cli_dev_observability.alloy_values_yaml ()
+      ~values_yaml:(Sun_cli_dev_observability.alloy_values_yaml ()) ()
     in
     if rc <> 0 then (Printf.eprintf "error: Alloy install failed\n"; exit 1)
   end;

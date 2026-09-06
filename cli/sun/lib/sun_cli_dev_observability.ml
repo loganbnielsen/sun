@@ -425,82 +425,141 @@ let loki_datasource_configmap_yaml ~namespace =
     ~labels:["grafana_datasource", "1"]
     ~data:["loki.yaml", loki_datasource_yaml]
 
-(* OBS-039: Alloy's log-shipping River config for `sun dev up`, matching
-   platform/infra/base/alloy/logs.alloy.tftpl's local-profile rendering
-   (push straight to the in-cluster Loki, no external/basic-auth branch --
-   `sun dev up` has no "external backend" concept). Validated with the real
-   `alloy validate` binary (grafana/alloy:v1.12.1) during OBS-039's
-   implementation; keep this in sync with the .tftpl by hand if either
-   changes -- Terraform's HCL template language has no OCaml equivalent to
-   share the source with directly. *)
-let alloy_config_river =
-  {river|// Cluster-wide pod log shipping for `sun dev up`. Alloy's Promtail
-// successor: this is real River config (Alloy's config language), not
-// Promtail-shaped YAML. See OBS-039 for the migration this replaces
-// (promtail.enabled -> Alloy). Kept in sync by hand with
-// platform/infra/base/alloy/logs.alloy.tftpl's local-profile rendering.
+(* CODE_LAYER-006: platform/infra/base/alloy/logs.alloy.tftpl is now the
+   single source of Alloy's River log-shipping config -- both `sun dev up`
+   (here) and platform/infra/base/main.tf's `helm_release.alloy` (via
+   Terraform's own `templatefile()`) render from that one file. This is a
+   minimal, literal-substring templater for exactly the three constructs
+   that file uses: `${var}` interpolation, one
+   `%{ for x in taxonomy_labels ~}...%{ endfor ~}` loop, and one
+   `%{ if cond ~}...%{ endif ~}` conditional gated on whether
+   loki_push_basic_auth_username is non-empty -- not a general HCL
+   template engine. If logs.alloy.tftpl grows a construct this doesn't
+   handle, this function needs a matching update, the same way any second
+   reader of a file format does when the format changes. *)
 
-discovery.kubernetes "pods" {
-  role = "pod"
-}
+let find_substring ~needle haystack =
+  let hn = String.length haystack and nn = String.length needle in
+  let rec go i =
+    if i + nn > hn then None
+    else if String.sub haystack i nn = needle then Some i
+    else go (i + 1)
+  in
+  if nn = 0 then Some 0 else go 0
 
-discovery.relabel "pods" {
-  targets = discovery.kubernetes.pods.targets
+let replace_all ~pattern ~replacement s =
+  let pn = String.length pattern in
+  if pn = 0 then s
+  else begin
+    let sn = String.length s in
+    let buf = Buffer.create sn in
+    let rec go i =
+      if i > sn - pn then Buffer.add_string buf (String.sub s i (sn - i))
+      else if String.sub s i pn = pattern then begin
+        Buffer.add_string buf replacement;
+        go (i + pn)
+      end else begin
+        Buffer.add_char buf s.[i];
+        go (i + 1)
+      end
+    in
+    go 0;
+    Buffer.contents buf
+  end
 
-  rule {
-    source_labels = ["__meta_kubernetes_namespace"]
-    target_label  = "namespace"
-  }
+(* Splits [content] into the text before [marker_start], the text strictly
+   between the two markers, and the text after [marker_end] (both markers
+   themselves excluded from all three parts). Raises if either marker is
+   missing or out of order -- a malformed/changed .tftpl should fail
+   loudly at render time, not silently produce wrong River config. *)
+let slice_between ~marker_start ~marker_end content =
+  match find_substring ~needle:marker_start content with
+  | None -> invalid_arg (Printf.sprintf "alloy template: marker not found: %S" marker_start)
+  | Some s ->
+    let inner_start = s + String.length marker_start in
+    (match find_substring ~needle:marker_end content with
+     | None -> invalid_arg (Printf.sprintf "alloy template: marker not found: %S" marker_end)
+     | Some e when e < inner_start ->
+       invalid_arg (Printf.sprintf "alloy template: %S found before %S" marker_end marker_start)
+     | Some e ->
+       let before = String.sub content 0 s in
+       let inner  = String.sub content inner_start (e - inner_start) in
+       let after_start = e + String.length marker_end in
+       let after  = String.sub content after_start (String.length content - after_start) in
+       (before, inner, after))
 
-  rule {
-    source_labels = ["__meta_kubernetes_pod_name"]
-    target_label  = "pod"
-  }
+let basic_auth_if_start = {|%{ if loki_push_basic_auth_username != "" ~}
+|}
+let basic_auth_if_end = "%{ endif ~}\n"
 
-  rule {
-    source_labels = ["__meta_kubernetes_pod_container_name"]
-    target_label  = "container"
-  }
+let render_alloy_config ~sun_home ~taxonomy_labels ~loki_push_url
+    ~loki_push_basic_auth_username ~loki_push_basic_auth_password =
+  let path = Filename.concat sun_home "platform/infra/base/alloy/logs.alloy.tftpl" in
+  let ic = open_in_bin path in
+  let content =
+    Fun.protect ~finally:(fun () -> close_in_noerr ic)
+      (fun () -> really_input_string ic (in_channel_length ic))
+  in
+  let (before, loop_body, after) =
+    slice_between
+      ~marker_start:"%{ for label in taxonomy_labels ~}\n"
+      ~marker_end:"%{ endfor ~}\n"
+      content
+  in
+  let expanded_loop =
+    taxonomy_labels
+    |> List.map (fun label -> replace_all ~pattern:"${label}" ~replacement:label loop_body)
+    |> String.concat ""
+  in
+  let content = before ^ expanded_loop ^ after in
+  let (before, inner, after) =
+    slice_between ~marker_start:basic_auth_if_start ~marker_end:basic_auth_if_end content
+  in
+  let content = before ^ (if loki_push_basic_auth_username = "" then "" else inner) ^ after in
+  content
+  |> replace_all ~pattern:"${loki_push_url}" ~replacement:loki_push_url
+  |> replace_all ~pattern:"${loki_push_basic_auth_username}" ~replacement:loki_push_basic_auth_username
+  |> replace_all ~pattern:"${loki_push_basic_auth_password}" ~replacement:loki_push_basic_auth_password
 
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_workspace"]
-    target_label  = "workspace"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_domain"]
-    target_label  = "domain"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_service"]
-    target_label  = "service"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_primitive"]
-    target_label  = "primitive"
-  }
-  rule {
-    source_labels = ["__meta_kubernetes_pod_label_release"]
-    target_label  = "release"
-  }
-}
-
-loki.source.kubernetes "pods" {
-  targets    = discovery.relabel.pods.output
-  forward_to = [loki.write.default.receiver]
-}
-
-loki.write "default" {
-  endpoint {
-    url = "http://loki:3100/loki/api/v1/push"
-  }
-}
-|river}
-
-let alloy_values_yaml =
+(* `sun dev up`'s local profile: push straight to the in-cluster Loki, no
+   basic auth (`sun dev up` has no "external backend" concept), the same
+   fixed taxonomy label set platform/infra/base/main.tf's
+   local.observability_taxonomy_labels passes for every profile.
+   Resolves the Sun monorepo root itself (same resolution
+   Sun_cli_platform_component.merged_values_yaml and `sun cloud`'s
+   resolve_sun_home already use) rather than pushing that onto the
+   caller. *)
+let alloy_values_yaml () =
+  let sun_home = match Sun_cli_cmd_new.infer_sun_home () with
+    | Some dir -> dir
+    | None ->
+      Printf.eprintf
+        "error: cannot locate the Sun monorepo root to read platform/infra/base/alloy/logs.alloy.tftpl.\n";
+      Printf.eprintf "  Set SUN_HOME to your Sun checkout and re-run:\n";
+      Printf.eprintf "    export SUN_HOME=/path/to/sun\n";
+      exit 1
+  in
+  (* CODE_LAYER-006: found along the way -- `content: |-`'s own indent here
+     is 4 spaces (nested under alloy/configMap), so indent_block's flat
+     4-space content indent left the block scalar body at the SAME column
+     as its key, which real YAML parsers reject (confirmed with PyYAML: a
+     block scalar's content must be indented strictly more than its key,
+     not equal). Pre-existing, not introduced by this change -- the prior
+     alloy_config_river went through the identical indent_block + template
+     shape. Indenting 6 spaces here (2 more than the key) instead of
+     reusing indent_block, which other configmap_yaml callers rely on at
+     their own, already-correct nesting depth. *)
   Printf.sprintf
     {|alloy:
   configMap:
     content: |-
 %s
 |}
-    (indent_block alloy_config_river)
+    (render_alloy_config ~sun_home
+       ~taxonomy_labels:["workspace"; "domain"; "service"; "primitive"; "release"]
+       ~loki_push_url:"http://loki:3100/loki/api/v1/push"
+       ~loki_push_basic_auth_username:""
+       ~loki_push_basic_auth_password:""
+     |> String.split_on_char '\n'
+     |> List.map (fun line -> "      " ^ line)
+     |> String.concat "\n")
