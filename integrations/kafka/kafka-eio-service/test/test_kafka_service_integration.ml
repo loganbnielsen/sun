@@ -205,7 +205,7 @@ let test_publish_consume_roundtrip () =
           let (consumer_ready_p, consumer_ready_r) = Eio.Promise.create () in
           (* Fork consumer fiber first so it's subscribed before we publish. *)
           Eio.Fiber.fork ~sw (fun () ->
-            ignore (Kafka_service.consume svc topic ~group_id ~sw
+            ignore (Kafka_service.consume svc topic ~group_id ~sw ~clock:env#clock
               ~on_ready:(fun () -> Eio.Promise.resolve consumer_ready_r ())
               ~handler:(fun msg ~ack ~trace_ctx:_ ->
                 ignore (ack ());
@@ -326,7 +326,7 @@ let test_decode_error_callback () =
           let (consumer_ready_p, consumer_ready_r) = Eio.Promise.create () in
           (* Fork consumer so it's subscribed before the bad message arrives. *)
           Eio.Fiber.fork ~sw (fun () ->
-            ignore (Kafka_service.consume svc topic ~group_id ~sw
+            ignore (Kafka_service.consume svc topic ~group_id ~sw ~clock:env#clock
               ~on_ready:(fun () -> Eio.Promise.resolve consumer_ready_r ())
               ~on_decode_error:(fun e ~raw_bytes:_ ~ack ->
                 Eio.Stream.add error_stream e;

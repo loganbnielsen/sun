@@ -234,6 +234,7 @@ val consume
   -> 'a topic
   -> group_id:string
   -> sw:Eio.Switch.t
+  -> clock:_ Eio.Time.clock
   -> ?on_ready:(unit -> unit)
   -> ?on_decode_error:(string -> raw_bytes:bytes option -> ack:(unit -> (unit, Kafka.Error.t) result) -> Kafka.Error.t Kafka.Consumer.handler_result)
   -> ?ot:Obs_eio.t

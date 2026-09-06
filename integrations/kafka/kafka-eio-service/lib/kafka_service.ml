@@ -198,7 +198,7 @@ let default_on_decode_error e ~raw_bytes:_ ~ack =
   ignore (ack ());
   Kafka.Consumer.Continue
 
-let consume svc topic ~group_id ~sw
+let consume svc topic ~group_id ~sw ~clock
     ?(on_ready = ignore)
     ?(on_decode_error = default_on_decode_error)
     ?ot
@@ -215,7 +215,7 @@ let consume svc topic ~group_id ~sw
     security     = svc.security;
     properties   = [];
   } in
-  match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
+  match Kafka.Consumer.create ~on_ready ~clock consumer_cfg ~sw with
   | Error e -> Error e
   | Ok consumer ->
     let decode_and_handle raw_msg ~ack =
@@ -248,7 +248,7 @@ let consume_partitioned svc topic ~group_id ~sw ~clock
       security     = svc.security;
       properties   = [];
     } in
-    (match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
+    (match Kafka.Consumer.create ~on_ready ~clock consumer_cfg ~sw with
      | Error e -> Error (Consumer_error e)
      | Ok consumer ->
        let decode_and_handle raw_msg ~ack =

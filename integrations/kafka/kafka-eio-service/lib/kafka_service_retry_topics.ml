@@ -127,7 +127,7 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
     security     = svc.security;
     properties   = [];
   } in
-  match Kafka.Consumer.create ~on_ready consumer_cfg ~sw with
+  match Kafka.Consumer.create ~on_ready ~clock consumer_cfg ~sw with
   | Error e -> Error (Kafka_service_intf.Consumer_error e)
   | Ok consumer ->
     let retry_consumer_cfg : Kafka.Consumer.config = {
@@ -140,7 +140,7 @@ let consume (svc : Kafka_service_intf.t) (topic : 'a Kafka_service_intf.topic)
       properties   = [];
     } in
     let* () =
-      match Kafka.Consumer.create retry_consumer_cfg ~sw with
+      match Kafka.Consumer.create ~clock retry_consumer_cfg ~sw with
       | Error e ->
         Kafka.Consumer.close consumer;
         Error (Kafka_service_intf.Consumer_error e)
