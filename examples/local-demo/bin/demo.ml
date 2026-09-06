@@ -452,7 +452,7 @@ let () =
       | Some resp ->
         check "Loki: logs received for current order-svc request"
           (str_contains resp {|"values":[[|})
-          "no log streams in response (known issue: BUG-008)"));
+          "no log streams in response"));
 
   (match tempo_url, !trace_ids with
    | None, _ -> ()
@@ -466,9 +466,9 @@ let () =
         check "Tempo: order-svc trace lookup by trace_id" false "connection failed"
       | Some resp ->
         check "Tempo: order-svc trace lookup by trace_id"
-          (str_contains resp {|receive_order|}) "trace missing (known issue: BUG-009)";
+          (str_contains resp {|receive_order|}) "trace missing";
         check "Tempo: fulfillment-worker span linked as a child of the same trace"
-          (str_contains resp {|fulfill_order|}) "worker span missing (known issue: BUG-009)"));
+          (str_contains resp {|fulfill_order|}) "worker span missing"));
 
   (match db_pool with
    | None -> ()
