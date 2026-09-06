@@ -112,16 +112,39 @@ let dev_up () =
     Printf.printf "\n  Installing Redpanda...\n%!";
     (* CODE_LAYER-010: values come from
        platform/components/redpanda/{values-common,values-local}.json
-       (ADR 0001), shared with platform/infra/base/main.tf. Local-only
-       content (statefulset.replicas/resources/storage, plus the
-       external.*/listeners.kafka.* block that advertises localhost:9092
-       so librdkafka reconnects to the port-forward after bootstrap
-       instead of the unresolvable internal cluster DNS -- main.tf has no
-       equivalent, real clusters don't need it) lives in values-local.json;
-       tls.enabled/config.cluster.auto_create_topics_enabled are genuinely
-       shared, in values-common.json. *)
+       (ADR 0001), shared with platform/infra/base/main.tf --
+       tls.enabled/config.cluster.auto_create_topics_enabled
+       (values-common.json) and statefulset.replicas/resources.cpu.cores
+       (values-local.json, for cmd_dev.ml's benefit only -- main.tf's own
+       var-driven override in its trailing values-list entry always wins
+       there, same shadowing pattern as Loki's persistence knob).
+
+       storage.persistentVolume.size and the external.*/listeners.kafka.*
+       block stay inline OCaml literals, NOT in the shared JSON: adversarial
+       review on this ticket caught that main.tf's own override block
+       doesn't touch either, so putting them in values-local.json would
+       have silently shipped a 20x-undersized PVC (chart default 20Gi ->
+       1Gi) and a broken external Kafka listener (every real client would
+       be told to reconnect to "localhost") to any real `terraform apply`
+       that doesn't opt into self_hosted_durable -- exactly the class of
+       bug this whole ADR exists to prevent, just inverted (over-sharing
+       instead of under-sharing). These four keys genuinely have no
+       main.tf equivalent (real clusters don't need a port-forward-
+       compatible external listener, and main.tf never sets a PV size at
+       all), matching Grafana's adminPassword/Prometheus's
+       node-exporter.enabled precedent for content that stays local-only
+       precisely because nothing shields it on the Terraform side. *)
     let rc = helm_install "redpanda" "redpanda/redpanda" ~namespace:"redpanda"
       ~version:"5.8.12"  (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin *)
+      ~values:[
+        ("storage.persistentVolume.size", Str "1Gi");
+        (* Advertise localhost:9092 so librdkafka reconnects to the port-forward
+           after bootstrap instead of the unresolvable internal cluster DNS. *)
+        ("external.enabled",                                    Bool true);
+        ("external.service.enabled",                            Bool false);
+        ("external.addresses[0]",                               Str "localhost");
+        ("listeners.kafka.external.default.advertisedPorts[0]", Float 9092.);
+      ]
       ~values_yaml:(Sun_cli_platform_component.merged_values_yaml
                       ~component:"redpanda" ~profile:"local") ()
     in

@@ -67,19 +67,24 @@ cmd_dev_only_keys=(
   # CODE_LAYER-010 (Redpanda): main.tf keeps its own var-driven nested
   # HCL attributes (statefulset.replicas, resources.cpu.cores) for these
   # -- not a `set {}` dotted-string block, so main.tf was never checked
-  # for these anyway, but cmd_dev.ml must not reintroduce them inline.
-  # storage.persistentVolume.size and external.*/listeners.kafka.* have
-  # no main.tf equivalent at all (main.tf never sets a PV size, and
-  # real clusters don't need a port-forward-compatible external
-  # listener) -- genuine dev-only literals, same category as
-  # prometheus-node-exporter.enabled above.
+  # for these anyway, but cmd_dev.ml must not reintroduce them inline
+  # (they're only in values-local.json, not values-common.json, so this
+  # guardrail's shared migrated_keys list above doesn't cover them).
+  #
+  # storage.persistentVolume.size and cmd_dev.ml's external.*/
+  # listeners.kafka.* block are deliberately NOT here or in any
+  # platform/components/redpanda/*.json file at all -- see cmd_dev.ml's
+  # own comment on its Redpanda install (adversarial review on
+  # CODE_LAYER-010 caught that putting them in the shared local.json
+  # would have silently shipped dev-only values, a 1Gi PVC size and a
+  # "localhost"-advertised external listener, to real clusters, since
+  # main.tf's helm_release.redpanda never overrides either). They're
+  # plain OCaml `~values` literals, same category as
+  # prometheus-node-exporter.enabled above -- not tracked by this
+  # guardrail at all, precisely because there's no shared file for them
+  # to drift out of sync with.
   "statefulset.replicas"
   "resources.cpu.cores"
-  "storage.persistentVolume.size"
-  "external.enabled"
-  "external.service.enabled"
-  "external.addresses[0]"
-  "listeners.kafka.external.default.advertisedPorts[0]"
   # CODE_LAYER-010 (PostgreSQL): main.tf keeps its own var-driven `set`
   # for both -- a real secret (auth.postgresPassword) and the same
   # persistence-knob pattern as Loki/Prometheus above.

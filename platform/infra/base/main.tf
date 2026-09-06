@@ -205,10 +205,24 @@ resource "helm_release" "redpanda" {
 
   # CODE_LAYER-010: tls.enabled/config.cluster.auto_create_topics_enabled
   # now live in platform/components/redpanda/values-common.json (ADR 0001),
-  # shared with cmd_dev.ml's own Redpanda install. What's left here
+  # shared with cmd_dev.ml's own Redpanda install. statefulset.replicas/
+  # resources.cpu.cores also appear in values-local.json (for cmd_dev.ml's
+  # benefit only) but are safely overridden here regardless, since this
+  # block is the LAST entry in the values list. What's left here
   # (replicas/cpu/memory/persistence) is genuinely Terraform-only --
   # driven by operator variables cmd_dev.ml has no equivalent for, same
   # reasoning as Loki's singleBinary.persistence.enabled `set` above.
+  #
+  # storage.persistentVolume.size and cmd_dev.ml's external.*/
+  # listeners.kafka.* block are deliberately NOT in
+  # platform/components/redpanda/ at all (neither values-common.json nor
+  # values-local.json) -- this resource never overrides them, so putting
+  # them in a file this resource reads would have silently shipped
+  # cmd_dev.ml's dev-only values (a 1Gi PVC size vs. the chart's 20Gi
+  # default, and an external listener advertising "localhost") to every
+  # real terraform apply that doesn't opt into self_hosted_durable.
+  # Caught in review; see cmd_dev.ml's own comment on its Redpanda install
+  # for the full story.
   values = concat(
     local.redpanda_component_values,
     [yamlencode({
@@ -310,6 +324,17 @@ locals {
   # the common -> profile -> bindings precedence the ADR specifies.
   platform_components_dir = "${path.module}/../../components"
   observability_profile   = var.observability_backend == "self_hosted_durable" ? "durable" : "local"
+  # CODE_LAYER-010: same value as observability_profile above -- there is
+  # currently only one local/durable switch in this module
+  # (observability_backend), so Redpanda/PostgreSQL's profile selection
+  # necessarily follows it too. Named separately (not just reused
+  # directly) so a reader of the two non-observability component blocks
+  # below isn't misled into thinking their profile is semantically tied
+  # to the observability backend specifically -- it's the platform's one
+  # local/durable axis, which today happens to be driven by that one
+  # variable. If Redpanda/PostgreSQL ever need their own independent
+  # local/durable switch, this is the local to repoint.
+  platform_profile = local.observability_profile
 
   loki_component_values = [
     jsonencode(jsondecode(file("${local.platform_components_dir}/loki/values-common.json"))),
@@ -330,18 +355,17 @@ locals {
   # CODE_LAYER-010: Redpanda/PostgreSQL have no distinct local/durable
   # branch of their own today (their persistence lives behind separate
   # var.redpanda_persistent_storage/var.postgres_persistent_storage
-  # booleans, not observability_backend) -- reusing observability_profile
-  # here is just "which of the two profile files to layer over common",
-  # not a claim that these components' durability is driven by the
-  # observability backend choice. Both values-durable.json files are
-  # empty today; revisit if that ever needs to diverge.
+  # booleans) -- see local.platform_profile above for why this reads that
+  # alias rather than observability_profile directly. Both
+  # values-durable.json files are empty today; revisit if that ever
+  # needs to diverge.
   redpanda_component_values = [
     jsonencode(jsondecode(file("${local.platform_components_dir}/redpanda/values-common.json"))),
-    jsonencode(jsondecode(file("${local.platform_components_dir}/redpanda/values-${local.observability_profile}.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/redpanda/values-${local.platform_profile}.json"))),
   ]
   postgresql_component_values = [
     jsonencode(jsondecode(file("${local.platform_components_dir}/postgresql/values-common.json"))),
-    jsonencode(jsondecode(file("${local.platform_components_dir}/postgresql/values-${local.observability_profile}.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/postgresql/values-${local.platform_profile}.json"))),
   ]
 
   # Alloy's loki.write target -- installed unconditionally (unlike Loki and
