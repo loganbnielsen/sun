@@ -138,7 +138,12 @@ let dev_up () =
       (* CODE_LAYER-008: matches platform/infra/base/main.tf's pin. Not
          15.5.1 -- confirmed live that version's default image tag
          (bitnami/postgresql:16.3.0-debian-12-r12) no longer exists on
-         Docker Hub; main.tf was bumped to 18.8.17 in the same change. *)
+         Docker Hub; main.tf was bumped to 18.8.17 in the same change (a
+         PostgreSQL 16 -> 18 server major-version jump -- see main.tf's
+         helm_release.postgresql for the full rationale and the
+         image.tag:latest caveat, since Bitnami currently publishes no
+         other tag to pin to). Fine for this ephemeral local cluster
+         (no persistent volume to be incompatible with -- see below). *)
       ~version:"18.8.17"
       ~values:[
         ("auth.postgresPassword", Str "dev");

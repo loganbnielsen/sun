@@ -71,7 +71,7 @@ Kafka           localhost:9092
 Schema registry localhost:8081
 PostgreSQL      localhost:5432
 Loki            localhost:3100
-Grafana         localhost:3000   (admin / admin)
+Grafana         localhost:3000   (admin / dev)
 Pushgateway     localhost:9091
 ```
 
@@ -362,7 +362,7 @@ curl localhost:8080/notifications
 
 ## Part 6 — Observe logs, metrics, traces, and alerts
 
-Open Grafana at `http://localhost:3000` (admin / admin).
+Open Grafana at `http://localhost:3000` (admin / dev).
 
 ### Logs
 

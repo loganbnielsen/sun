@@ -243,7 +243,7 @@ curl localhost:8080/notifications
 
 ```bash
 # 8. View logs and metrics in Grafana
-open http://localhost:3000   # admin / admin
+open http://localhost:3000   # admin / dev
 ```
 
 In Grafana Explore, query `{service=~"pluto-.*"} | logfmt` to see structured logs from both the charge service and the notify worker, with trace IDs linking HTTP spans to Kafka consumer spans.

@@ -232,12 +232,29 @@ resource "helm_release" "postgresql" {
   chart      = "postgresql"
   # CODE_LAYER-008: was pinned to 15.5.1, which defaults to image tag
   # bitnami/postgresql:16.3.0-debian-12-r12 -- confirmed live (2026-09-06)
-  # that tag no longer exists on Docker Hub (Bitnami has a history of
-  # pruning old specific-build tags), so this pin was silently broken for
-  # any real `terraform apply` with install_postgresql = true. Bumped to
-  # 18.8.17, which defaults to `image.tag: latest` (no pinned build tag to
-  # go stale the same way) and is confirmed working live against this
-  # repo's own k3d cluster.
+  # that tag no longer exists on Docker Hub, so this pin was silently
+  # broken for any real `terraform apply` with install_postgresql = true.
+  # Bumped to 18.8.17 (appVersion 18.6.0 -- a PostgreSQL 16 -> 18 server
+  # major-version jump, not a patch bump).
+  #
+  # image.tag is left at the chart's own default (`latest`), not pinned to
+  # a specific build: confirmed via Docker Hub's API that
+  # bitnami/postgresql currently publishes ONLY `latest` (plus
+  # signature/attestation/metadata artifacts) -- no versioned tag exists to
+  # pin to at all, this is Bitnami's current publishing model for this
+  # image (see the chart's own "Rolling tag detected" warning at apply
+  # time), not an oversight. This does reopen a narrower version of the
+  # exact problem this ticket fixes -- two applies at different times can
+  # still pull different PostgreSQL builds even with the chart version
+  # pinned -- but there is currently no alternative.
+  #
+  # DATA SAFETY: this chart bump does not run `pg_upgrade`. An environment
+  # with an existing PostgreSQL 16.x persistent volume (var.postgres_persistent_storage
+  # = true) will fail to start against 18.x's incompatible data directory
+  # format when this pin is adopted -- the volume must be recreated, not
+  # upgraded in place. Not a concern for this repo's own ephemeral local/
+  # smoke-test clusters, but worth knowing before applying this change
+  # against any environment with real persisted data.
   version   = "18.8.17"
   namespace = kubernetes_namespace.postgresql[0].metadata[0].name
 
