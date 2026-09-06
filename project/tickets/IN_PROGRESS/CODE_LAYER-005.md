@@ -79,6 +79,14 @@ non-Helm-values artifacts — tracked separately, not required for this
 ticket to close, but worth applying the same common/profile split to if
 convenient while in this code.
 
+## Delivered scope (2026-09-06)
+
+Migrated: Loki, Grafana, Tempo, Prometheus. Redpanda and PostgreSQL were
+deliberately deferred to keep this PR reviewable and fully live-verified
+rather than growing further — tracked as CODE_LAYER-010. This ticket's
+acceptance criteria below are satisfied for the four migrated components;
+CODE_LAYER-010 closes the remaining gap.
+
 ## Acceptance criteria
 
 - `platform/components/<name>/` is the source of truth for shared
