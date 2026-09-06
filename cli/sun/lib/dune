@@ -38,4 +38,5 @@
   Sun_cli_rollback
   Sun_cli_docker
   Sun_cli_helm
+  Sun_cli_platform_component
   Sun_cli_terraform))

@@ -262,6 +262,40 @@ locals {
   # instead of local disk.
   loki_install_local = var.observability_backend != "external"
 
+  # ADR 0001 / CODE_LAYER-005: platform/components/<name>/ is now the shared
+  # source of truth for Helm values that used to be independently
+  # hand-duplicated here and in cmd_dev.ml (sun dev up). "local" is the same
+  # profile cmd_dev.ml uses for its k3d cluster; "durable" is the
+  # self_hosted_durable, S3-backed profile. Each component's values-common
+  # + values-<profile>.json are read via jsondecode(file(...)) -- per the
+  # ADR -- and re-encoded with jsonencode so a malformed JSON file fails
+  # `terraform plan`/`validate` instead of surfacing only at `helm upgrade`
+  # apply time. Each file is kept as its own entry in the values list rather
+  # than merged with Terraform's `merge()` (which is shallow and would drop
+  # non-conflicting nested keys on any top-level collision): helm_release's
+  # own values list already deep-merges multiple entries in order (see the
+  # existing pattern below for helm_release.prometheus), which is exactly
+  # the common -> profile -> bindings precedence the ADR specifies.
+  platform_components_dir = "${path.module}/../../components"
+  observability_profile   = var.observability_backend == "self_hosted_durable" ? "durable" : "local"
+
+  loki_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/loki/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/loki/values-${local.observability_profile}.json"))),
+  ]
+  grafana_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/grafana/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/grafana/values-${local.observability_profile}.json"))),
+  ]
+  tempo_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/tempo/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/tempo/values-${local.observability_profile}.json"))),
+  ]
+  prometheus_component_values = [
+    jsonencode(jsondecode(file("${local.platform_components_dir}/prometheus/values-common.json"))),
+    jsonencode(jsondecode(file("${local.platform_components_dir}/prometheus/values-${local.observability_profile}.json"))),
+  ]
+
   # Alloy's loki.write target -- installed unconditionally (unlike Loki and
   # Grafana), same as promtail.enabled used to be regardless of
   # observability_backend.
@@ -274,18 +308,17 @@ locals {
   # Alloy's discovery.relabel component -- see alloy/logs.alloy.tftpl.
   observability_taxonomy_labels = ["workspace", "domain", "service", "primitive", "release"]
 
-  # The `loki` chart's own object-storage-backed architecture: chunks + the
-  # index both in S3, addressed as bucketNames/s3 rather than loki-stack's
-  # nested storage_config.aws/boltdb_shipper shape (confirmed via
-  # `helm show values grafana-community/loki --version 18.12.1`).
-  # loki_s3_bucket/aws_region come from platform/infra/aws's
-  # loki_s3_bucket/loki_irsa_arn outputs (OBS-006). serviceAccount is now a
-  # top-level chart value (the new chart has no bundled Grafana to
-  # disambiguate it from).
-  loki_object_storage_config = {
+  # Infrastructure bindings (ADR 0001): the generic "use S3, tsdb schema v13"
+  # shape now lives in platform/components/loki/values-durable.json --
+  # everything left here is Kubernetes-level-only wiring supplied from Layer
+  # 1 outputs (an actual bucket name, an actual IAM role ARN), which the ADR
+  # says must never be baked into a component's own files. bucketNames/s3
+  # addressing confirmed via `helm show values grafana-community/loki
+  # --version 18.12.1`; loki_s3_bucket/aws_region/loki_irsa_role_arn come
+  # from platform/infra/aws's outputs (OBS-006).
+  loki_infra_bindings = {
     loki = {
       storage = {
-        type = "s3"
         bucketNames = {
           chunks = var.loki_s3_bucket
           ruler  = var.loki_s3_bucket
@@ -294,18 +327,6 @@ locals {
           region           = var.aws_region
           s3ForcePathStyle = false
         }
-      }
-      schemaConfig = {
-        configs = [{
-          from         = "2024-01-01"
-          store        = "tsdb"
-          object_store = "s3"
-          schema       = "v13"
-          index = {
-            prefix = "index_"
-            period = "24h"
-          }
-        }]
       }
     }
     serviceAccount = {
@@ -337,75 +358,33 @@ resource "helm_release" "loki" {
   version    = "18.12.1"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
-  # The chart's own recommended default is SimpleScalable (write/read/backend
-  # replicas default to 3 each even though deploymentMode itself defaults to
-  # "Monolithic") -- explicit zeroing is required to actually run
-  # single-binary mode, not just leaving the top-level deploymentMode at its
-  # default. Verified via `helm template`: omitting these renders a
-  # validate.yaml failure ("Cannot run scalable targets ... without an
-  # object storage backend") under the filesystem-storage `local` profile.
-  set {
-    name  = "deploymentMode"
-    value = "Monolithic"
-  }
-  set {
-    name  = "singleBinary.replicas"
-    value = "1"
-  }
-  set {
-    name  = "write.replicas"
-    value = "0"
-  }
-  set {
-    name  = "read.replicas"
-    value = "0"
-  }
-  set {
-    name  = "backend.replicas"
-    value = "0"
-  }
+  # Chart shape (Monolithic/1-replica, gateway off, single-tenant,
+  # BUG-006/BUG-008/BUG-013's replication_factor: 1 fix, filesystem vs S3
+  # storage/schema) now lives in
+  # platform/components/loki/{values-common,values-local,values-durable}.json
+  # (ADR 0001 / CODE_LAYER-005) -- the same "local" profile file cmd_dev.ml's
+  # `sun dev up` reads for its own Loki install, so this no longer needs a
+  # parallel, independently-maintained copy (that's the exact gap BUG-016
+  # found). See that directory's files for the current values and git blame
+  # on this resource for the per-value history that used to live here.
+  #
+  # Persistence stays a `set` override here: var.loki_persistent_storage is
+  # a Terraform-only operator knob with no cmd_dev.ml equivalent, and `set`
+  # always wins over `values` regardless of which profile file is selected
+  # below. values-local.json (only) also carries singleBinary.persistence.
+  # enabled: false, purely for cmd_dev.ml's benefit (it has no var to
+  # override with) -- values-durable.json deliberately omits this key so
+  # there's exactly one place that actually controls persistence for this
+  # resource, not two.
   set {
     name  = "singleBinary.persistence.enabled"
     value = tostring(var.loki_persistent_storage)
   }
-  # No nginx gateway in front of Loki -- loki-stack never had one either;
-  # Alloy/Sun's CLI (sun_cli_status.ml's `kubectl port-forward ... svc/loki
-  # 3100:3100`) both talk to the singleBinary Service directly.
-  set {
-    name  = "gateway.enabled"
-    value = "false"
-  }
-  # Single-tenant, matching loki-stack's default -- Alloy pushes with no
-  # X-Scope-OrgID, which the new chart's auth_enabled: true default would
-  # reject.
-  set {
-    name  = "loki.auth_enabled"
-    value = "false"
-  }
-  # BUG-006/BUG-008: the chart's own default is replication_factor: 3,
-  # recommended for a real multi-instance ingester ring -- left at that
-  # default against this module's single singleBinary replica, every
-  # write and most reads fail with "too many unhealthy instances in the
-  # ring" (quorum requires 2 live replicas, only 1 exists). Confirmed live
-  # against a running cluster via Loki's own /config endpoint
-  # (common.replication_factor: 3) before this fix.
-  set {
-    name  = "loki.commonConfig.replication_factor"
-    value = "1"
-  }
-  set {
-    name  = "loki.storage.type"
-    value = var.observability_backend == "self_hosted_durable" ? "s3" : "filesystem"
-  }
-  # useTestSchema is the chart's documented escape hatch for a real
-  # schemaConfig when running filesystem storage without object-store-backed
-  # durability -- exactly the `local` profile's use case.
-  set {
-    name  = "loki.useTestSchema"
-    value = tostring(var.observability_backend != "self_hosted_durable")
-  }
 
-  values = var.observability_backend == "self_hosted_durable" ? [yamlencode(local.loki_object_storage_config)] : []
+  values = concat(
+    local.loki_component_values,
+    var.observability_backend == "self_hosted_durable" ? [yamlencode(local.loki_infra_bindings)] : []
+  )
 
   depends_on = [terraform_data.observability_backend_validation]
 }
@@ -426,20 +405,12 @@ resource "helm_release" "grafana" {
     name  = "adminPassword"
     value = var.grafana_admin_password
   }
-  # OBS-011: dashboard/datasource sidecar-ConfigMap loading is a feature of
-  # the Grafana chart itself (unchanged behavior from loki-stack's bundled
-  # subchart), just moved from the nested `grafana.sidecar.*` passthrough
-  # naming to this chart's own top-level `sidecar.*`. Unlike loki-stack,
-  # this standalone chart defaults sidecar.datasources.enabled to false, so
-  # it now needs the same explicit `set` treatment dashboards already had.
-  set {
-    name  = "sidecar.dashboards.enabled"
-    value = "true"
-  }
-  set {
-    name  = "sidecar.datasources.enabled"
-    value = "true"
-  }
+
+  # sidecar.dashboards/datasources.enabled (OBS-011: loki-stack's bundled
+  # subchart did this implicitly; this standalone chart needs it explicit)
+  # now lives in platform/components/grafana/values-common.json (ADR 0001 /
+  # CODE_LAYER-005), shared with cmd_dev.ml's own Grafana install.
+  values = local.grafana_component_values
 
   depends_on = [terraform_data.observability_backend_validation]
 }
@@ -510,6 +481,13 @@ resource "helm_release" "tempo" {
   chart      = "tempo"
   version    = "2.3.0"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
+
+  # platform/components/tempo/ has nothing to say today -- both this
+  # resource and cmd_dev.ml's Tempo install already agreed by relying on the
+  # chart's own defaults. Wired up anyway (ADR 0001 / CODE_LAYER-005) so the
+  # CI guardrail covers Tempo's next value the same way it now covers
+  # Loki/Grafana/Prometheus.
+  values = local.tempo_component_values
 
   depends_on = [terraform_data.observability_backend_validation]
 }
@@ -718,9 +696,9 @@ locals {
   # sidecar and historical blocks from storegateway below.
   #
   # Always computed and gated via `concat()` in the values list below, same
-  # reasoning as loki_object_storage_config above: a `cond ? {...} : {}`
-  # ternary between object literals with different attribute sets fails
-  # Terraform's type unification, but list(string) branches never do.
+  # reasoning as loki_infra_bindings above: a `cond ? {...} : {}` ternary
+  # between object literals with different attribute sets fails Terraform's
+  # type unification, but list(string) branches never do.
   prometheus_thanos_server_fields = {
     server = {
       serviceAccount = {
@@ -901,16 +879,16 @@ resource "helm_release" "prometheus" {
     # durable store, so a short retention is enough.
     value = var.observability_backend == "external" ? "2h" : "15d"
   }
-  set {
-    name  = "pushgateway.enabled"
-    value = "true"
-  }
-  set {
-    name  = "alertmanager.enabled"
-    value = "true"
-  }
 
+  # pushgateway.enabled/alertmanager.enabled now live in
+  # platform/components/prometheus/values-common.json (ADR 0001 /
+  # CODE_LAYER-005), shared with cmd_dev.ml's own Prometheus install --
+  # previously `true` here unconditionally and relied on as the chart's own
+  # default over in cmd_dev.ml, so making both paths state it explicitly
+  # from one file removes an implicit-default-drift risk without changing
+  # either path's actual behavior.
   values = concat(
+    local.prometheus_component_values,
     [yamlencode({ server = { remoteWrite = local.prometheus_remote_write } })],
     local.prometheus_thanos_enabled ? [yamlencode(local.prometheus_thanos_server_fields)] : [],
     [yamlencode({ serverFiles = { "alerting_rules.yml" = local.prometheus_alerting_rules } })],
