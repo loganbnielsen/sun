@@ -30,7 +30,7 @@
       bash platform/local/scripts/ensure-loki.sh           # optional — logs to stdout if absent
       bash platform/local/scripts/ensure-grafana.sh        # optional
       bash platform/local/scripts/ensure-prometheus.sh     # optional
-      bash platform/local/scripts/ensure-tempo.sh          # optional — order-svc traces skipped if absent
+      bash platform/local/scripts/ensure-tempo.sh          # optional — traces skipped if absent
 
       KAFKA_BROKERS=localhost:9092 \
       POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
@@ -117,8 +117,6 @@ let metric_nonzero render name =
     | v :: _ -> (match float_of_string_opt v with Some f -> f > 0.0 | None -> false)
     | []     -> false)
 
-let trace_id_hex (hi, lo) = Printf.sprintf "%016Lx%016Lx" hi lo
-
 (* ── HTTP helper ──────────────────────────────────────────────────────────── *)
 
 let http_post env ~sw ~port ~path ?(headers=[]) ~body () =
@@ -174,7 +172,7 @@ let () =
   Printf.printf "  Schema registry: %s\n" kafka_config.schema_registry_url;
   Printf.printf "  Loki:            %s\n" (Option.value ~default:"(stdout fallback)" loki_url);
   Printf.printf "  Pushgateway:     %s\n" (Option.value ~default:"(disabled)" pushgateway_url);
-  Printf.printf "  Tempo:           %s  (order-svc only)\n"
+  Printf.printf "  Tempo:           %s\n"
     (Option.value ~default:"(disabled)" tempo_url);
   Printf.printf "  Postgres:        %s\n%!" (Option.value ~default:"(disabled)" postgres_url);
 
@@ -327,9 +325,9 @@ let () =
       Sun_obs.log span Sun_obs.Info
         ~fields:[("order_id", msg.order_id); ("item", msg.item)]
         "order received";
-      Obs_eio.current_trace_context span
+      Sun_obs.current_trace_context span
     ) in
-    trace_ids := trace_id_hex trace_ctx.Obs_trace.trace_id :: !trace_ids;
+    trace_ids := Sun_obs.trace_id_string trace_ctx :: !trace_ids;
     Printf.printf "[svc]    received    order=%-12s item=%-22s corr=%s\n%!"
       msg.order_id msg.item corr_id;
     (match Eio.Promise.await (Kafka_service.publish svc topic msg ~trace_ctx) with
@@ -468,7 +466,9 @@ let () =
         check "Tempo: order-svc trace lookup by trace_id" false "connection failed"
       | Some resp ->
         check "Tempo: order-svc trace lookup by trace_id"
-          (str_contains resp {|receive_order|}) "trace missing (known issue: BUG-009)"));
+          (str_contains resp {|receive_order|}) "trace missing (known issue: BUG-009)";
+        check "Tempo: fulfillment-worker span linked as a child of the same trace"
+          (str_contains resp {|fulfill_order|}) "worker span missing (known issue: BUG-009)"));
 
   (match db_pool with
    | None -> ()
@@ -497,6 +497,8 @@ let () =
   Printf.printf "    Logs:    Explore > Loki > {service=~\".*\"}\n";
   Printf.printf "    Metrics: Explore > Prometheus > sun_svc_requests_total\n";
   (match !trace_ids with
-   | trace_id :: _ -> Printf.printf "    Trace:   Explore > Tempo > %s\n" trace_id
+   | trace_id :: _ ->
+     Printf.printf "    Trace:   Explore > Tempo > %s\n" trace_id;
+     Printf.printf "             (fulfill_order should appear nested under receive_order)\n"
    | [] -> ());
   Printf.printf "%s\n%!" sep
