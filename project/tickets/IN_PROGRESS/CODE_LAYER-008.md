@@ -3,6 +3,8 @@ id: CODE_LAYER-008
 type: bug
 severity: high
 source: project/audits/2026-09-06_code_layer_audit.md
+branch: CODE_LAYER-008/pin-versions-reconcile-values
+worktree: ../sun-CODE_LAYER-008-pin-versions-reconcile-values
 ---
 
 **Depends on:** None.
