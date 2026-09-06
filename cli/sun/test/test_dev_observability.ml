@@ -7,6 +7,12 @@ let contains needle haystack =
 let assert_contains msg s needle =
   check_bool msg true (contains needle s)
 
+(* CODE_LAYER-007: dashboard_configmap_yaml reads the real
+   platform/infra/base/dashboards/*.json files (via the same SUN_HOME
+   ancestor-walk resolution proven out for render_alloy_config), the same
+   files platform/infra/base/main.tf's kubernetes_config_map.grafana_dashboards
+   loads via file(...) -- not a fixture, so this exercises production
+   content end to end. *)
 let test_dashboard_configmap () =
   let yaml = Sun_cli_dev_observability.dashboard_configmap_yaml ~namespace:"monitoring" in
   assert_contains "kind" yaml "kind: ConfigMap";

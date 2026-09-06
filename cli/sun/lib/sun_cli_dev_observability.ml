@@ -42,323 +42,40 @@ datasources:
     url: http://prometheus-server.%s.svc.cluster.local:80
     isDefault: false|} namespace
 
-let workspace_overview_json = {json|{
-  "title": "Sun Workspace Overview",
-  "uid": "sun-workspace-overview",
-  "schemaVersion": 39,
-  "version": 1,
-  "editable": true,
-  "time": { "from": "now-6h", "to": "now" },
-  "tags": ["sun"],
-  "templating": {
-    "list": [
-      {
-        "name": "workspace",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values(workspace)",
-        "refresh": 2,
-        "includeAll": false
-      }
-    ]
-  },
-  "panels": [
-    {
-      "id": 1,
-      "title": "Request rate by domain",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\"}[5m])) by (domain)",
-          "legendFormat": "{{domain}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "5xx error rate by domain",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", status_class=\"5xx\"}[5m])) by (domain)",
-          "legendFormat": "{{domain}}"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Scraped targets up, by domain",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(up{workspace=\"$workspace\"}) by (domain)",
-          "legendFormat": "{{domain}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "title": "Recent logs, all domains",
-      "type": "logs",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": "Loki",
-      "targets": [
-        { "expr": "{workspace=\"$workspace\"}" }
-      ]
-    }
-  ]
-}|json}
-
-let domain_overview_json = {json|{
-  "title": "Sun Domain Overview",
-  "uid": "sun-domain-overview",
-  "schemaVersion": 39,
-  "version": 1,
-  "editable": true,
-  "time": { "from": "now-6h", "to": "now" },
-  "tags": ["sun"],
-  "templating": {
-    "list": [
-      {
-        "name": "workspace",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values(workspace)",
-        "refresh": 2,
-        "includeAll": false
-      },
-      {
-        "name": "domain",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values({workspace=\"$workspace\"}, domain)",
-        "refresh": 2,
-        "includeAll": false
-      }
-    ]
-  },
-  "panels": [
-    {
-      "id": 1,
-      "title": "Request rate by service",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\"}[5m])) by (service)",
-          "legendFormat": "{{service}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "5xx error rate by service",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\", status_class=\"5xx\"}[5m])) by (service)",
-          "legendFormat": "{{service}}"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Scraped targets up, by service",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(up{workspace=\"$workspace\", domain=\"$domain\"}) by (service)",
-          "legendFormat": "{{service}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "title": "Recent logs, this domain",
-      "type": "logs",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": "Loki",
-      "targets": [
-        { "expr": "{workspace=\"$workspace\", domain=\"$domain\"}" }
-      ]
-    }
-  ]
-}|json}
-
-let service_template_json = {json|{
-  "title": "Sun Service",
-  "uid": "sun-service-template",
-  "schemaVersion": 39,
-  "version": 1,
-  "editable": true,
-  "time": { "from": "now-6h", "to": "now" },
-  "tags": ["sun"],
-  "templating": {
-    "list": [
-      {
-        "name": "workspace",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values(workspace)",
-        "refresh": 2,
-        "includeAll": false
-      },
-      {
-        "name": "domain",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values({workspace=\"$workspace\"}, domain)",
-        "refresh": 2,
-        "includeAll": false
-      },
-      {
-        "name": "service",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values({workspace=\"$workspace\", domain=\"$domain\"}, service)",
-        "refresh": 2,
-        "includeAll": false
-      }
-    ]
-  },
-  "panels": [
-    {
-      "id": 1,
-      "title": "Request rate",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "sum(rate(sun_svc_requests_total{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}[5m])) by (route, method)",
-          "legendFormat": "{{method}} {{route}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "title": "p95 request duration",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(sun_svc_request_duration_seconds_bucket{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}[5m])) by (le, route))",
-          "legendFormat": "{{route}}"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Pod up",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": "Prometheus",
-      "targets": [
-        {
-          "expr": "up{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}",
-          "legendFormat": "{{pod}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "title": "Logs",
-      "type": "logs",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": "Loki",
-      "targets": [
-        { "expr": "{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"}" }
-      ]
-    }
-  ]
-}|json}
-
-(* OBS-038: deploy/release timeline, sourced from OBS-037's `event=deploy`
-   Loki log lines pushed directly by `sun deploy` (cli/sun/bin/
-   cmd_deploy_event.ml) rather than tailed from a pod by Alloy. The push
-   sets `service` to the deployed service's real name (Obs_eio.create's
-   built-in stream label, same convention every real app pod uses) and
-   promotes workspace/domain/primitive/release to real Loki stream labels
-   too, matching Alloy's own taxonomy-label promotion for application pod
-   logs -- deploy events land in that service's own Loki stream, not a
-   separate synthetic one, distinguished by the `event="deploy"` logfmt
-   field every deploy-event line carries. The query below uses the same
-   `{workspace=..., domain=..., service=...}` selector shape as every
-   other dashboard's logs panel. *)
-let release_timeline_json = {json|{
-  "title": "Sun Release Timeline",
-  "uid": "sun-release-timeline",
-  "schemaVersion": 39,
-  "version": 1,
-  "editable": true,
-  "time": { "from": "now-24h", "to": "now" },
-  "tags": ["sun"],
-  "templating": {
-    "list": [
-      {
-        "name": "workspace",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values(workspace)",
-        "refresh": 2,
-        "includeAll": false
-      },
-      {
-        "name": "domain",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values({workspace=\"$workspace\"}, domain)",
-        "refresh": 2,
-        "includeAll": false
-      },
-      {
-        "name": "service",
-        "type": "query",
-        "datasource": "Loki",
-        "query": "label_values({workspace=\"$workspace\", domain=\"$domain\"}, service)",
-        "refresh": 2,
-        "includeAll": false
-      }
-    ]
-  },
-  "panels": [
-    {
-      "id": 1,
-      "title": "Deploy / release events",
-      "type": "logs",
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
-      "datasource": "Loki",
-      "targets": [
-        {
-          "expr": "{workspace=\"$workspace\", domain=\"$domain\", service=\"$service\"} | logfmt | event=\"deploy\""
-        }
-      ]
-    }
-  ]
-}|json}
+(* CODE_LAYER-007: platform/infra/base/dashboards/*.json is now the single
+   source of Sun's four generic Grafana dashboards -- both `sun dev up`
+   (here) and platform/infra/base/main.tf's `kubernetes_config_map.grafana_dashboards`
+   (via Terraform's own `file(...)`) load from the same files, instead of
+   a second, hand-synced OCaml copy per dashboard. Resolves SUN_HOME
+   itself (same pattern as Sun_cli_platform_component.merged_values_yaml
+   and render_alloy_config), reading each real file, not a fixture. *)
+let read_dashboard_json ~sun_home name =
+  let path = Filename.concat sun_home
+    (Filename.concat "platform/infra/base/dashboards" name) in
+  let ic = open_in_bin path in
+  Fun.protect ~finally:(fun () -> close_in_noerr ic)
+    (fun () -> really_input_string ic (in_channel_length ic))
 
 let dashboard_configmap_yaml ~namespace =
+  let sun_home = match Sun_cli_cmd_new.infer_sun_home () with
+    | Some dir -> dir
+    | None ->
+      Printf.eprintf
+        "error: cannot locate the Sun monorepo root to read platform/infra/base/dashboards/*.json.\n";
+      Printf.eprintf "  Set SUN_HOME to your Sun checkout and re-run:\n";
+      Printf.eprintf "    export SUN_HOME=/path/to/sun\n";
+      exit 1
+  in
+  let dashboard name = read_dashboard_json ~sun_home name in
   configmap_yaml
     ~name:"sun-grafana-dashboards"
     ~namespace
     ~labels:["grafana_dashboard", "1"]
     ~data:[
-      "workspace-overview.json", workspace_overview_json;
-      "domain-overview.json", domain_overview_json;
-      "service-template.json", service_template_json;
-      "release-timeline.json", release_timeline_json;
+      "workspace-overview.json", dashboard "workspace-overview.json";
+      "domain-overview.json", dashboard "domain-overview.json";
+      "service-template.json", dashboard "service-template.json";
+      "release-timeline.json", dashboard "release-timeline.json";
     ]
 
 let prometheus_datasource_configmap_yaml ~namespace =
