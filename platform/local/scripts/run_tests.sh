@@ -97,21 +97,24 @@ baseline_append() {
 }
 
 # ── Regression check ──────────────────────────────────────────────────────────
-check_regression() {
+# Pure predicate, no output — callers decide what to do with a breach.
+is_regression() {
   local suite=$1 actual_s=$2
   local base; base=$(baseline_get "$suite")
-  [ "$base" = "null" ] && return 0   # no baseline yet
+  [ "$base" = "null" ] && return 1   # no baseline yet
 
   local ratio=${FAIL_RATIOS[$suite]}
   local threshold
   threshold=$(awk "BEGIN { printf \"%.2f\", $base * $ratio }")
+  awk "BEGIN { exit !($actual_s >= $threshold) }"
+}
 
-  if awk "BEGIN { exit !($actual_s >= $threshold) }"; then
-    local actual_ratio; actual_ratio=$(awk "BEGIN { printf \"%.2f\", $actual_s / $base }")
-    fail "$suite: ${actual_s}s vs baseline ${base}s (${actual_ratio}× — regression, threshold ${ratio}×)"
-    return 1
-  fi
-  return 0
+report_regression() {
+  local suite=$1 actual_s=$2
+  local base; base=$(baseline_get "$suite")
+  local ratio=${FAIL_RATIOS[$suite]}
+  local actual_ratio; actual_ratio=$(awk "BEGIN { printf \"%.2f\", $actual_s / $base }")
+  fail "$suite: ${actual_s}s vs baseline ${base}s (${actual_ratio}× — regression, threshold ${ratio}×)"
 }
 
 # ── Suite runners ─────────────────────────────────────────────────────────────
@@ -176,14 +179,11 @@ echo "Suites: ${SUITES[*]}"
 [ $UPDATE_BASELINE -eq 1 ] && echo "Mode: --update-baseline"
 [ $HAS_JQ -eq 0 ] && echo -e "${DIM}jq not found — regression checks disabled${NC}"
 
-# ── Run unit first (before infra) ─────────────────────────────────────────────
-# unit has no infrastructure dependencies. Running it before ensure_infra keeps
-# its timing isolated from I/O contention caused by starting Redpanda/Loki/Postgres.
-run_suite() {
+# Runs one attempt of $1, printing its output directly (not captured).
+# Sets RUN_ONE_ELAPSED and returns the suite's exit code.
+run_one() {
   local suite=$1
-  echo -e "\n  ${BOLD}${suite}${NC}"
   local timeout_s=${TIMEOUTS[$suite]}
-
   local start; start=$(now_ms)
   set +e
   timeout -s KILL "$timeout_s" bash -c "$(declare -f info pass fail header now_ms elapsed_s "run_${suite}"); run_${suite}" 2>&1 \
@@ -191,29 +191,72 @@ run_suite() {
   local exit_code=${PIPESTATUS[0]}
   set -e
   local end; end=$(now_ms)
+  RUN_ONE_ELAPSED=$(elapsed_s "$start" "$end")
+  return $exit_code
+}
 
-  local elapsed; elapsed=$(elapsed_s "$start" "$end")
+run_suite() {
+  local suite=$1
+  echo -e "\n  ${BOLD}${suite}${NC}"
+  local timeout_s=${TIMEOUTS[$suite]}
+
+  local elapsed exit_code
+  # `run_one` restores `set -e` before it returns, so calling it as a bare
+  # statement (`run_one ...; exit_code=$?`) would abort this whole script on
+  # a non-zero return instead of letting us handle it below — wrap it as an
+  # `if` condition, which bash always exempts from errexit.
+  if run_one "$suite"; then exit_code=0; else exit_code=$?; fi
+  elapsed=$RUN_ONE_ELAPSED
   TIMINGS[$suite]=$elapsed
 
   if [ $exit_code -eq 124 ] || [ $exit_code -eq 137 ]; then
     fail "${suite}: timed out after ${timeout_s}s"
     RESULTS[$suite]=timeout
+    return
   elif [ $exit_code -ne 0 ]; then
     fail "${suite}: failed (${elapsed}s)"
     RESULTS[$suite]=fail
-  else
-    RESULTS[$suite]=pass
-    pass "${suite}: passed (${elapsed}s)"
+    return
+  fi
 
-    if ! check_regression "$suite" "$elapsed"; then
+  RESULTS[$suite]=pass
+  pass "${suite}: passed (${elapsed}s)"
+
+  # A single slow run can be transient contention (concurrent dune builds,
+  # infra containers, etc.) rather than a real regression — see
+  # CODE_LAYER-011, where this fired 4 times in one session and every time
+  # an immediate manual re-run came back at baseline. Confirm with one
+  # in-place re-run before flagging, the same recovery step a human
+  # currently does by hand.
+  if is_regression "$suite" "$elapsed"; then
+    info "${suite}: ${elapsed}s exceeded threshold on first run — confirming with a re-run before flagging a regression"
+    local confirm_exit
+    if run_one "$suite"; then confirm_exit=0; else confirm_exit=$?; fi
+    if [ $confirm_exit -eq 124 ] || [ $confirm_exit -eq 137 ]; then
+      fail "${suite}: confirmation re-run timed out after ${timeout_s}s"
+      RESULTS[$suite]=timeout
+      TIMINGS[$suite]=$RUN_ONE_ELAPSED
+      return
+    elif [ $confirm_exit -ne 0 ]; then
+      fail "${suite}: confirmation re-run failed (${RUN_ONE_ELAPSED}s)"
+      RESULTS[$suite]=fail
+      TIMINGS[$suite]=$RUN_ONE_ELAPSED
+      return
+    fi
+    elapsed=$RUN_ONE_ELAPSED
+    TIMINGS[$suite]=$elapsed
+    if is_regression "$suite" "$elapsed"; then
+      report_regression "$suite" "$elapsed"
       REGRESSION_FAIL=1
-    fi
-
-    if [ $UPDATE_BASELINE -eq 1 ]; then
-      baseline_append "$suite" "$elapsed" "true"
     else
-      baseline_append "$suite" "$elapsed" "false"
+      pass "${suite}: re-run at ${elapsed}s is within threshold — treating first run as noise"
     fi
+  fi
+
+  if [ $UPDATE_BASELINE -eq 1 ]; then
+    baseline_append "$suite" "$elapsed" "true"
+  else
+    baseline_append "$suite" "$elapsed" "false"
   fi
 }
 

@@ -1,5 +1,37 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: CODE_LAYER-011 — perf gate stops crying wolf; automatic revert unblocked (2026-09-06)
+
+Picked up from `project/tickets/IN_PROGRESS/CODE_LAYER-011.md`. The
+post-merge perf gate (`platform/local/scripts/run_tests.sh`, invoked by
+`sundev pipeline merge`) flagged an e2e-suite "regression" 4 times in one
+session (CODE_LAYER-005/006/007/009); every time, an immediate manual
+re-run at no other change came back within baseline noise, and none of
+the underlying diffs touched anything on the e2e path. Root cause:
+inconclusive but consistent with the ticket's contention theory (this
+session ran concurrent background `dune build`/`dune test` agents) —
+mitigated rather than chased further, since the fix is correct either way.
+`run_tests.sh` now re-runs a suite once in place before flagging a
+regression (the same recovery step a human was already doing by hand);
+only a confirmed second breach fails the gate. Separately, every time the
+gate fired, the automatic `git revert` step in `sundev pipeline merge`
+itself failed ("local changes would be overwritten by merge" on
+`tools/perf/perf_baseline.json`) because `run_tests.sh` always appends a
+history entry to that file, even on a plain run — `sundev_merge.ml` now
+discards that uncommitted entry before reverting, so a real regression's
+revert completes in one step instead of requiring manual `git status`
+archaeology.
+
+An adversarial reviewer caught a real bug in the first pass: the
+refactored per-suite runner restored `set -e` before returning, so
+calling it as a bare `run_one "$suite"; exit_code=$?` under the script's
+global `set -euo pipefail` silently aborted the whole script on any
+suite's first failure/timeout instead of reaching the fail-handling code
+below it — fixed by capturing the exit code through an `if`/`else`
+(bash's standard errexit-safe pattern), then verified with a real repro
+(a suite forced to fail on its first attempt) before a second fresh
+reviewer confirmed no further issues.
+
 ## Latest: FEAT-031 — provisioned Grafana starter dashboard for the local demo (2026-09-06)
 
 Follow-up to FEAT-030/BUG-008. `ensure-grafana.sh` only ever provisioned
