@@ -33,13 +33,18 @@ let rec find_ancestor pred dir =
 let infer_sun_home () =
   match Sys.getenv_opt "SUN_HOME" with
   | Some dir when is_sun_home dir -> Some dir
-  | Some _ -> None  (* invalid SUN_HOME — NOTE in new_workspace covers this *)
-  | None ->
+  | Some "" | None ->
+    (* An empty string is the closest thing OCaml's Unix.putenv has to
+       "unset" (there's no portable unsetenv) -- CODE_LAYER-006 found this
+       the hard way when a test's own cleanup left SUN_HOME="" behind for
+       a later test in the same process. Treat it the same as truly unset
+       rather than as an explicit (and here, always-invalid) override. *)
     let exe =
       try Unix.readlink "/proc/self/exe"
       with Unix.Unix_error _ -> Sys.executable_name
     in
     find_ancestor is_sun_home (Filename.dirname (realpath exe))
+  | Some _ -> None  (* invalid SUN_HOME — NOTE in new_workspace covers this *)
 
 let link_sun_sources workspace =
   match infer_sun_home () with

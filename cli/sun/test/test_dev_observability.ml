@@ -68,30 +68,133 @@ let test_tempo_datasource_configmap () =
   assert_contains "uid" yaml "uid: tempo";
   assert_contains "url" yaml "url: http://tempo:3200"
 
-(* OBS-039: Alloy replaces promtail as the log shipper. This is real Alloy
-   River config, not Promtail-shaped YAML -- assert on the actual
-   component/attribute names (discovery.kubernetes, loki.source.kubernetes,
-   loki.write) and the taxonomy relabeling
-   (Sun_cli_manifest_yaml's render_taxonomy_labels) rather than anything
-   promtail-specific. *)
-let test_alloy_values_yaml () =
-  let yaml = Sun_cli_dev_observability.alloy_values_yaml in
-  assert_contains "helm values shape" yaml "configMap:";
-  assert_contains "content block" yaml "content: |-";
-  assert_contains "pod discovery" yaml "discovery.kubernetes \"pods\"";
-  assert_contains "kubernetes API tailing" yaml "loki.source.kubernetes \"pods\"";
-  assert_contains "write component" yaml "loki.write \"default\"";
-  assert_contains "push url" yaml "http://loki:3100/loki/api/v1/push";
-  assert_contains "taxonomy label: workspace" yaml
-    "__meta_kubernetes_pod_label_workspace";
-  assert_contains "taxonomy label: domain" yaml
-    "__meta_kubernetes_pod_label_domain";
-  assert_contains "taxonomy label: service" yaml
-    "__meta_kubernetes_pod_label_service";
-  assert_contains "taxonomy label: primitive" yaml
-    "__meta_kubernetes_pod_label_primitive";
-  assert_contains "taxonomy label: release" yaml
-    "__meta_kubernetes_pod_label_release"
+(* CODE_LAYER-006: render_alloy_config is a hermetic templater over
+   platform/infra/base/alloy/logs.alloy.tftpl (${var}/for/if substitution)
+   -- exercised here against a synthetic fixture, not the real file, so
+   this test doesn't depend on the .tftpl being reachable inside dune's
+   build sandbox (it isn't -- only directories a dune stanza references
+   get copied into _build/default, and platform/ has none). Builds a
+   throwaway "Sun home" containing just the two marker files
+   Sun_cli_cmd_new.is_sun_home checks for plus the synthetic template,
+   same pattern as test_platform_component.ml's with_fake_sun_home. *)
+let sun_home_markers = [
+  "framework/sun-svc/lib/dune";
+  "integrations/kafka/kafka-eio-service/lib/dune";
+]
+
+let write_file path content =
+  let dir = Filename.dirname path in
+  let rec mkdir_p d =
+    if d = "." || d = "/" || Sys.file_exists d then ()
+    else (mkdir_p (Filename.dirname d); (try Unix.mkdir d 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ()))
+  in
+  mkdir_p dir;
+  let oc = open_out path in
+  output_string oc content;
+  close_out oc
+
+let fake_template = {tftpl|discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+%{ for label in taxonomy_labels ~}
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_${label}"]
+    target_label  = "${label}"
+  }
+%{ endfor ~}
+}
+
+loki.write "default" {
+  endpoint {
+    url = "${loki_push_url}"
+%{ if loki_push_basic_auth_username != "" ~}
+    basic_auth {
+      username = "${loki_push_basic_auth_username}"
+      password = "${loki_push_basic_auth_password}"
+    }
+%{ endif ~}
+  }
+}
+|tftpl}
+
+let with_fake_sun_home f =
+  let root = Filename.temp_file "sun-home-test-" "" in
+  Sys.remove root;
+  Unix.mkdir root 0o755;
+  Fun.protect
+    ~finally:(fun () -> let _ = Sys.command (Printf.sprintf "rm -rf %s" (Filename.quote root)) in ())
+    (fun () ->
+      List.iter (fun marker -> write_file (Filename.concat root marker) "") sun_home_markers;
+      write_file (Filename.concat root "platform/infra/base/alloy/logs.alloy.tftpl") fake_template;
+      let prev = Sys.getenv_opt "SUN_HOME" in
+      Unix.putenv "SUN_HOME" root;
+      Fun.protect
+        ~finally:(fun () ->
+          match prev with
+          | Some v -> Unix.putenv "SUN_HOME" v
+          | None -> (try Unix.putenv "SUN_HOME" "" with _ -> ()))
+        (fun () -> f root))
+
+let test_alloy_render_expands_taxonomy_loop () =
+  with_fake_sun_home (fun sun_home ->
+    let river = Sun_cli_dev_observability.render_alloy_config ~sun_home
+      ~taxonomy_labels:["workspace"; "domain"; "service"]
+      ~loki_push_url:"http://loki:3100/loki/api/v1/push"
+      ~loki_push_basic_auth_username:"" ~loki_push_basic_auth_password:"" in
+    assert_contains "workspace rule" river "__meta_kubernetes_pod_label_workspace";
+    assert_contains "domain rule"    river "__meta_kubernetes_pod_label_domain";
+    assert_contains "service rule"   river "__meta_kubernetes_pod_label_service";
+    (* Not present in the fixture's taxonomy_labels arg -- proves the loop
+       renders exactly the given list, not a hardcoded fallback. *)
+    check_bool "primitive rule absent" false
+      (contains "__meta_kubernetes_pod_label_primitive" river))
+
+let test_alloy_render_omits_basic_auth_when_empty () =
+  with_fake_sun_home (fun sun_home ->
+    let river = Sun_cli_dev_observability.render_alloy_config ~sun_home
+      ~taxonomy_labels:["workspace"]
+      ~loki_push_url:"http://loki:3100/loki/api/v1/push"
+      ~loki_push_basic_auth_username:"" ~loki_push_basic_auth_password:"" in
+    check_bool "no basic_auth block" false (contains "basic_auth" river);
+    assert_contains "push url present" river "http://loki:3100/loki/api/v1/push")
+
+let test_alloy_render_includes_basic_auth_when_set () =
+  with_fake_sun_home (fun sun_home ->
+    let river = Sun_cli_dev_observability.render_alloy_config ~sun_home
+      ~taxonomy_labels:["workspace"]
+      ~loki_push_url:"https://loki.example.com/loki/api/v1/push"
+      ~loki_push_basic_auth_username:"promtail" ~loki_push_basic_auth_password:"secret" in
+    assert_contains "basic_auth block" river "basic_auth {";
+    assert_contains "username" river "username = \"promtail\"";
+    assert_contains "password" river "password = \"secret\"")
+
+(* OBS-039: `sun dev up`'s own local-profile call -- reads the real
+   platform/infra/base/alloy/logs.alloy.tftpl (CODE_LAYER-006: the same
+   file platform/infra/base/main.tf's helm_release.alloy renders from).
+   Sun_cli_cmd_new.infer_sun_home's ancestor walk from the test
+   executable's own path escapes dune's _build sandbox and lands on the
+   real checkout root (confirmed: this test passes under plain `dune
+   test`), so this exercises the actual production file, not a fixture. *)
+let test_alloy_values_yaml_against_real_file () =
+  match Sun_cli_cmd_new.infer_sun_home () with
+  | None -> Alcotest.fail "could not resolve SUN_HOME against the real checkout"
+  | Some _ ->
+    let yaml = Sun_cli_dev_observability.alloy_values_yaml () in
+    assert_contains "helm values shape" yaml "configMap:";
+    assert_contains "content block" yaml "content: |-";
+    assert_contains "pod discovery" yaml "discovery.kubernetes \"pods\"";
+    assert_contains "kubernetes API tailing" yaml "loki.source.kubernetes \"pods\"";
+    assert_contains "write component" yaml "loki.write \"default\"";
+    assert_contains "push url" yaml "http://loki:3100/loki/api/v1/push";
+    assert_contains "taxonomy label: workspace" yaml
+      "__meta_kubernetes_pod_label_workspace";
+    assert_contains "taxonomy label: release" yaml
+      "__meta_kubernetes_pod_label_release";
+    check_bool "no basic_auth block for sun dev up" false (contains "basic_auth" yaml)
 
 let () =
   Alcotest.run "dev_observability"
@@ -105,6 +208,9 @@ let () =
           test_tempo_datasource_configmap;
       ];
       "alloy",
-      [ Alcotest.test_case "values yaml" `Quick test_alloy_values_yaml;
+      [ Alcotest.test_case "render expands taxonomy loop"    `Quick test_alloy_render_expands_taxonomy_loop
+      ; Alcotest.test_case "render omits empty basic_auth"   `Quick test_alloy_render_omits_basic_auth_when_empty
+      ; Alcotest.test_case "render includes set basic_auth"  `Quick test_alloy_render_includes_basic_auth_when_set
+      ; Alcotest.test_case "values yaml (real file)"         `Quick test_alloy_values_yaml_against_real_file;
       ];
     ]
