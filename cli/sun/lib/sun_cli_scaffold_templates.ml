@@ -435,8 +435,9 @@ FROM ocaml/opam:ubuntu-24.04-ocaml-5.4 AS build
 RUN sudo apt-get update && sudo apt-get install -y \
     librdkafka-dev libpq-dev libssl-dev libgmp-dev pkg-config && \
     sudo rm -rf /var/lib/apt/lists/*
-# obs-eio/obs-loki-eio/obs-prometheus-eio/obs-tempo-eio/pg-eio/https-eio
-# are extracted opam packages (see ~/Code/CLAUDE.md's repo layout notes),
+# obs-eio/obs-loki-eio/obs-prometheus-eio/obs-tempo-eio/pg-eio/https-eio/
+# lambda-eio are extracted opam packages (see ~/Code/CLAUDE.md's repo
+# layout notes),
 # not vendored into vendor/framework or vendor/integrations, and not yet
 # published to the public opam-repository -- every generated service's
 # bin/dune depends on some subset of them, so the build stage needs the
@@ -462,7 +463,8 @@ RUN opam repository set-url default https://opam.ocaml.org && \
     opam pin add obs-loki-eio https://github.com/loganbnielsen/obs-loki-eio.git#main -y && \
     opam pin add obs-prometheus-eio https://github.com/loganbnielsen/obs-prometheus-eio.git#main -y && \
     opam pin add obs-tempo-eio https://github.com/loganbnielsen/obs-tempo-eio.git#main -y && \
-    opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#main -y
+    opam pin add pg-eio https://github.com/loganbnielsen/pg-eio.git#main -y && \
+    opam pin add lambda-eio https://github.com/loganbnielsen/lambda-eio.git#main -y
 # http/jose: framework/sun-svc/lib/dune's own real (published) opam
 # dependencies for its HTTP server and JWT auth verification -- missing
 # from this list entirely before, so any generated -svc failed to build
@@ -975,6 +977,7 @@ let run () =
 let fn_lib_dune = {tpl|(library
  (name {{lib}})
  (wrapped false)
+ (libraries sun_fn)
  (modules {{Mod}}))
 |tpl}
 
