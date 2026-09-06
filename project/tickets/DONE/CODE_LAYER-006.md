@@ -66,3 +66,14 @@ the shared file — do not keep both as a fallback.
   validate` or an equivalent live check) with logs flowing to Loki with the
   taxonomy labels attached.
 - Focused tests pass in `cli/sun`.
+
+## Perf-gate sign-off (2026-09-06)
+
+Merged (PR #127, commit `215942c`). Third occurrence in one session of
+the same false-alarm pattern (CODE_LAYER-009, CODE_LAYER-005): post-merge
+gate flagged e2e at 1.922s vs. 1.188s baseline (1.62x, over threshold);
+automatic revert failed on a dirty `tools/perf/perf_baseline.json`, so
+the merge stands and only the ticket-state transition was blocked.
+Immediately re-ran `bash platform/local/scripts/run_tests.sh` with no
+other change: e2e came back at 1.188s, exactly the baseline. Signing off
+as a flake, not a real regression — moving to DONE.
