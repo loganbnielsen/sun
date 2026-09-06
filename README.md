@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/sun-logo.png" alt="Sun" width="300">
+</p>
+
 # Sun
 
 Sun is an open-source OCaml software factory for backend systems. Developers write direct-style OCaml domain logic; Sun provides the paved path that scaffolds, builds, packages, observes, and deploys it without hand-writing Dockerfiles, Kubernetes YAML, CI glue, or infrastructure wiring.

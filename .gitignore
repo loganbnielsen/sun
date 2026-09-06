@@ -14,6 +14,7 @@
 terraform.tfstate
 terraform.tfstate.*
 crash.log
+*:Zone.Identifier
 override.tf
 override.tf.json
 *_override.tf
