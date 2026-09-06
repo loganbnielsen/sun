@@ -1,23 +1,27 @@
 (** Sun end-to-end demo
     ─────────────────────────────────────────────────────────────────────────
-    Full stack in one binary:
+    Full stack in one binary. Both services get logs/metrics/traces through
+    the same `Sun_obs.t` facade (framework/sun-obs, CODE_LAYER-003) — the
+    app-facing observability object generated scaffolds use, not raw
+    Obs_eio/Obs_loki/Obs_prometheus/Obs_tempo composition:
 
       HTTP client
           │  POST /orders  {order_id, item, quantity}  +  X-Correlation-Id
           ▼
-      order-svc  (sun-svc)
+      order-svc  (sun-svc, Sun_obs)
           │  Loki span: "receive_order"  ·  Prometheus: svc request metrics
-          │  Tempo trace: "receive_order" (OBS-042, -svc only)
+          │  Tempo trace: "receive_order"
           │  publishes OrderPlaced event with W3C traceparent header
           ▼
       Kafka  sun-demo-orders-<run-id>
           │
           ▼
-      fulfillment-worker  (sun-worker)
+      fulfillment-worker  (sun-worker, Sun_obs)
           │  Loki span: "fulfill_order"  ·  Prometheus: worker message metrics
+          │  Tempo trace: "fulfill_order", child of "receive_order"
           │  records fulfilled order in PostgreSQL  (pg-eio)
           ▼
-      Loki (logs) · Prometheus (metrics) · Tempo (traces, order-svc only) · PostgreSQL (storage)
+      Loki (logs) · Prometheus (metrics) · Tempo (traces) · PostgreSQL (storage)
       Grafana  http://localhost:3000
 
     Run:
@@ -177,35 +181,27 @@ let () =
   Eio_main.run @@ fun env ->
 
   (* ── Observability ─────────────────────────────────────────────────────── *)
-  let prom_backend, render = Obs_prometheus.create () in
-  let log_backend =
-    match loki_url with
-    | None ->
-      Printf.printf "\n  Note: LOKI_URL not set — logs to stdout.\n%!";
-      Obs_eio.stdout
-    | Some url ->
-      Printf.printf "\n  Logs -> Loki at %s\n%!" url;
-      Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
+  (* Sun_obs.of_env reads LOKI_URL/TEMPO_URL itself and composes whichever
+     backends are configured (Prometheus always on) — both services get the
+     same logs/metrics/traces wiring generated scaffolds get, for free. *)
+  (match loki_url with
+   | None -> Printf.printf "\n  Note: LOKI_URL not set — logs to stdout.\n%!"
+   | Some url -> Printf.printf "\n  Logs -> Loki at %s\n%!" url);
+  (match tempo_url with
+   | None -> Printf.printf "\n  Note: TEMPO_URL not set — traces disabled.\n%!"
+   | Some url -> Printf.printf "\n  Traces -> Tempo at %s\n%!" url);
+  let svc_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"order-svc" ()
   in
-  let backend = Obs_eio.compose log_backend prom_backend in
-  (* OBS-042: Tempo wired in for -svc only, matching OBS-035's precedent of
-     landing observability primitives service-by-service rather than all at
-     once (see the ticket's non-goal on -worker/-fn). fulfillment-worker
-     below keeps [backend] unchanged. *)
-  let svc_backend =
-    match tempo_url with
-    | None ->
-      Printf.printf "\n  Note: TEMPO_URL not set — order-svc traces disabled.\n%!";
-      backend
-    | Some url ->
-      Printf.printf "\n  Traces -> Tempo at %s\n%!" url;
-      Obs_eio.compose backend
-        (Obs_tempo.create ~net:env#net ~clock:env#clock ~url ())
+  let worker_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"fulfillment-worker" ()
   in
-  let svc_ot    = Obs_eio.create ~service:"order-svc"
-                    ~mono_clock:env#mono_clock ~backend:svc_backend () in
-  let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
-                    ~mono_clock:env#mono_clock ~backend () in
+  (* order-svc and fulfillment-worker each carry their own Prometheus
+     registry (like two real, separately-scraped services) — the demo's
+     own snapshot/assertions render both and stitch them together. *)
+  let render () = Sun_obs.metrics_renderer svc_obs () ^ Sun_obs.metrics_renderer worker_obs () in
 
   Eio.Switch.run @@ fun sw ->
 
@@ -264,8 +260,8 @@ let () =
     let group_id = "sun-demo-fulfillment-worker"
 
     let handle msg ~trace_ctx =
-      Obs_eio.with_span worker_ot ?parent:trace_ctx "fulfill_order" (fun span ->
-        Obs_eio.log span Info
+      Sun_obs.with_span worker_obs ?parent:trace_ctx "fulfill_order" (fun span ->
+        Sun_obs.log span Sun_obs.Info
           ~fields:[("order_id", msg.Message.order_id);
                    ("item",     msg.Message.item);
                    ("quantity", string_of_int msg.Message.quantity)]
@@ -297,7 +293,7 @@ let () =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     (try
       let module WR = Worker.Make(W) in
-      WR.run ~env ~config:kafka_config ~ot:worker_ot
+      WR.run ~env ~config:kafka_config ~ot:(Sun_obs.obs_eio worker_obs)
         ~on_ready:(fun () ->
           Printf.printf "[worker] partition assigned — ready\n%!";
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
@@ -326,9 +322,9 @@ let () =
       order_id = s "order_id"; item = s "item"; quantity = i "quantity";
       correlation_id = corr_id;
     } in
-    let span_ot = Obs_eio.with_context svc_ot [("correlation_id", corr_id)] in
-    let trace_ctx = Obs_eio.with_span span_ot "receive_order" (fun span ->
-      Obs_eio.log span Info
+    let span_obs = Sun_obs.with_context svc_obs [("correlation_id", corr_id)] in
+    let trace_ctx = Sun_obs.with_span span_obs "receive_order" (fun span ->
+      Sun_obs.log span Sun_obs.Info
         ~fields:[("order_id", msg.order_id); ("item", msg.item)]
         "order received";
       Obs_eio.current_trace_context span
@@ -346,7 +342,7 @@ let () =
   let svc_port_p, svc_port_r = Eio.Promise.create () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Service.run [ Route.post "/orders" ~auth:`Public handle_order ]
-      ~env ~port:0 ~ot:svc_ot
+      ~env ~port:0 ~ot:(Sun_obs.obs_eio svc_obs)
       ~on_listen:(fun p ->
         Printf.printf "[svc]    listening on port %d\n%!" p;
         Eio.Promise.resolve svc_port_r p)
@@ -458,7 +454,7 @@ let () =
       | Some resp ->
         check "Loki: logs received for current order-svc request"
           (str_contains resp {|"values":[[|})
-          "no log streams in response"));
+          "no log streams in response (known issue: BUG-008)"));
 
   (match tempo_url, !trace_ids with
    | None, _ -> ()
@@ -472,7 +468,7 @@ let () =
         check "Tempo: order-svc trace lookup by trace_id" false "connection failed"
       | Some resp ->
         check "Tempo: order-svc trace lookup by trace_id"
-          (str_contains resp {|receive_order|}) "trace missing"));
+          (str_contains resp {|receive_order|}) "trace missing (known issue: BUG-009)"));
 
   (match db_pool with
    | None -> ()
