@@ -5,6 +5,7 @@ severity: medium
 source: user request 2026-09-05/06 — "make the starter dashboard so people have a window into the functionality right away"
 branch: FEAT-031/grafana-starter-dashboard
 worktree: ../sun-FEAT-031-grafana-dashboard
+pr: https://github.com/loganbnielsen/sun/pull/118
 ---
 
 Add a provisioned starter Grafana dashboard for `examples/local-demo`, and wire the demo's Prometheus metrics through Pushgateway so they're actually visible (not just printed to stdout).
