@@ -37,7 +37,8 @@ val config_hash : (string * string) list -> string
     caller already provides. *)
 val sanitize_label_value : string -> string
 
-(** Low-level YAML document builders used by [render] and [render_spec]. *)
+(** Low-level YAML document builders used by
+    [Sun_cli_deployment_render.render_spec]. *)
 val namespace_doc       : ns:string -> string
 val service_account_doc : ns:string -> name:string -> string
 val configmap_doc       : ?extra_env:(string * string) list -> ns:string -> name:string -> unit -> string
@@ -63,18 +64,6 @@ val service_doc        : ns:string -> name:string -> string
 val ingress_doc        : ?ingress_host:string -> ?ingress_path:string -> ns:string -> name:string -> unit -> string
 val network_policy_doc : ns:string -> name:string -> string
 val cronjob_doc        : ?secret_keys:string list -> ?env:string -> ns:string -> name:string -> image:string -> schedule:string -> workspace:string -> domain:string -> unit -> string
-
-(** Render a (namespace_yaml, workload_yaml) pair for one service.
-    [extra_env] is appended to the ConfigMap data block. [workspace] plus
-    [svc.domain]/[svc.primitive] populate the OBS-008 label taxonomy. *)
-val render
-  :  ?toml:Sun_cli_toml.t
-  -> service
-  -> workspace:string
-  -> ns:string
-  -> name:string
-  -> image:string
-  -> string * string
 
 exception Deploy_failed of string
 
