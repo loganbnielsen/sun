@@ -28,15 +28,22 @@
       bash platform/local/scripts/ensure-broker.sh
       bash platform/local/scripts/ensure-postgres.sh       # optional — skipped if absent
       bash platform/local/scripts/ensure-loki.sh           # optional — logs to stdout if absent
-      bash platform/local/scripts/ensure-grafana.sh        # optional
-      bash platform/local/scripts/ensure-prometheus.sh     # optional
       bash platform/local/scripts/ensure-tempo.sh          # optional — traces skipped if absent
+      bash platform/local/scripts/ensure-pushgateway.sh    # optional — metrics only printed if absent
+      bash platform/local/scripts/ensure-prometheus.sh     # optional — needs Pushgateway to see metrics
+      bash platform/local/scripts/ensure-grafana.sh        # optional — provisions the "Sun Demo Overview"
+                                                            # dashboard (logs, metrics, and a Tempo pointer)
+                                                            # once the above are up
 
       KAFKA_BROKERS=localhost:9092 \
       POSTGRES_URL=postgresql://postgres:dev@localhost:5432/sun_dev \
       LOKI_URL=http://localhost:3100 \
       TEMPO_URL=http://localhost:4318 \
+      PUSHGATEWAY_URL=http://localhost:9091 \
         dune exec examples/local-demo/bin/demo.exe
+
+      Then open http://localhost:3000 (no login — anonymous admin) and
+      look for the "Sun Demo Overview" dashboard.
 *)
 
 (* ── Config from environment ────────────────────────────────────────────── *)

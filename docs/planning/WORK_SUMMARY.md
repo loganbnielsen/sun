@@ -1,5 +1,28 @@
 # Work Summary — Self-hosted refocus complete (2026-06-22)
 
+## Latest: FEAT-031 — provisioned Grafana starter dashboard for the local demo (2026-09-06)
+
+Follow-up to FEAT-030/BUG-008. `ensure-grafana.sh` only ever provisioned
+Loki/Tempo datasources with no dashboards — anyone opening Grafana after
+a demo run saw an empty Explore page unless they already knew LogQL, and
+there was no path to metrics at all (`examples/local-demo`'s services are
+short-lived, one-shot runs, not long-running `/metrics` scrape targets).
+Wired the demo's existing but unused `PUSHGATEWAY_URL`/`Obs_prometheus.push`
+path through to a real, provisioned "Sun Demo Overview" dashboard: request/
+message counters, p50/p95 latency for both services (via
+`histogram_quantile` directly on the pushed bucket snapshot — no `rate()`,
+which returns `NaN` against a one-time batch-job push, not a continuously
+scraped counter), a Tempo pointer panel, and a live logs panel. `ensure-
+prometheus.sh` and `ensure-grafana.sh`'s Loki datasource now provision
+fixed UIDs (`prometheus`, `loki`) instead of Grafana-assigned random ones,
+matching Tempo's existing `tempo` UID, so the dashboard JSON can reference
+them reliably across container recreations. `ensure-grafana.sh` also pins
+`grafana/grafana:11.3.0` instead of `latest` (see BUG-008 — the previous
+unpinned tag cost real debugging time chasing an unrelated auth regression
+in whatever the newest release happened to be that day). Every panel query
+verified individually against Grafana's own datasource proxy with live
+demo data before landing.
+
 ## Latest: FEAT-030 — examples/local-demo dogfoods Sun_obs; fulfillment-worker gets real tracing (2026-09-05)
 
 Picked up from `project/tickets/IN_PROGRESS/FEAT-030.md` (follow-up to

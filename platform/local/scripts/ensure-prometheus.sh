@@ -64,6 +64,7 @@ if curl -sf "http://localhost:${GRAFANA_PORT}/api/health" > /dev/null 2>&1; then
       -d "{
         \"name\":      \"Prometheus\",
         \"type\":      \"prometheus\",
+        \"uid\":       \"prometheus\",
         \"url\":       \"http://prometheus:${PROMETHEUS_PORT}\",
         \"access\":    \"proxy\",
         \"isDefault\": false
