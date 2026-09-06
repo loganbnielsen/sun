@@ -5,6 +5,7 @@ severity: high
 source: project/audits/2026-09-06_code_layer_audit.md
 branch: CODE_LAYER-005/layer2-component-source-of-truth
 worktree: ../sun-CODE_LAYER-005-layer2-component-source-of-truth
+pr: https://github.com/loganbnielsen/sun/pull/125
 ---
 
 **Depends on:** None.
