@@ -3,6 +3,8 @@ id: CODE_LAYER-006
 type: bug
 severity: medium
 source: project/audits/2026-09-06_code_layer_audit.md
+branch: CODE_LAYER-006/shared-alloy-config
+worktree: ../sun-CODE_LAYER-006-shared-alloy-config
 ---
 
 **Depends on:** None.
