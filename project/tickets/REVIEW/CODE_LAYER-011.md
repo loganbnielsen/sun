@@ -3,6 +3,9 @@ id: CODE_LAYER-011
 type: bug
 severity: low
 source: perf-gate sign-off pattern, 2026-09-06 (CODE_LAYER-005/006/007/009)
+branch: code_layer-011/perf-gate-false-positive
+worktree: ../sun-code_layer-011-perf-gate-false-positive
+pr: https://github.com/loganbnielsen/sun/pull/130
 ---
 
 **Depends on:** None.
