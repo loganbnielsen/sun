@@ -134,6 +134,24 @@ let test_helm_upgrade_install_argv () =
   check_bool "has --wait"
     true (List.mem "--wait" c.Sun_cli_process.argv)
 
+(* CODE_LAYER-008: Sun_cli_helm.upgrade_install's ?version places --version
+   between --create-namespace and --set/-f (see sun_cli_helm.ml) -- this
+   documents that shape, same as the sibling argv tests above; the real
+   `upgrade_install` function itself is exercised end to end by live
+   cluster verification (all 7 helm_install call sites in cmd_dev.ml,
+   CODE_LAYER-008), not by this suite, same as every other _argv test in
+   this file (none call the real Sun_cli_kubectl/Sun_cli_docker/Sun_cli_helm
+   functions -- see the module comment at the top of this file if that
+   changes for one of them). *)
+let test_helm_upgrade_install_version_argv () =
+  let c = Sun_cli_process.cmd
+    (["helm"; "upgrade"; "--install"; "loki"; "grafana-community/loki"]
+     @ ["--namespace"; "monitoring"; "--create-namespace"]
+     @ ["--version"; "18.12.1"]
+     @ ["--wait"; "--timeout"; "3m"]) in
+  check_str "argv[8]" "--version" (List.nth c.Sun_cli_process.argv 8);
+  check_str "argv[9]" "18.12.1"   (List.nth c.Sun_cli_process.argv 9)
+
 let test_helm_set_flags_bool () =
   let c = Sun_cli_process.cmd
     (["helm"; "upgrade"; "--install"; "r"; "c"]
@@ -229,6 +247,7 @@ let () =
         Alcotest.test_case "repo add argv"            `Quick test_helm_repo_add_argv;
         Alcotest.test_case "repo update argv"         `Quick test_helm_repo_update_argv;
         Alcotest.test_case "upgrade install argv"     `Quick test_helm_upgrade_install_argv;
+        Alcotest.test_case "upgrade install --version argv" `Quick test_helm_upgrade_install_version_argv;
         Alcotest.test_case "set flags bool"           `Quick test_helm_set_flags_bool;
         Alcotest.test_case "set flags str"            `Quick test_helm_set_flags_str;
       ];

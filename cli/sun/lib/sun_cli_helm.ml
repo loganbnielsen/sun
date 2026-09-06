@@ -12,7 +12,7 @@ let repo_add ~name ~url =
 let repo_update () =
   run (cmd ["helm"; "repo"; "update"])
 
-let upgrade_install ~release ~chart ~namespace ?(values = []) ?values_yaml () =
+let upgrade_install ~release ~chart ~namespace ?version ?(values = []) ?values_yaml () =
   let set_flags = values |> List.concat_map (fun (k, v) -> match v with
     | Bool  b -> ["--set"; Printf.sprintf "%s=%s" k (string_of_bool b)]
     | Float f -> ["--set"; Printf.sprintf "%s=%g" k f]
@@ -33,9 +33,14 @@ let upgrade_install ~release ~chart ~namespace ?(values = []) ?values_yaml () =
          | Some tmp -> ["-f"; tmp]
          | None -> []
        in
+       let version_flags = match version with
+         | Some v -> ["--version"; v]
+         | None -> []
+       in
        let argv =
          ["helm"; "upgrade"; "--install"; release; chart]
          @ ["--namespace"; namespace; "--create-namespace"]
+         @ version_flags
          @ set_flags
          @ file_flags
          @ ["--wait"; "--timeout"; "3m"]
