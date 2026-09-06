@@ -173,6 +173,27 @@ let test_svc_has_ingress () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc Ingress resource" workload "kind: Ingress"
 
+(* Regression test: the NetworkPolicy's egress already allowed pods to reach
+   Prometheus/Loki/Tempo in the monitoring namespace, but ingress had no
+   matching allowance -- Prometheus's own scrape requests into the pod were
+   silently dropped, so every freshly-deployed service's metrics panel (and
+   any dashboard template variable backed by those labels) stayed empty
+   with no error anywhere in the chain. Confirmed live against a real k3d
+   cluster: wget from Prometheus's own pod to the target pod's IP got
+   "connection refused" on the exact port kubelet's own probes and
+   `sun status`'s port-forward could reach fine -- the NetworkPolicy, not
+   the app, was the blocker. *)
+let test_svc_networkpolicy_allows_monitoring_ingress () =
+  let (_ns, workload) = render_spec_ok svc_spec in
+  let netpol_block = extract_kind_block workload "kind: NetworkPolicy" in
+  let ingress_block =
+    match Str.bounded_split_delim (Str.regexp_string "\n  egress:") netpol_block 2 with
+    | ingress_part :: _ -> ingress_part
+    | [] -> netpol_block
+  in
+  assert_contains "svc NetworkPolicy ingress allows monitoring namespace"
+    ingress_block "kubernetes.io/metadata.name: monitoring"
+
 let test_svc_has_ports () =
   let (_ns, workload) = render_spec_ok svc_spec in
   assert_contains "svc containerPort" workload "containerPort: 8080"
@@ -1314,6 +1335,7 @@ let () =
       ; Alcotest.test_case "image"                  `Quick test_svc_image
       ; Alcotest.test_case "has Service resource"   `Quick test_svc_has_service_resource
       ; Alcotest.test_case "has Ingress"            `Quick test_svc_has_ingress
+      ; Alcotest.test_case "NetworkPolicy allows monitoring ingress" `Quick test_svc_networkpolicy_allows_monitoring_ingress
       ; Alcotest.test_case "has containerPort"      `Quick test_svc_has_ports
       ; Alcotest.test_case "replicas from spec"     `Quick test_svc_replicas
       ; Alcotest.test_case "extra config in map"    `Quick test_svc_extra_config
