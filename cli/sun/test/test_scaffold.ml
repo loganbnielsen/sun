@@ -302,6 +302,23 @@ let test_scaffold_compiles () =
   let rc = Sys.command "cd testapp && dune build 2>&1" in
   check_bool "freshly scaffolded workspace builds with `dune build`" true (rc = 0)
 
+(* Regression test for BUG-007/BUG-011: `test_scaffold_compiles` above does
+   a whole-project `dune build`, which can silently mask a missing
+   `(libraries ...)` entry on one component's own lib stanza if some other
+   already-correct target in the same build happens to pull in the same
+   dependency first. Building just the new fn's own library target, in a
+   domain no other scaffolded component touches, is the only way to catch
+   that a generic-fn scaffold's library stanza is missing its own
+   `sun_fn` dependency. *)
+let test_bare_fn_library_compiles () =
+  in_temp_dir @@ fun () ->
+  Sun_cli_cmd_new.new_workspace "testapp";
+  Sys.chdir "testapp";
+  Sun_cli_cmd_new.new_fn "billing/invoice";
+  let rc = Sys.command "dune build app/billing/invoice_fn/lib/ 2>&1" in
+  Sys.chdir "..";
+  check_bool "generic fn's own library target builds in isolation" true (rc = 0)
+
 let test_charge_svc_publishes_kafka_event () =
   in_temp_dir @@ fun () ->
   Sun_cli_cmd_new.new_workspace "testapp";
@@ -713,6 +730,7 @@ let () =
       ; Alcotest.test_case "README hints substituted"       `Quick test_readme_migrate_hint_substituted
       ; Alcotest.test_case "Sun sources linked"             `Quick test_sun_sources_linked
       ; Alcotest.test_case "scaffold actually compiles"     `Quick test_scaffold_compiles
+      ; Alcotest.test_case "bare fn library compiles"       `Quick test_bare_fn_library_compiles
       ; Alcotest.test_case "charge_svc publishes event"     `Quick test_charge_svc_publishes_kafka_event
       ; Alcotest.test_case "JSON decoders are result based" `Quick test_workspace_generated_json_decoders_are_result_based
       ; Alcotest.test_case "startup helpers are flattened"  `Quick test_workspace_startup_helpers_are_flattened
