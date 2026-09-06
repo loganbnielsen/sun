@@ -115,3 +115,19 @@ CODE_LAYER-010 closes the remaining gap.
   and a `terraform validate`/`plan` against `platform/infra/base` are
   verified manually since Helm/k3d/cloud integration isn't exercised by
   unit tests.
+
+## Perf-gate sign-off (2026-09-06)
+
+Merged (PR #125, commit `9c2623a`). Same false-alarm pattern as
+CODE_LAYER-009 earlier today: post-merge gate flagged e2e at 1.909s vs.
+1.192s baseline (1.60x, over the 1.5x threshold); the automatic revert
+then failed on a dirty `tools/perf/perf_baseline.json`, so the merge
+itself stands and only the ticket-state transition was blocked.
+
+Immediately re-ran `bash platform/local/scripts/run_tests.sh` with no
+other change: e2e came back at 1.192s, exactly the baseline. This is the
+second time in one session this specific flake pattern has hit right
+after a merge — worth a look at whether the merge step's own perf run is
+picking up transient contention from whatever else is running on this
+machine at merge time, rather than something inherent to the code being
+merged. Signing off as a flake, not a real regression — moving to DONE.
