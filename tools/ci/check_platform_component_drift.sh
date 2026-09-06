@@ -27,12 +27,12 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cmd_dev="$repo_root/cli/sun/bin/cmd_dev.ml"
 main_tf="$repo_root/platform/infra/base/main.tf"
 
-# Keys CODE_LAYER-005 moved into platform/components/<name>/values-*.json.
-# Keys intentionally still set inline (e.g. singleBinary.persistence.enabled,
-# server.persistentVolume.enabled/retention -- var-driven Terraform-only
-# knobs with no cmd_dev.ml equivalent; prometheus-node-exporter.enabled --
-# a genuine dev-only literal main.tf never had) are deliberately absent from
-# this list.
+# Keys CODE_LAYER-005 moved into platform/components/<name>/values-*.json,
+# checked against both files. Keys intentionally still set inline in main.tf
+# only (singleBinary.persistence.enabled, server.persistentVolume.enabled/
+# retention -- var-driven Terraform-only knobs; prometheus-node-exporter.
+# enabled -- a genuine dev-only literal main.tf never had) are deliberately
+# absent from this list and checked separately below.
 migrated_keys=(
   "deploymentMode"
   "singleBinary.replicas"
@@ -50,6 +50,18 @@ migrated_keys=(
   "alertmanager.enabled"
 )
 
+# Keys that stay as legitimate, var-driven `set {}` blocks in main.tf (so
+# they're NOT in migrated_keys above -- main.tf hardcoding them is correct,
+# not drift) but whose cmd_dev.ml copy now comes entirely from
+# values-local.json, with no var to shadow it there. cmd_dev.ml
+# reintroducing either as an inline OCaml literal would silently duplicate
+# what the JSON already provides -- exactly the BUG-013/BUG-016 pattern,
+# just missed by migrated_keys since it's asymmetric across the two files.
+cmd_dev_only_keys=(
+  "singleBinary.persistence.enabled"
+  "server.persistentVolume.enabled"
+)
+
 fail=0
 
 for key in "${migrated_keys[@]}"; do
@@ -59,6 +71,13 @@ for key in "${migrated_keys[@]}"; do
   fi
   if grep -qF "\"${key}\"" "$main_tf"; then
     echo "guardrail: $main_tf hardcodes \"${key}\" inline again -- this value belongs in platform/components/<name>/values-*.json (ADR 0001 / CODE_LAYER-005)." >&2
+    fail=1
+  fi
+done
+
+for key in "${cmd_dev_only_keys[@]}"; do
+  if grep -qF "\"${key}\"" "$cmd_dev"; then
+    echo "guardrail: $cmd_dev hardcodes \"${key}\" inline again -- this value now comes entirely from platform/components/<name>/values-local.json (ADR 0001 / CODE_LAYER-005); main.tf legitimately keeps its own var-driven \`set\` for this key, but cmd_dev.ml has no such var and must not duplicate it." >&2
     fail=1
   fi
 done

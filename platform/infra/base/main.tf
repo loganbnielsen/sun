@@ -869,6 +869,15 @@ resource "helm_release" "prometheus" {
   version    = "25.20.1"
   namespace  = kubernetes_namespace.monitoring.metadata[0].name
 
+  # Persistence stays a `set` override here, same reasoning as Loki's
+  # singleBinary.persistence.enabled above: var.prometheus_persistent_storage
+  # is a Terraform-only operator knob with no cmd_dev.ml equivalent, and
+  # `set` always wins over `values` regardless of which profile file is
+  # selected. values-local.json (only) also carries
+  # server.persistentVolume.enabled: false, purely for cmd_dev.ml's benefit
+  # (it has no var to override with) -- values-durable.json deliberately
+  # omits this key so there's exactly one place that actually controls
+  # persistence for this resource, not two.
   set {
     name  = "server.persistentVolume.enabled"
     value = tostring(var.observability_backend == "external" ? false : var.prometheus_persistent_storage)

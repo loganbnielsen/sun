@@ -15,5 +15,6 @@
     [tempo]'s empty profiles) is treated as an empty object, not an error.
     Exits with an error message if the Sun monorepo root can't be located
     (same resolution as [sun cloud plan/apply], see
-    {!Sun_cli_cmd_new.infer_sun_home}). *)
+    {!Sun_cli_cmd_new.infer_sun_home}) or if a values file exists but isn't
+    valid JSON. *)
 val merged_values_yaml : component:string -> profile:string -> string

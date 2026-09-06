@@ -2,8 +2,12 @@ let component_dir sun_home component =
   Filename.concat sun_home (Filename.concat "platform/components" component)
 
 let read_json path =
-  if Sys.file_exists path then Yojson.Safe.from_file path
-  else `Assoc []
+  if not (Sys.file_exists path) then `Assoc []
+  else
+    try Yojson.Safe.from_file path
+    with Yojson.Json_error msg ->
+      Printf.eprintf "error: %s is not valid JSON: %s\n" path msg;
+      exit 1
 
 (* Deep merge: [override]'s object keys win over [base]'s on conflict, with
    nested objects merged recursively rather than replaced wholesale. Any
