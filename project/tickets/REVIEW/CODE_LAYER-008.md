@@ -5,6 +5,7 @@ severity: high
 source: project/audits/2026-09-06_code_layer_audit.md
 branch: CODE_LAYER-008/pin-versions-reconcile-values
 worktree: ../sun-CODE_LAYER-008-pin-versions-reconcile-values
+pr: https://github.com/loganbnielsen/sun/pull/126
 ---
 
 **Depends on:** None.
