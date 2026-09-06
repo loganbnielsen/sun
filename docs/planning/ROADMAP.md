@@ -488,7 +488,7 @@ These addresses are deterministic from the Helm release names in `sun dev up`. H
 | Grafana | `grafana` | `monitoring` |
 | Alloy (log shipping, OBS-039) | `alloy` | `monitoring` |
 | Prometheus | `prometheus` | `monitoring` |
-| Tempo (tracing, OBS-042; `-svc` only) | `tempo` | `monitoring` |
+| Tempo (tracing, OBS-042; all primitives via `Sun_obs`, FEAT-030) | `tempo` | `monitoring` |
 
 #### `-svc` manifest details
 
