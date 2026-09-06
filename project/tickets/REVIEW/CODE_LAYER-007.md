@@ -5,6 +5,7 @@ severity: low
 source: project/audits/2026-09-06_code_layer_audit.md
 branch: CODE_LAYER-007/shared-dashboard-json
 worktree: ../sun-CODE_LAYER-007-shared-dashboard-json
+pr: https://github.com/loganbnielsen/sun/pull/128
 ---
 
 **Depends on:** None.
