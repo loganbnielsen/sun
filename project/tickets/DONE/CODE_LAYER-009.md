@@ -69,3 +69,22 @@ comparing live code against dead code.
   assertion on `render_spec` if it covered something no other test does).
 - `dune build` and the `cli/sun` test suite pass with no remaining
   references to the deleted function.
+
+## Perf-gate sign-off (2026-09-06)
+
+Merged (PR #124, commit `02d039d`). The post-merge perf gate flagged e2e at
+2.025s vs. a 1.192s baseline (1.70x, over the 1.5x threshold) and moved this
+ticket here; the automatic revert then failed on a dirty
+`tools/perf/perf_baseline.json`, so the merge itself stands — only the
+ticket-state transition was blocked.
+
+This diff touches only `cli/sun/lib` manifest-rendering code (dead-code
+removal + one new fast Alcotest assertion) — nothing on the e2e path
+(HTTP/Kafka/Loki/Postgres round trips). Immediately re-ran
+`bash platform/local/scripts/run_tests.sh` with no other change: e2e came
+back at 1.201s, essentially exactly the baseline. Another `claude` process
+was independently running heavy `dune build`/test cycles on this machine
+(the CODE_LAYER-005 implementation agent) at the time of the flagged run,
+which is the far more plausible explanation for one noisy e2e sample than
+this ticket's diff. Signing off as a flake, not a real regression — moving
+to DONE.
