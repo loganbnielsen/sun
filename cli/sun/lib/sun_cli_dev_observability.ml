@@ -48,7 +48,14 @@ datasources:
    (via Terraform's own `file(...)`) load from the same files, instead of
    a second, hand-synced OCaml copy per dashboard. Resolves SUN_HOME
    itself (same pattern as Sun_cli_platform_component.merged_values_yaml
-   and render_alloy_config), reading each real file, not a fixture. *)
+   and render_alloy_config), reading each real file, not a fixture.
+
+   The real files each carry a trailing newline the old OCaml string
+   literals didn't -- not byte-identical to what those literals held, but
+   equivalent post-render: configmap_yaml's `|-` (strip-chomped) block
+   scalar discards trailing newlines on parse either way, confirmed live
+   (`kubectl apply` on the new render came back "unchanged" against the
+   cluster's existing ConfigMap). *)
 let read_dashboard_json ~sun_home name =
   let path = Filename.concat sun_home
     (Filename.concat "platform/infra/base/dashboards" name) in
