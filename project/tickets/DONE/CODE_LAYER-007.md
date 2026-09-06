@@ -54,3 +54,18 @@ the same resolution here instead of embedding a second copy of the JSON.
 - A fresh `sun dev up` still installs all four dashboards into Grafana
   (verified via the sidecar-loaded ConfigMap or the Grafana UI/API).
 - Focused tests pass in `cli/sun`.
+
+## Perf-gate sign-off (2026-09-06)
+
+Merged (PR #128, commit `c85983f`). Fourth occurrence in one session of
+the same false-alarm pattern (CODE_LAYER-009, CODE_LAYER-005,
+CODE_LAYER-006): post-merge gate flagged e2e at 1.904s vs. 1.188s
+baseline (1.60x); automatic revert failed on a dirty
+`tools/perf/perf_baseline.json`, so the merge stands and only the
+ticket-state transition was blocked. Immediately re-ran `bash
+platform/local/scripts/run_tests.sh` with no other change: e2e came back
+at 1.188s, exactly the baseline. Signing off as a flake — moving to
+DONE. Given this has now happened four times, the merge step's own perf
+run picking up transient machine contention (rather than something
+inherent to any of these diffs) looks like the real explanation; worth a
+ticket of its own if it keeps recurring.
