@@ -90,6 +90,19 @@ module "eks" {
   subnet_ids                     = module.vpc.private_subnets
   cluster_endpoint_public_access = true
 
+  # The default vpc-cni addon does not enforce Kubernetes NetworkPolicy
+  # resources — sun's generated NetworkPolicies (see BUG-012) are a no-op
+  # without this. most_recent pulls a CNI version new enough to ship the
+  # network-policy-agent (v1.14+).
+  cluster_addons = {
+    vpc-cni = {
+      most_recent = true
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+      })
+    }
+  }
+
   # EKS Managed Node Group — general purpose, autoscaling
   eks_managed_node_groups = {
     general = {
