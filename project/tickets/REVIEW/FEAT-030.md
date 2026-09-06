@@ -5,6 +5,7 @@ severity: medium
 source: user request 2026-09-05 — "redo demoing" after CODE_LAYER-003
 branch: FEAT-030/demo-sun-obs-dogfood
 worktree: ../sun-FEAT-030-demo-sun-obs
+pr: https://github.com/loganbnielsen/sun/pull/116
 ---
 
 Redo `examples/local-demo` to dogfood `Sun_obs` and showcase the full observability story (logs, metrics, traces, storage) at the abstraction level a real Sun app gets.
