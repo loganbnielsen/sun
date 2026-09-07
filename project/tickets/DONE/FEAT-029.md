@@ -59,3 +59,6 @@ Split out of `FEAT-025` as its own reference-grammar/validation ticket:
   which rule (cross-env / cross-provider) it violates.
 - `sun plan <target>`'s printed output visibly distinguishes a resolved
   cross-region `uses` ref from a local one.
+
+## Review — automated checks passed
+Recovered from an orphaned pre-existing worktree, rebased clean onto main, build/full suite green. Two independent fresh adversarial review rounds: first found 3 real gaps against acceptance criteria (2-segment cross-provider misclassification, empty-segment misclassified as cross-env, invented azure support); all fixed with 2 new regression tests; second round independently verified all three fixes correct via exhaustive ref-shape walkthrough and confirmed no azure references remain anywhere in repo. Diff scoped correctly, no project/tickets/ changes on branch.
