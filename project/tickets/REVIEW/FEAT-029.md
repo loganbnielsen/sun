@@ -3,6 +3,9 @@ id: FEAT-029
 type: feature
 severity: medium
 source: docs/planning/LIVE_DEV_DEPLOY_ROADMAP.md
+branch: feat-029-uses-reference-validation
+worktree: ../sun-feat-029
+pr: https://github.com/loganbnielsen/sun/pull/131
 ---
 
 `Sun_cli_config`: validate `uses` references; add absolute cross-region refs and v1 rejection rules.
