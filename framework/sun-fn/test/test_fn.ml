@@ -79,9 +79,10 @@ let test_external_stop_before_cron_run () =
 let test_metrics_ok_counter () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Ok_fn) in
-  let pair = Obs_prometheus.create () in
-  let _, renderer = pair in
-  Alcotest.(check bool) "returns Ok" true (M.run ~env ~backend:pair () = Ok ());
+  let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+              ~service:"test-fn" () in
+  let renderer = Sun_obs.metrics_renderer obs in
+  Alcotest.(check bool) "returns Ok" true (M.run ~env ~ot:obs () = Ok ());
   let output = renderer () in
   Alcotest.(check bool) "counter family present"
     true (contains "sun_fn_invocations_total" output);
@@ -93,9 +94,10 @@ let test_metrics_ok_counter () =
 let test_metrics_error_counter () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Err_fn) in
-  let pair = Obs_prometheus.create () in
-  let _, renderer = pair in
-  ignore (M.run ~env ~backend:pair ());
+  let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+              ~service:"test-fn" () in
+  let renderer = Sun_obs.metrics_renderer obs in
+  ignore (M.run ~env ~ot:obs ());
   let output = renderer () in
   Alcotest.(check bool) "status=error label present"
     true (contains {|status="error"|} output)
@@ -105,9 +107,10 @@ let test_metrics_error_counter () =
 let test_metrics_duration () =
   Eio_main.run @@ fun env ->
   let module M = Fn.Make(Ok_fn) in
-  let pair = Obs_prometheus.create () in
-  let _, renderer = pair in
-  Alcotest.(check bool) "returns Ok" true (M.run ~env ~backend:pair () = Ok ());
+  let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+              ~service:"test-fn" () in
+  let renderer = Sun_obs.metrics_renderer obs in
+  Alcotest.(check bool) "returns Ok" true (M.run ~env ~ot:obs () = Ok ());
   let output = renderer () in
   Alcotest.(check bool) "duration histogram present"
     true (contains "sun_fn_duration_seconds" output)

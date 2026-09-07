@@ -1,4 +1,4 @@
 (library
  (name sun_worker)
  (wrapped false)
- (libraries eio eio.unix obs-eio obs-prometheus-eio kafka_eio_service kafka-eio sun_env))
+ (libraries eio eio.unix obs-eio obs-prometheus-eio kafka_eio_service kafka-eio sun_env sun_obs))

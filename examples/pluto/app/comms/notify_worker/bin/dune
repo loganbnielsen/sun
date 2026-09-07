@@ -2,6 +2,6 @@
  (name main)
  (libraries
   pluto_comms_notify sun_worker kafka_eio_service
-  obs-eio obs-loki-eio obs-prometheus-eio
+  obs-eio sun_obs
   pg-eio caqti-eio caqti-eio.unix caqti-driver-postgresql
   eio_main))

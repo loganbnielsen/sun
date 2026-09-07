@@ -33,10 +33,10 @@ module Make (F : FN) : sig
     -> ?job:string
     (** Pushgateway job label. Defaults to the cron schedule string for
         [Cron], or ["lambda"] for [Lambda]. *)
-    -> ?backend:(Obs_eio.backend * (unit -> string))
-    (** Override the default [Obs_prometheus.create ()] backend+renderer pair.
-        Useful for composing with additional backends (e.g. [Obs_eio.compose]) or
-        for inspecting rendered metrics in tests. *)
+    -> ?ot:Sun_obs.t
+    (** Observability handle. Its composed backend + renderer are used for
+        this invocation's metrics and push; defaults to a bare
+        [Obs_prometheus.create ()] backend when absent. *)
     -> ?stop:unit Eio.Promise.t
     (** External stop signal. [Cron] returns [`Signalled] without starting a new
         run if it is already resolved; [Lambda] leaves the runtime loop after

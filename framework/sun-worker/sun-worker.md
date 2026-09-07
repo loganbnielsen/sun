@@ -30,9 +30,10 @@ module Make (W : WORKER) : sig
            ; mono_clock: _ Eio.Time.Mono.t
            ; .. >
     -> config:Kafka_service.config
-    -> ?ot:Obs_eio.t
+    -> ?ot:Sun_obs.t
     (** When provided, emits sun_worker_messages_total{status} and
-        sun_worker_message_duration_seconds per message. *)
+        sun_worker_message_duration_seconds per message, and exposes
+        GET /metrics on port 9090 for Prometheus scraping. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer.
         Use it to signal readiness to a test or health-check. *)
@@ -149,13 +150,12 @@ end
 
 let () =
   Eio_main.run @@ fun env ->
-    let backend, render = Obs_prometheus.create () in
-    let ot = Obs_eio.create ~service:BroadcastWorker.group_id
-               ~mono_clock:env#mono_clock ~backend in
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:BroadcastWorker.group_id () in
     match Kafka_service.config_of_env () with
     | Error e -> failwith (Kafka_service.error_to_string e)
     | Ok config ->
-      Worker.Make(BroadcastWorker).run ~env ~config ~ot ~metrics_renderer:render ()
+      Worker.Make(BroadcastWorker).run ~env ~config ~ot:obs ()
       |> Result.map_error Worker.run_error_to_string
       |> function Ok () -> () | Error msg -> failwith msg
 ```

@@ -122,18 +122,19 @@ let run_golden_path () =
   Eio.Switch.run @@ fun sw ->
 
   (* Observability *)
-  let prom_backend, render = Obs_prometheus.create () in
-  let log_backend =
-    match loki_url with
-    | None     -> Obs_eio.stdout
-    | Some url ->
-      Obs_loki.create ~net:env#net ~clock:env#clock ~url ()
+  let svc_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"order-svc" ()
   in
-  let backend   = Obs_eio.compose log_backend prom_backend in
-  let svc_ot    = Obs_eio.create ~service:"order-svc"
-                    ~mono_clock:env#mono_clock ~backend () in
-  let worker_ot = Obs_eio.create ~service:"fulfillment-worker"
-                    ~mono_clock:env#mono_clock ~backend () in
+  let worker_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"fulfillment-worker" ()
+  in
+  (* Each carries its own Prometheus registry (like two real, separately
+     scraped services) — this test's own assertions render and stitch
+     both together, same as examples/local-demo/bin/demo.ml. *)
+  let render () = Sun_obs.metrics_renderer svc_obs () ^ Sun_obs.metrics_renderer worker_obs () in
+  let svc_ot    = Sun_obs.obs_eio svc_obs in
 
   (* Storage *)
   let db_pool = match postgres_url with
@@ -185,8 +186,8 @@ let run_golden_path () =
   Eio.Fiber.fork ~sw (fun () ->
     (try
       let module WR = Worker.For_testing.Make(W) in
-      WR.run ~env ~config:kafka_config ~ot:worker_ot
-        ~metrics_renderer:render ~metrics_port:worker_metrics_port
+      WR.run ~env ~config:kafka_config ~ot:worker_obs
+        ~metrics_port:worker_metrics_port
         ~on_ready:(fun () ->
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
         ~max_messages:(orders_count + 1)
@@ -223,7 +224,7 @@ let run_golden_path () =
   let svc_port_p, svc_port_r = Eio.Promise.create () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Service.run [ Route.post "/orders" ~auth:`Public handle_order ]
-      ~env ~port:0 ~ot:svc_ot
+      ~env ~port:0 ~ot:svc_obs
       ~on_listen:(fun p -> Eio.Promise.resolve svc_port_r p)
       ()
     |> Result.map_error Service.run_error_to_string

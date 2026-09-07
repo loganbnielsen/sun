@@ -298,7 +298,7 @@ let () =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     (try
       let module WR = Worker.Make(W) in
-      WR.run ~env ~config:kafka_config ~ot:(Sun_obs.obs_eio worker_obs)
+      WR.run ~env ~config:kafka_config ~ot:worker_obs
         ~on_ready:(fun () ->
           Printf.printf "[worker] partition assigned — ready\n%!";
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
@@ -347,7 +347,7 @@ let () =
   let svc_port_p, svc_port_r = Eio.Promise.create () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Service.run [ Route.post "/orders" ~auth:`Public handle_order ]
-      ~env ~port:0 ~ot:(Sun_obs.obs_eio svc_obs)
+      ~env ~port:0 ~ot:svc_obs
       ~on_listen:(fun p ->
         Printf.printf "[svc]    listening on port %d\n%!" p;
         Eio.Promise.resolve svc_port_r p)

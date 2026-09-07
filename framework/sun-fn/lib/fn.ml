@@ -48,12 +48,12 @@ module Make (F : FN) = struct
     | Lambda -> "lambda"
 
   let run ~(env : (_, _, _, _) Sun_env.timed)
-      ?pushgateway_url ?job ?backend ?stop () =
+      ?pushgateway_url ?job ?ot ?stop () =
     let job = Option.value job ~default:(default_job F.trigger) in
     let backend, renderer =
-      match backend with
-      | Some pair -> pair
-      | None      -> Obs_prometheus.create ()
+      match ot with
+      | Some o -> Sun_obs.backend_and_renderer o
+      | None   -> Obs_prometheus.create ()
     in
     let ot = Obs_eio.create ~service:job ~mono_clock:env#mono_clock ~backend () in
     let invocations, duration_h =

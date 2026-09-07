@@ -59,10 +59,12 @@ module Make (W : WORKER) : sig
   val run
     :  env:(_, _, _, _) Sun_env.timed
     -> config:Kafka_service.config
-    -> ?ot:Obs_eio.t
+    -> ?ot:Sun_obs.t
     (** Observability handle. When provided, [sun_worker_messages_total{status}]
         (labels: [ok], [retry], [error], [ack_failed]) and
-        [sun_worker_message_duration_seconds] are emitted per message.
+        [sun_worker_message_duration_seconds] are emitted per message, and
+        the worker exposes [GET /metrics] on port 9090 for Prometheus
+        scraping.
 
         [ack_failed] is distinct from [error]: it means [W.handle] returned
         [Ok ()] but the subsequent offset commit failed, so the side effect
@@ -71,9 +73,6 @@ module Make (W : WORKER) : sig
         Escalates to [Error] (stopping the worker) only when the commit
         failure is [Kafka.Error.is_fatal] — a broken consumer, not a
         transient hiccup — logged at [Error] in that case. *)
-    -> ?metrics_renderer:(unit -> string)
-    (** Renderer from [Obs_prometheus.create ()]. When provided, the worker
-        exposes [GET /metrics] on port 9090 for Prometheus scraping. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
     -> ?stop:unit Eio.Promise.t
@@ -93,8 +92,7 @@ module For_testing : sig
     val run
       :  env:(_, _, _, _) Sun_env.timed
       -> config:Kafka_service.config
-      -> ?ot:Obs_eio.t
-      -> ?metrics_renderer:(unit -> string)
+      -> ?ot:Sun_obs.t
       -> ?metrics_port:int
       -> ?on_ready:(unit -> unit)
       -> ?stop:unit Eio.Promise.t
