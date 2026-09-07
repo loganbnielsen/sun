@@ -3,6 +3,9 @@ id: CODE_LAYER-013
 type: code-layer-finding
 severity: low
 source: project/audits/2026-09-06b_code_layer_audit.md
+branch: code_layer-013/terraform-var-formatting-move
+worktree: ../sun-code_layer-013-terraform-var-formatting-move
+pr: https://github.com/loganbnielsen/sun/pull/133
 ---
 
 Terraform var-string formatting leaks into the neutral config model
