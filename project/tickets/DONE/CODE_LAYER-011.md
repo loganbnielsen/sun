@@ -66,3 +66,6 @@ shared Kafka topic).
   here's the mitigation anyway") for the repeated false positive.
 - The automatic revert path either works reliably, or is replaced with a
   clean single-step failure mode that doesn't require manual recovery.
+
+## Review — automated checks passed
+Build clean; diff scoped to run_tests.sh, sundev_merge.ml, WORK_SUMMARY.md, perf_baseline.json history; two independent fresh adversarial review rounds (one found and confirmed-fixed a real errexit-abort bug, verified via a forced-failure repro; second found nothing actionable); full unit+kafka+e2e suite passes with no regression; CI green.
