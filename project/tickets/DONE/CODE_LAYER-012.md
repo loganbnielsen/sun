@@ -83,3 +83,6 @@ directly, with no bridge functions needed at the scaffold call site.
   pass `~ot:obs` (a single `Sun_obs.t`) to their `run` call, not a
   destructured triple.
 - Existing framework/scaffold test suites pass with the updated signature.
+
+## Review — automated checks passed
+sun-svc/sun-worker/sun-fn now take ?ot:Sun_obs.t directly; every real caller updated (scaffold templates, pluto/venus examples migrated off pre-Sun_obs hand-composition, local-demo, all framework test suites). Two independent fresh adversarial review rounds: first found a real regression (deriving worker's metrics_renderer from ot auto-starts a port-9090 HTTP listener with no opt-out, hitting two real demo binaries whose docs have the user start a real Prometheus container on that same port); fixed by adding ?metrics_port to the public Worker.Make functor and pinning both demos to metrics_port:0, verified with a live end-to-end run of venus's demo binary against the real Prometheus container (genuine collision test, passed clean). Second round confirmed the fix's correctness (?metrics_port threads through to Impl.run and gating logic verified), audited all 10 Worker.Make call sites in the repo, and live-ran the demo again with no issues. One minor doc gap (missing ?metrics_port in sun-worker.md) fixed. Full unit+kafka+e2e suite green throughout.
