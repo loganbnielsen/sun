@@ -59,3 +59,6 @@ All Terraform CLI var-syntax formatting lives in `Sun_cli_terraform`;
 - `sun cloud plan`/`sun cloud apply` behavior is unchanged — same
   `-var`/`-var-file` arguments reach the `terraform` binary as before.
 - Focused tests pass in `cli/sun`.
+
+## Review — automated checks passed
+Sun_cli_config.terraform_vars now returns neutral (string*string) pairs instead of pre-joined key=value strings; Sun_cli_terraform.kv_args (new, exported) does the Terraform CLI join, keeping sun_cli_terraform.ml as the sole constructor of literal Terraform var strings. cmd_cloud_tf.ml's config_vars updated to call kv_args once; var_args/plan/apply/destroy's own ~vars:string list signature deliberately unchanged since sun cloud's --var CLI flag is a separate raw-string source concatenated afterward. Two independent fresh adversarial review rounds, both clean: verified config_vars @ vars still type-checks and behaves identically, resolved_var's =-splitting AWS-destroy verification parser is unaffected, terraform_vars pair-ordering is semantically identical to the old joined version, the acceptance criterion (only sun_cli_terraform.ml builds literal Terraform var strings) holds via repo-wide grep, and no other caller of terraform_vars was missed. One cosmetic mli-ordering nit from round two fixed. Full unit+kafka+e2e suite green throughout.
