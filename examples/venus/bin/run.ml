@@ -167,7 +167,7 @@ let () =
   Eio.Fiber.fork ~sw (fun () ->
     (try
       let module WR = Worker.Make(W) in
-      WR.run ~env ~config:kafka_config ~ot:worker_obs
+      WR.run ~env ~config:kafka_config ~ot:worker_obs ~metrics_port:0
         ~on_ready:(fun () ->
           Printf.printf "[notify-worker] partition assigned — ready\n%!";
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))

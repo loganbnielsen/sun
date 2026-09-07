@@ -197,9 +197,9 @@ end
 module Make (W : WORKER) = struct
   module Impl = Make_with_test_seam(W)
 
-  let run ~env ~config ?ot ?on_ready ?stop
+  let run ~env ~config ?ot ?metrics_port ?on_ready ?stop
       ?max_messages ?retry_strategy () =
-    Impl.run ~env ~config ?ot ?on_ready ?stop
+    Impl.run ~env ~config ?ot ?metrics_port ?on_ready ?stop
       ?max_messages ?retry_strategy ()
 end
 

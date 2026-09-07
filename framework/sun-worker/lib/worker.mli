@@ -63,7 +63,7 @@ module Make (W : WORKER) : sig
     (** Observability handle. When provided, [sun_worker_messages_total{status}]
         (labels: [ok], [retry], [error], [ack_failed]) and
         [sun_worker_message_duration_seconds] are emitted per message, and
-        the worker exposes [GET /metrics] on port 9090 for Prometheus
+        the worker exposes [GET /metrics] on [metrics_port] for Prometheus
         scraping.
 
         [ack_failed] is distinct from [error]: it means [W.handle] returned
@@ -73,6 +73,12 @@ module Make (W : WORKER) : sig
         Escalates to [Error] (stopping the worker) only when the commit
         failure is [Kafka.Error.is_fatal] — a broken consumer, not a
         transient hiccup — logged at [Error] in that case. *)
+    -> ?metrics_port:int
+    (** Port for the [/metrics] endpoint above. Default: [9090]. Only binds
+        when [ot] is provided; pass [0] for an OS-assigned port (e.g. when
+        running more than one [-worker]/[-svc] in the same process, or in
+        tests) or when [ot] is provided purely for metric registration and
+        another process already owns the default port. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer. *)
     -> ?stop:unit Eio.Promise.t
