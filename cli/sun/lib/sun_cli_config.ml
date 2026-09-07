@@ -575,7 +575,11 @@ let active_resources cfg =
 let active_services cfg =
   List.filter (fun (s : service) -> not s.omit) cfg.services
 
-let known_provider s = s = "aws" || s = "gcp" || s = "azure"
+(* Matches the only providers sun.yml's target-provider box itself
+   recognizes (`k = "aws" || k = "gcp"` above) — no third value invented
+   here that nothing else in the codebase (cmd_cloud_tf.ml's `provider`
+   type, platform/infra/) can actually provision against. *)
+let known_provider s = s = "aws" || s = "gcp"
 
 let format_use_ref ref =
   if ref <> "" && ref.[0] = '/' then ref ^ " (cross-region)" else ref
@@ -589,16 +593,23 @@ let validate_use_ref ~(target : target) ~resources service_name ref =
                  message = Printf.sprintf
                      "service %S uses undeclared resource %S" service_name ref }
   else
+    (* Every branch below requires every segment non-empty, so a ref with
+       a blank segment (e.g. "/foo//bar") falls through to the generic
+       parse-error case instead of being misclassified as cross-env. *)
     match String.split_on_char '/' ref with
-    | [""; region; resource] when region <> "" && resource <> ""
-                              && not (known_provider region) -> Ok ()
-    | [""; provider; _region; _resource] when known_provider provider ->
-      Error { path = target.name; line = 0;
-              message = "cross-provider uses refs are not supported in v1" }
-    | [""; _env; _region; _resource] ->
-      Error { path = target.name; line = 0;
-              message = "cross-env uses refs are not supported in v1" }
-    | "" :: _ :: _ :: _ :: _ ->
+    | [""; seg1; seg2] when seg1 <> "" && seg2 <> "" ->
+      if known_provider seg1 then
+        Error { path = target.name; line = 0;
+                message = "cross-provider uses refs are not supported in v1" }
+      else Ok ()
+    | [""; seg1; seg2; seg3] when seg1 <> "" && seg2 <> "" && seg3 <> "" ->
+      if known_provider seg1 then
+        Error { path = target.name; line = 0;
+                message = "cross-provider uses refs are not supported in v1" }
+      else
+        Error { path = target.name; line = 0;
+                message = "cross-env uses refs are not supported in v1" }
+    | "" :: (_ :: _ :: _ :: _ :: _ as segs) when List.for_all (( <> ) "") segs ->
       Error { path = target.name; line = 0;
               message = "cross-env uses refs are not supported in v1" }
     | _ ->

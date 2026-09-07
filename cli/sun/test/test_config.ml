@@ -233,6 +233,24 @@ services:
 |};
     expect_load_error "cross-env uses refs are not supported in v1")
 
+let test_two_segment_cross_provider_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/gcp/analytics_db]
+|};
+    expect_load_error "cross-provider uses refs are not supported in v1")
+
+let test_empty_segment_uses_ref_fails_to_parse () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/us-east-1//analytics_db]
+|};
+    expect_load_error "absolute uses ref must look like /<region>/<resource>")
+
 let test_omitted_resource_uses_ref_fails () =
   with_temp_dir (fun () ->
     write "sun.yml" {|
@@ -614,6 +632,8 @@ let () =
         Alcotest.test_case "cross-provider uses ref fails" `Quick test_cross_provider_uses_ref_fails;
         Alcotest.test_case "cross-env uses ref fails" `Quick test_cross_env_uses_ref_fails;
         Alcotest.test_case "three-segment cross-env uses ref fails" `Quick test_three_segment_cross_env_uses_ref_fails;
+        Alcotest.test_case "two-segment cross-provider uses ref fails" `Quick test_two_segment_cross_provider_uses_ref_fails;
+        Alcotest.test_case "empty-segment uses ref fails to parse" `Quick test_empty_segment_uses_ref_fails_to_parse;
         Alcotest.test_case "omitted resource uses ref fails" `Quick test_omitted_resource_uses_ref_fails;
         Alcotest.test_case "resource key after indexes parses" `Quick test_resource_key_after_indexes_parses;
         Alcotest.test_case "service key after scale parses" `Quick test_service_key_after_scale_parses;
