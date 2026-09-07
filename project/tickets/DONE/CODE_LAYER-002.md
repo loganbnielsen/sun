@@ -63,3 +63,15 @@ app repository
   details of the object layer or remain documented as lower-level escape
   hatches, but the main path should not require manual composition.
 - Focused `dynamodb-eio` tests cover the chosen boundary.
+
+## Resolution
+
+Implemented and merged upstream in `~/Code/dynamodb-eio` (external
+opam-pinned package): commit `770f16f` / "Add Dynamodb_table.Object:
+domain encode/decode with entity discrimination" (#17). sun's own PR #113
+recorded the ticket closure but carried no sun-tree diff. sun's opam pin
+points at a ticket-specific worktree/branch
+(`~/Code/dynamodb-eio-CODE_LAYER-002#CODE_LAYER-002/dynamodb-table-object`)
+rather than dynamodb-eio's main — verified byte-identical (`git diff` empty)
+to dynamodb-eio's current main tip, so functionally current; re-pinning to
+the canonical repo/main is cosmetic cleanup, not a correctness fix.

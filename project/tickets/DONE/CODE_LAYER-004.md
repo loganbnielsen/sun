@@ -37,3 +37,15 @@ Obs trace model cannot represent parent span IDs
 - Tests prove `with_context` fields remain metadata only and are not used to
   represent trace parentage.
 - Focused tests pass in `obs-eio` and `obs-tempo-eio`.
+
+## Resolution
+
+Implemented and merged upstream in `~/Code/obs-eio` (external opam-pinned
+package): commit `b425c55` / "Obs_eio.span_event carries parent_span_id
+for trace-graph linkage" (#14). sun's own PR #114 recorded the ticket
+closure but carried no sun-tree diff. sun's opam pin points at a
+ticket-specific worktree/branch
+(`~/Code/obs-eio-CODE_LAYER-004#CODE_LAYER-004/parent-span-id`) rather than
+obs-eio's main — verified byte-identical (`git diff` empty) to obs-eio's
+current main tip, so functionally current; re-pinning to the canonical
+repo/main is cosmetic cleanup, not a correctness fix.
