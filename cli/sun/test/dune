@@ -27,3 +27,20 @@
   test_workspace
   test_platform_component)
  (libraries sun_cli alcotest unix yojson str))
+
+(rule
+ (alias runtest)
+ (deps ../bin/main.exe)
+ (action
+  (bash
+   "set -eu
+sun=$(pwd)/%{deps}
+tmp=$(mktemp -d)
+trap 'rm -rf \"$tmp\"' EXIT
+cat > \"$tmp/sun.yml\" <<'EOF'
+services:
+  api:
+    uses: [/us-east-1/analytics_db]
+EOF
+cd \"$tmp\"
+\"$sun\" plan prod/aws/us-east-1 | grep -F 'uses: /us-east-1/analytics_db (cross-region)' >/dev/null")))

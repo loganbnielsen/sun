@@ -182,6 +182,94 @@ services:
 |};
     expect_load_error "malformed quoted value for uses")
 
+let test_undeclared_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [missing]
+|};
+    expect_load_error "service \"api\" uses undeclared resource \"missing\"")
+
+let test_absolute_cross_region_uses_ref_parses () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/us-east-1/analytics_db]
+|};
+    match Sun_cli_config.load_for_target ~target:"prod/aws/us-east-1" with
+    | Error e -> Alcotest.fail (Sun_cli_config.error_to_string e)
+    | Ok cfg ->
+      let service = List.hd (Sun_cli_config.services cfg) in
+      check_strs "uses" ["/us-east-1/analytics_db"] service.uses;
+      check_str "formatted use" "/us-east-1/analytics_db (cross-region)"
+        (Sun_cli_config.format_use_ref (List.hd service.uses)))
+
+let test_cross_provider_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/gcp/us-central1/analytics_db]
+|};
+    expect_load_error "cross-provider uses refs are not supported in v1")
+
+let test_cross_env_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/prod/aws/us-east-1/analytics_db]
+|};
+    expect_load_error "cross-env uses refs are not supported in v1")
+
+let test_three_segment_cross_env_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/prod/us-east-1/analytics_db]
+|};
+    expect_load_error "cross-env uses refs are not supported in v1")
+
+let test_two_segment_cross_provider_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/gcp/analytics_db]
+|};
+    expect_load_error "cross-provider uses refs are not supported in v1")
+
+let test_empty_segment_uses_ref_fails_to_parse () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+services:
+  api:
+    uses: [/us-east-1//analytics_db]
+|};
+    expect_load_error "absolute uses ref must look like /<region>/<resource>")
+
+let test_omitted_resource_uses_ref_fails () =
+  with_temp_dir (fun () ->
+    write "sun.yml" {|
+resources:
+  app_db:
+    type: postgres
+
+services:
+  api:
+    uses: [app_db]
+|};
+    mkdir_p "sun/prod/aws";
+    write "sun/prod/aws/us-east-1.yml" {|
+resources:
+  app_db:
+    omit: true
+|};
+    expect_load_error "service \"api\" uses undeclared resource \"app_db\"")
+
 let test_resource_key_after_indexes_parses () =
   with_temp_dir (fun () ->
     write "sun.yml" {|
@@ -539,6 +627,14 @@ let () =
         Alcotest.test_case "malformed list fails" `Quick test_malformed_list_fails;
         Alcotest.test_case "malformed quoted scalar fails" `Quick test_malformed_quoted_scalar_fails;
         Alcotest.test_case "malformed quoted list item fails" `Quick test_malformed_quoted_list_item_fails;
+        Alcotest.test_case "undeclared uses ref fails" `Quick test_undeclared_uses_ref_fails;
+        Alcotest.test_case "absolute cross-region uses ref parses" `Quick test_absolute_cross_region_uses_ref_parses;
+        Alcotest.test_case "cross-provider uses ref fails" `Quick test_cross_provider_uses_ref_fails;
+        Alcotest.test_case "cross-env uses ref fails" `Quick test_cross_env_uses_ref_fails;
+        Alcotest.test_case "three-segment cross-env uses ref fails" `Quick test_three_segment_cross_env_uses_ref_fails;
+        Alcotest.test_case "two-segment cross-provider uses ref fails" `Quick test_two_segment_cross_provider_uses_ref_fails;
+        Alcotest.test_case "empty-segment uses ref fails to parse" `Quick test_empty_segment_uses_ref_fails_to_parse;
+        Alcotest.test_case "omitted resource uses ref fails" `Quick test_omitted_resource_uses_ref_fails;
         Alcotest.test_case "resource key after indexes parses" `Quick test_resource_key_after_indexes_parses;
         Alcotest.test_case "service key after scale parses" `Quick test_service_key_after_scale_parses;
         Alcotest.test_case "nested provider box tolerated" `Quick test_nested_provider_box_still_tolerated;

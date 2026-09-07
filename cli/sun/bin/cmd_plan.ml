@@ -50,7 +50,9 @@ let run target_name =
         Printf.printf "  - %s%s\n" s.Sun_cli_config.name
           (match s.typ with None -> "" | Some t -> " (" ^ t ^ ")");
         print_opt "path" s.path;
-        if s.uses <> [] then Printf.printf "    uses: %s\n" (String.concat ", " s.uses);
+        if s.uses <> [] then
+          Printf.printf "    uses: %s\n"
+            (String.concat ", " (List.map Sun_cli_config.format_use_ref s.uses));
         match s.scale_min, s.scale_max with
         | None, None -> ()
         | min, max ->

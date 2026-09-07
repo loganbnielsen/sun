@@ -569,6 +569,73 @@ let target_file target =
     (Filename.concat target.env
        (Filename.concat target.provider (target.region ^ ".yml")))
 
+let active_resources cfg =
+  List.filter (fun (r : resource) -> not r.omit) cfg.resources
+
+let active_services cfg =
+  List.filter (fun (s : service) -> not s.omit) cfg.services
+
+(* Matches the only providers sun.yml's target-provider box itself
+   recognizes (`k = "aws" || k = "gcp"` above) — no third value invented
+   here that nothing else in the codebase (cmd_cloud_tf.ml's `provider`
+   type, platform/infra/) can actually provision against. *)
+let known_provider s = s = "aws" || s = "gcp"
+
+let format_use_ref ref =
+  if ref <> "" && ref.[0] = '/' then ref ^ " (cross-region)" else ref
+
+let validate_use_ref ~(target : target) ~resources service_name ref =
+  if ref = "" then
+    Error { path = target.name; line = 0; message = "empty uses ref" }
+  else if ref.[0] <> '/' then
+    if List.mem ref resources then Ok ()
+    else Error { path = target.name; line = 0;
+                 message = Printf.sprintf
+                     "service %S uses undeclared resource %S" service_name ref }
+  else
+    (* Every branch below requires every segment non-empty, so a ref with
+       a blank segment (e.g. "/foo//bar") falls through to the generic
+       parse-error case instead of being misclassified as cross-env. *)
+    match String.split_on_char '/' ref with
+    | [""; seg1; seg2] when seg1 <> "" && seg2 <> "" ->
+      if known_provider seg1 then
+        Error { path = target.name; line = 0;
+                message = "cross-provider uses refs are not supported in v1" }
+      else Ok ()
+    | [""; seg1; seg2; seg3] when seg1 <> "" && seg2 <> "" && seg3 <> "" ->
+      if known_provider seg1 then
+        Error { path = target.name; line = 0;
+                message = "cross-provider uses refs are not supported in v1" }
+      else
+        Error { path = target.name; line = 0;
+                message = "cross-env uses refs are not supported in v1" }
+    | "" :: (_ :: _ :: _ :: _ :: _ as segs) when List.for_all (( <> ) "") segs ->
+      Error { path = target.name; line = 0;
+              message = "cross-env uses refs are not supported in v1" }
+    | _ ->
+      Error { path = target.name; line = 0;
+              message = "absolute uses ref must look like /<region>/<resource>" }
+
+let validate_uses cfg =
+  match cfg.target with
+  | None -> Ok cfg
+  | Some target ->
+    let resource_names =
+      active_resources cfg |> List.map (fun (r : resource) -> r.name)
+    in
+    let rec validate_services = function
+      | [] -> Ok cfg
+      | service :: rest ->
+        let rec validate_refs = function
+          | [] -> validate_services rest
+          | ref :: refs ->
+            let* () = validate_use_ref ~target ~resources:resource_names service.name ref in
+            validate_refs refs
+        in
+        validate_refs service.uses
+    in
+    validate_services (active_services cfg)
+
 let load_for_target ~target =
   let* target = target_of_path target in
   let file = target_file target in
@@ -589,15 +656,15 @@ let load_for_target ~target =
     | Some t -> { t with name = target.name; env = target.env;
                          provider = target.provider; region = target.region }
   in
-  Ok (merge { base with target = Some base_target } overlay)
+  validate_uses (merge { base with target = Some base_target } overlay)
 
 let target cfg = cfg.target
 
 let resources cfg =
-  List.filter (fun (r : resource) -> not r.omit) cfg.resources
+  active_resources cfg
 
 let services cfg =
-  List.filter (fun (s : service) -> not s.omit) cfg.services
+  active_services cfg
 
 let terraform_vars cfg =
   match cfg.target with
