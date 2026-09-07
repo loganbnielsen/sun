@@ -1,3 +1,10 @@
+val kv_args : (string * string) list -> string list
+(** ["key=value"] Terraform CLI syntax for a list of neutral key/value
+    pairs — e.g. {!Sun_cli_config.terraform_vars}'s result, before it's
+    combined with any raw ["key=value"] strings a caller already has
+    (such as [sun cloud]'s own [--var] CLI flag) and passed as [~vars]
+    below. *)
+
 val which_check : unit -> bool
 val init        : chdir:string -> (Sun_cli_process.result, Sun_cli_process.error) result
 val plan        : chdir:string -> var_files:string list -> vars:string list

@@ -595,8 +595,8 @@ target:
       match Sun_cli_config.terraform_vars cfg with
       | Error msg -> Alcotest.fail msg
       | Ok vars ->
-        check_bool "aws var present" true (List.mem "vpc_cidr=10.42.0.0/16" vars);
-        check_bool "gcp var absent" false (List.mem "project_id=pluto-dev" vars))
+        check_bool "aws var present" true (List.mem ("vpc_cidr", "10.42.0.0/16") vars);
+        check_bool "gcp var absent" false (List.mem ("project_id", "pluto-dev") vars))
 
 let test_example_pluto_prod_target_parses () =
   with_chdir (example_pluto_dir ()) (fun () ->
