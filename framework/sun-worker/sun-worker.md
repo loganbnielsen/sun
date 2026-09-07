@@ -33,7 +33,11 @@ module Make (W : WORKER) : sig
     -> ?ot:Sun_obs.t
     (** When provided, emits sun_worker_messages_total{status} and
         sun_worker_message_duration_seconds per message, and exposes
-        GET /metrics on port 9090 for Prometheus scraping. *)
+        GET /metrics on metrics_port for Prometheus scraping. *)
+    -> ?metrics_port:int
+    (** Default: 9090. Only binds when ot is provided; pass 0 for an
+        OS-assigned port when running more than one -worker/-svc in the
+        same process. *)
     -> ?on_ready:(unit -> unit)
     (** Called exactly once when the broker assigns partitions to this consumer.
         Use it to signal readiness to a test or health-check. *)
