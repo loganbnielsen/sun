@@ -270,7 +270,7 @@ let config_vars ~strict target =
           Printf.eprintf "error: %s\n" msg;
           exit 1
         | Ok vars ->
-          vars, resolved_target.Sun_cli_config.terraform_var_file
+          Sun_cli_terraform.kv_args vars, resolved_target.Sun_cli_config.terraform_var_file
 
 let cloud_init ~target ~var_file ~vars ~action () =
   check_terraform ();

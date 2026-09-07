@@ -9,6 +9,8 @@ let which_check () =
 let init ~chdir =
   run ~echo:true (cmd ["terraform"; "-chdir=" ^ chdir; "init"])
 
+let kv_args pairs = List.map (fun (k, v) -> k ^ "=" ^ v) pairs
+
 let var_args ~var_files ~vars =
   let varfile_args = List.map (fun f -> "-var-file=" ^ f) var_files in
   let var_args = List.map (fun v -> "-var=" ^ v) vars in
