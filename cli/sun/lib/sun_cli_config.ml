@@ -670,7 +670,7 @@ let terraform_vars cfg =
   match cfg.target with
   | None -> Error "target missing"
   | Some target ->
-    let add_opt k = function None -> Fun.id | Some v -> fun xs -> (k ^ "=" ^ v) :: xs in
+    let add_opt k = function None -> Fun.id | Some v -> fun xs -> (k, v) :: xs in
     let vars =
       []
       |> add_opt "region" (Some target.region)
@@ -680,11 +680,10 @@ let terraform_vars cfg =
     let vars =
       List.assoc_opt target.provider target.provider_fields
       |> Option.value ~default:[]
-      |> List.map (fun (k, v) -> k ^ "=" ^ v)
       |> List.rev_append vars
     in
     let has_postgres =
       resources cfg
       |> List.exists (fun (r : resource) -> r.typ = Some "postgres")
     in
-    Ok (("create_rds=" ^ string_of_bool has_postgres) :: vars)
+    Ok (("create_rds", string_of_bool has_postgres) :: vars)

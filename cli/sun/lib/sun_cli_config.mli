@@ -65,4 +65,8 @@ val target : t -> target option
 val resources : t -> resource list
 val services : t -> service list
 val format_use_ref : string -> string
-val terraform_vars : t -> (string list, string) result
+val terraform_vars : t -> ((string * string) list, string) result
+(** Neutral key/value Terraform variables derived from the target
+    (region/cluster_name/base_domain, active provider fields,
+    create_rds). Terraform CLI syntax ("key=value", "-var=...") is not
+    this module's concern — see {!Sun_cli_terraform.kv_args}. *)
