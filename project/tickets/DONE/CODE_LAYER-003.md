@@ -90,3 +90,10 @@ sun_fn      -> scheduled/lambda function primitive
   small ergonomic helpers only if the Sun facade would otherwise duplicate
   core behavior.
 - Existing scaffold and framework tests pass.
+
+## Resolution
+
+Implemented and merged in this repo via PR #115 ("Add framework/sun-obs:
+Sun_obs.t app-facing observability facade"), later extended by FEAT-030.
+Ticket file was never moved to DONE after that merge — closing out the
+bookkeeping gap now.

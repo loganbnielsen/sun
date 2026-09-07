@@ -49,3 +49,14 @@ the meaning of the final HTTP status/body.
 - Do not add a compatibility wrapper unless a released external consumer needs
   migration support; these foundation packages are under our control, so break
   callers together.
+
+## Resolution
+
+Implemented and merged upstream in `~/Code/aws-eio` (external opam-pinned
+package, per repo convention — this ticket's remediation lives outside the
+sun tree): commit `0243fcf` / "Aws.Http.request/signed_request return Ok
+for any received response" (#26). sun's own PR #112 recorded the ticket
+closure but carried no sun-tree diff, which is why this ticket sat in
+READY_FOR_ENGINEERING despite the real fix being merged — moved to DONE
+now that both are confirmed on their respective main branches, and sun's
+opam pin for aws-eio (`~/Code/aws-eio#main`) already includes this commit.
