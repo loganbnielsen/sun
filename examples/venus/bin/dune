@@ -4,7 +4,7 @@
   venus_payments_events
   venus_comms_notify
   eio eio_main eio.unix
-  obs-eio obs-loki-eio obs-prometheus-eio
+  obs-eio obs-prometheus-eio sun_obs
   kafka_eio_service
   sun_svc sun_worker
   pg-eio

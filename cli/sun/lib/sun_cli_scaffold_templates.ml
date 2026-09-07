@@ -720,7 +720,7 @@ let () =
     | Error e -> Error (Kafka.Error.to_string e)
   in
   Service.run (Handler.routes pool ~publish_charged ~obs) ~env
-    ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
+    ~ot:obs ()
   |> Result.map_error Service.run_error_to_string
   |> function Ok () -> () | Error e -> fatal e
 |tpl}
@@ -804,7 +804,7 @@ let () =
   end) in
   let module WR = Worker.Make(W) in
   WR.run ~env ~config:kafka_config
-    ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
+    ~ot:obs ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -954,7 +954,7 @@ let () = Eio_main.run @@ fun env ->
       ~service:"{{name}}-worker" ()
   in
   let module W = Worker.Make({{Mod}}) in
-  W.run ~env ~config ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
+  W.run ~env ~config ~ot:obs ()
   |> Result.map_error Worker.run_error_to_string
   |> function Ok () -> () | Error msg -> fatal msg
 |tpl}
@@ -992,7 +992,7 @@ let () = Eio_main.run @@ fun env ->
       ~service:"{{name}}-fn" ()
   in
   let module F = Fn.Make({{Mod}}) in
-  match F.run ~env ~backend:(Sun_obs.backend_and_renderer obs) () with
+  match F.run ~env ~ot:obs () with
   | Ok () -> ()
   | Error `Signalled -> exit 130
   | Error e -> fatal (Fn.run_error_to_string e)

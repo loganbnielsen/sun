@@ -100,12 +100,12 @@ let test_handle_error_returns_consumer_error () =
 
 let test_metrics_ok_counter () =
   Eio_main.run (fun env ->
-    let backend, render = Obs_prometheus.create () in
-    let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend () in
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:"test-worker" () in
+    let render = Sun_obs.metrics_renderer obs in
     let msg = TestMsg.{ id = "msg-metrics" } in
     let module W = Worker.For_testing.Make(OkWorker) in
-    W.run ~env ~config:fake_config ~ot
+    W.run ~env ~config:fake_config ~ot:obs ~metrics_port:0
       ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
     Alcotest.(check bool) "messages_total counter present"
@@ -125,12 +125,12 @@ let test_metrics_ok_counter () =
 
 let test_metrics_error_counter () =
   Eio_main.run (fun env ->
-    let backend, render = Obs_prometheus.create () in
-    let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend () in
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:"test-worker" () in
+    let render = Sun_obs.metrics_renderer obs in
     let msg = TestMsg.{ id = "msg-err-metrics" } in
     let module W = Worker.For_testing.Make(ErrWorker) in
-    ignore (W.run ~env ~config:fake_config ~ot
+    ignore (W.run ~env ~config:fake_config ~ot:obs ~metrics_port:0
               ~test_consume_loop:(one_message msg) ());
     let output = render () in
     Alcotest.(check bool) "status=error label present"
@@ -143,12 +143,12 @@ let test_metrics_error_counter () =
 
 let test_metrics_duration () =
   Eio_main.run (fun env ->
-    let backend, render = Obs_prometheus.create () in
-    let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend () in
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:"test-worker" () in
+    let render = Sun_obs.metrics_renderer obs in
     let msg = TestMsg.{ id = "msg-dur" } in
     let module W = Worker.For_testing.Make(OkWorker) in
-    W.run ~env ~config:fake_config ~ot
+    W.run ~env ~config:fake_config ~ot:obs ~metrics_port:0
       ~test_consume_loop:(one_message msg) () |> run_ok;
     let output = render () in
     Alcotest.(check bool) "duration histogram present"
@@ -171,12 +171,11 @@ let test_metrics_endpoint_served () =
         | _ -> failwith "unexpected address family"
       in
       Eio.Flow.close socket;
-      let backend, render = Obs_prometheus.create () in
-      let ot = Obs_eio.create ~service:"test-worker"
-                 ~mono_clock:env#mono_clock ~backend () in
+      let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                  ~service:"test-worker" () in
       let msg = TestMsg.{ id = "msg-http-metrics" } in
       let module W = Worker.For_testing.Make(OkWorker) in
-      W.run ~env ~config:fake_config ~ot ~metrics_renderer:render ~metrics_port:port
+      W.run ~env ~config:fake_config ~ot:obs ~metrics_port:port
         ~test_consume_loop:(fun ~handler () ->
           ignore (handler msg ~ack:(fun () -> Ok ()) ~trace_ctx:None);
           let client = Cohttp_eio.Client.make ~https:None env#net in
@@ -244,13 +243,13 @@ let test_max_messages_stops_cleanly () =
 
 let test_ack_failure_non_fatal_continues_and_is_metered () =
   Eio_main.run (fun env ->
-    let backend, render = Obs_prometheus.create () in
-    let ot = Obs_eio.create ~service:"test-worker"
-               ~mono_clock:env#mono_clock ~backend () in
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:"test-worker" () in
+    let render = Sun_obs.metrics_renderer obs in
     let msg = TestMsg.{ id = "msg-ack-fail" } in
     let module W = Worker.For_testing.Make(OkWorker) in
     let result_r = ref None in
-    W.run ~env ~config:fake_config ~ot
+    W.run ~env ~config:fake_config ~ot:obs ~metrics_port:0
       ~test_consume_loop:(one_message_with_ack msg
         ~ack:(fun () -> Error Kafka.Error.Application) ~result_r) () |> run_ok;
     (match !result_r with

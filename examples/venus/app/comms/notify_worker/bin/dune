@@ -6,8 +6,7 @@
   sun_worker
   pg-eio
   obs-eio
-  obs-loki-eio
-  obs-prometheus-eio
+  sun_obs
   caqti-eio
   caqti-eio.unix
   caqti-driver-postgresql

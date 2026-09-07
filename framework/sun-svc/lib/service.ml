@@ -203,15 +203,17 @@ let api_key_reader ~env ~required =
 module Make (H : HANDLER) = struct
 
   let run ~(env : < net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >)
-      ?(port=8080) ?metrics_renderer ?(metrics_auth=`Public) ?ot
+      ?(port=8080) ?(metrics_auth=`Public) ?ot
       ?(max_body_bytes=10_485_760) ?(drain_timeout_s=30.0) ?stop ?on_listen () =
     let port =
       match Sys.getenv_opt "PORT" with
       | Some s -> (try int_of_string (String.trim s) with _ -> port)
       | None   -> port
     in
+    let ot_eio = Option.map Sun_obs.obs_eio ot in
+    let metrics_renderer = Option.map Sun_obs.metrics_renderer ot in
     (* Register per-request metrics once at startup, reuse emitters per request *)
-    let metrics_fns = match ot with
+    let metrics_fns = match ot_eio with
       | None -> None
       | Some o ->
         let req_count, req_duration =

@@ -92,15 +92,15 @@ configured.
 - **Register-once/use-emitter preserved.** `counter`/`gauge`/`histogram`
   forward straight to `Obs_eio.register_*` — no metric registry DSL. Call
   once at startup, keep the returned emitter, call it per event.
-- **Three framework bridge accessors, not one.** `sun-svc`/`sun-worker`
-  take `?ot:Obs_eio.t` + `?metrics_renderer`; `sun-fn` takes
-  `?backend:(Obs_eio.backend * (unit -> string))`. Rather than redesign
-  those primitives' signatures in this pass, `Sun_obs.t` exposes the exact
-  shapes each already expects — `obs_eio`/`metrics_renderer` cover
-  `-svc`/`-worker` unchanged, `backend_and_renderer` covers `-fn`'s
-  override unchanged (its two return values happen to match
-  `Obs_prometheus.create`'s shape exactly, since `-fn` builds its own
-  `Obs_eio.t` internally per invocation).
+- **Three framework internal accessors, not one.** `sun-svc`, `sun-worker`,
+  and `sun-fn` all take `?ot:Sun_obs.t` directly now, and each unpacks it
+  back down to the raw shape it actually needs internally: `obs_eio` for
+  `-svc`/`-worker`'s per-request/per-message metric registration,
+  `metrics_renderer` for their built-in `/metrics` endpoint,
+  `backend_and_renderer` for `-fn`'s own job-scoped `Obs_eio.t`
+  construction per invocation (its two return values happen to match
+  `Obs_prometheus.create`'s shape exactly). Application/scaffold code
+  never touches these — see CODE_LAYER-012.
 - **Context vs. stream labels.** `with_context` (post-`of_env`) does not
   retroactively promote new keys to Loki stream labels — only `of_env`'s
   `?context` does, since Loki's `label_names` set is fixed at backend
@@ -115,8 +115,7 @@ let obs =
     ~service:"payments-charge-svc" ~context:[("team", "payments")] ()
 in
 Sun_obs.log_info obs "starting up";
-Service.run (Handler.routes pool ~obs) ~env
-  ~ot:(Sun_obs.obs_eio obs) ~metrics_renderer:(Sun_obs.metrics_renderer obs) ()
+Service.run (Handler.routes pool ~obs) ~env ~ot:obs ()
 ```
 
 Inside a handler:
@@ -129,9 +128,6 @@ Sun_obs.with_span obs "handle_charge" (fun sp ->
 
 ## Out of Scope (v1)
 
-- Changing `sun-svc`/`sun-worker`/`sun-fn`'s own `.mli` signatures to accept
-  `Sun_obs.t` directly — they keep taking `Obs_eio.t`/renderer/backend, and
-  `Sun_obs.t`'s bridge accessors produce exactly those shapes.
 - A metric registry/declaration DSL beyond `obs-eio`'s existing
   register-once model.
 - Retroactively promoting `with_context` keys to Loki stream labels after

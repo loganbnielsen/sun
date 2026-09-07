@@ -10,14 +10,11 @@ module Make (H : HANDLER) : sig
   val run
     :  env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >
     -> ?port:int
-    -> ?metrics_renderer:(unit -> string)
-    (** Renderer for the built-in [/metrics] endpoint.
-        Typically the second return value of [Obs_prometheus.create ()]. *)
     -> ?metrics_auth:Auth.level
-    -> ?ot:Obs_eio.t
-    (** Observability handle for per-request metrics and tracing.
-        When provided, [sun_svc_requests_total] and
-        [sun_svc_request_duration_seconds] are emitted automatically. *)
+    -> ?ot:Sun_obs.t
+    (** Observability handle. When provided, [sun_svc_requests_total] and
+        [sun_svc_request_duration_seconds] are emitted automatically, and
+        the built-in [/metrics] endpoint renders from the same handle. *)
     -> ?max_body_bytes:int
     -> ?drain_timeout_s:float
     -> ?stop:unit Eio.Promise.t
@@ -32,9 +29,8 @@ val run
   :  Route.t list
   -> env:< net: _ Eio.Net.t; clock: _ Eio.Time.clock; fs: Eio.Fs.dir_ty Eio.Path.t; .. >
   -> ?port:int
-  -> ?metrics_renderer:(unit -> string)
   -> ?metrics_auth:Auth.level
-  -> ?ot:Obs_eio.t
+  -> ?ot:Sun_obs.t
   -> ?max_body_bytes:int
   -> ?drain_timeout_s:float
   -> ?stop:unit Eio.Promise.t

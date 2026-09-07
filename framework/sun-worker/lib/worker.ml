@@ -70,9 +70,11 @@ module Make_with_test_seam (W : WORKER) = struct
   let default_metrics_port = 9090
 
   let run ~(env : (_, _, _, _) Sun_env.timed)
-      ~config ?ot ?metrics_renderer ?(metrics_port = default_metrics_port)
+      ~config ?ot ?(metrics_port = default_metrics_port)
       ?on_ready ?stop ?max_messages
       ?(retry_strategy = Kafka_service.default_retry_strategy) ?test_consume_loop () =
+    let metrics_renderer = Option.map Sun_obs.metrics_renderer ot in
+    let ot = Option.map Sun_obs.obs_eio ot in
     let msg_count, msg_duration =
       match ot with
       | None -> (None, None)
@@ -195,9 +197,9 @@ end
 module Make (W : WORKER) = struct
   module Impl = Make_with_test_seam(W)
 
-  let run ~env ~config ?ot ?metrics_renderer ?on_ready ?stop
+  let run ~env ~config ?ot ?metrics_port ?on_ready ?stop
       ?max_messages ?retry_strategy () =
-    Impl.run ~env ~config ?ot ?metrics_renderer ?on_ready ?stop
+    Impl.run ~env ~config ?ot ?metrics_port ?on_ready ?stop
       ?max_messages ?retry_strategy ()
 end
 

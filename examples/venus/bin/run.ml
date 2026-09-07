@@ -57,15 +57,6 @@ let say fmt = Printf.ksprintf (fun s -> Printf.printf "\n[venus] %s\n%!" s) fmt
 let new_corr_id () = Printf.sprintf "c-%06x" (Random.int 0xFFFFFF)
 let new_charge_id () = Printf.sprintf "ch_%08x%08x" (Random.bits ()) (Random.bits ())
 
-let log_backend ~net ~clock = function
-  | None ->
-    Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!";
-    Obs_eio.stdout
-  | Some url ->
-    Printf.printf "\n  Logs -> Loki at %s\n%!" url;
-    Obs_loki.create ~net ~clock ~url
-      ~label_names:[Obs_loki.stream_label_exn "team"] ()
-
 let require_storage label = function
   | Ok value -> value
   | Error e  -> failwith (label ^ ": " ^ Pg_error.to_string e)
@@ -134,17 +125,23 @@ let () =
   Eio_main.run @@ fun env ->
 
   (* ── Observability ─────────────────────────────────────────────────────── *)
-  let prom_backend, render = Obs_prometheus.create () in
-  let log_backend = log_backend ~net:env#net ~clock:env#clock loki_url in
-  let backend   = Obs_eio.compose log_backend prom_backend in
-  let svc_ot    =
-    let base = Obs_eio.create ~service:"charge-svc" ~mono_clock:env#mono_clock ~backend () in
-    Obs_eio.with_context base [("team", "payments")]
+  (match loki_url with
+   | None -> Printf.printf "\n  Note: LOKI_URL not set — logs go to stdout.\n%!"
+   | Some url -> Printf.printf "\n  Logs -> Loki at %s\n%!" url);
+  let svc_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"charge-svc" ~context:[("team", "payments")] ()
   in
-  let worker_ot =
-    let base = Obs_eio.create ~service:"notify-worker" ~mono_clock:env#mono_clock ~backend () in
-    Obs_eio.with_context base [("team", "comms")]
+  let worker_obs =
+    Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+      ~service:"notify-worker" ~context:[("team", "comms")] ()
   in
+  (* charge-svc and notify-worker each carry their own Prometheus registry
+     (like two real, separately-scraped services) — this demo's own
+     snapshot/push stitches both together. *)
+  let render () = Sun_obs.metrics_renderer svc_obs () ^ Sun_obs.metrics_renderer worker_obs () in
+  let svc_ot    = Sun_obs.obs_eio svc_obs in
+  let worker_ot = Sun_obs.obs_eio worker_obs in
 
   Eio.Switch.run @@ fun sw ->
 
@@ -170,7 +167,7 @@ let () =
   Eio.Fiber.fork ~sw (fun () ->
     (try
       let module WR = Worker.Make(W) in
-      WR.run ~env ~config:kafka_config ~ot:worker_ot
+      WR.run ~env ~config:kafka_config ~ot:worker_obs ~metrics_port:0
         ~on_ready:(fun () ->
           Printf.printf "[notify-worker] partition assigned — ready\n%!";
           (try Eio.Promise.resolve worker_ready_r () with _ -> ()))
@@ -226,7 +223,7 @@ let () =
   let svc_port_p, svc_port_r = Eio.Promise.create () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Service.run [ Route.post "/charges" ~auth:`Public handle_charge ]
-      ~env ~port:0 ~ot:svc_ot
+      ~env ~port:0 ~ot:svc_obs
       ~on_listen:(fun p ->
         Printf.printf "[charge-svc]    listening on port %d\n%!" p;
         Eio.Promise.resolve svc_port_r p)
