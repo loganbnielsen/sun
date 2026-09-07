@@ -3,6 +3,9 @@ id: CODE_LAYER-012
 type: code-layer-finding
 severity: medium
 source: project/audits/2026-09-06b_code_layer_audit.md
+branch: code_layer-012/sun-obs-facade-adoption
+worktree: ../sun-code_layer-012-sun-obs-facade-adoption
+pr: https://github.com/loganbnielsen/sun/pull/132
 ---
 
 sun-svc/sun-worker/sun-fn never adopted the Sun_obs facade CODE_LAYER-003 built for them
