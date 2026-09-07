@@ -66,17 +66,17 @@ let with_server env ~sw f =
 let with_server_obs env ~sw f =
   let port_p, port_r = Promise.create () in
   let stop, stop_r = Promise.create () in
-  let backend, render = Obs_prometheus.create () in
-  let ot = Obs_eio.create ~service:"test-svc" ~mono_clock:env#mono_clock ~backend () in
+  let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+              ~service:"test-svc" () in
   Fiber.fork ~sw (fun () ->
     let module S = Service.Make(H) in
-    S.run ~env ~port:0 ~ot ~metrics_renderer:render ~stop ~drain_timeout_s:0.1
+    S.run ~env ~port:0 ~ot:obs ~stop ~drain_timeout_s:0.1
       ~on_listen:(fun p -> Promise.resolve port_r p) ()
     |> Result.map_error Service.run_error_to_string
     |> (function Ok () -> () | Error e -> failwith e)
   );
   let port = Promise.await port_p in
-  Fun.protect (fun () -> f port render)
+  Fun.protect (fun () -> f port (Sun_obs.metrics_renderer obs))
     ~finally:(fun () -> try Promise.resolve stop_r () with _ -> ())
 
 (* Make an HTTP request and return (status_code, body_string). *)

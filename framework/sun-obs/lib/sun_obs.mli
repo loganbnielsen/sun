@@ -91,23 +91,27 @@ val with_context : t -> (string * string) list -> t
     Loki stream labels; pass everything you want promoted to {!of_env}'s
     [?context] up front. *)
 
-(** {2 Framework primitive bridges}
+(** {2 Framework primitive internals}
 
-    These exist for [sun-svc]/[sun-worker]/[sun-fn]'s own [run] functions,
-    which each still take a lower-level [Obs_eio.t]/renderer pair directly
-    (see each primitive's [.mli]) rather than a [Sun_obs.t] — not for
-    application code, which should use the functions above instead. *)
+    [sun-svc], [sun-worker], and [sun-fn]'s own [run] functions all take a
+    single [?ot:Sun_obs.t] directly now — these accessors are what each
+    primitive uses internally to get back to the lower-level [Obs_eio.t]/
+    renderer/backend it actually needs (registering metrics, serving
+    [/metrics], pushing to Pushgateway). Application code has no reason to
+    call these; use the functions above instead. *)
 
 val obs_eio : t -> Obs_eio.t
-(** For [sun-svc]/[sun-worker]'s [?ot] parameter. *)
+(** What [sun-svc]/[sun-worker] register per-request/per-message metrics
+    against internally. *)
 
 val metrics_renderer : t -> unit -> string
-(** For [sun-svc]/[sun-worker]'s [?metrics_renderer] parameter — the
-    Prometheus text-exposition renderer, regardless of which other backends
-    are composed in. *)
+(** What [sun-svc]/[sun-worker] render their built-in [/metrics] endpoint
+    from internally — the Prometheus text-exposition renderer, regardless
+    of which other backends are composed in. *)
 
 val backend_and_renderer : t -> Obs_eio.backend * (unit -> string)
-(** For [sun-fn]'s [?backend] override — the full composed backend (every
-    configured provider fanned out together, not Prometheus alone) paired
-    with the same renderer as {!metrics_renderer}, matching the shape
-    [Obs_prometheus.create] returns. *)
+(** What [sun-fn] builds its own job-scoped [Obs_eio.t] from internally —
+    the full composed backend (every configured provider fanned out
+    together, not Prometheus alone) paired with the same renderer as
+    {!metrics_renderer}, matching the shape [Obs_prometheus.create]
+    returns. *)

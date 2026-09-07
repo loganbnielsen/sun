@@ -375,13 +375,14 @@ end
 module Make (H : HANDLER) : sig
   val run
     :  env:_ Eio.Stdenv.t
-    -> obs:Obs_eio.t
     -> ?port:int
        (** Default: 8080. Overridden by PORT env var if set. Pass 0 for
            OS-assigned port (use with [on_listen] in tests). *)
-    -> ?metrics_renderer:(unit -> string)
-       (** Renderer from [Obs_prometheus.create ()]. Wires /metrics.
-           If omitted, GET /metrics → 404. *)
+    -> ?ot:Sun_obs.t
+       (** Observability handle. When provided, sun_svc_requests_total/
+           sun_svc_request_duration_seconds are emitted per request, and
+           GET /metrics renders from the same handle. If omitted,
+           GET /metrics → 404. *)
     -> ?metrics_auth:Auth.level
        (** Auth strategy for the built-in /metrics endpoint. Default: [`Public].
            Set to [`Api_key] for production clusters that don't use NetworkPolicy
@@ -674,10 +675,9 @@ end
 
 let () =
   Eio_main.run (fun env ->
-    let prom_backend, render = Obs_prometheus.create () in
-    let obs = Obs_eio.create ~service:"charge-svc"
-                ~mono_clock:env#mono_clock ~backend:prom_backend in
-    Service.Make(H).run ~env ~obs ~metrics_renderer:render ()
+    let obs = Sun_obs.of_env ~net:env#net ~clock:env#clock ~mono_clock:env#mono_clock
+                ~service:"charge-svc" () in
+    Service.Make(H).run ~env ~ot:obs ()
   )
 ```
 
