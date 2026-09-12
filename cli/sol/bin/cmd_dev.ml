@@ -237,22 +237,33 @@ let dev_up () =
       "redpanda"
       "redpanda/redpanda"
       ~namespace:"redpanda"
-        (* FRIC-007: 5.8.12 (image v24.1.8) predates JSON Schema Registry
-         support, which landed in Redpanda 24.2
-         (redpanda-data/redpanda#6220, confirmed via a Redpanda team
-         member's closing comment) -- every generated Sol service's
-         unconditional `schemaType: "JSON"` registration call got HTTP
-         422 "Invalid schema type JSON" against this version, permanently
-         crash-looping every -svc/-worker on a fresh substrate. 5.9.15
-         (image v24.2.7) is the last chart pinned to a 24.2.x image before
-         the chart line moves to 24.3 -- picked as the smallest version
-         bump that provably has the fix (verified directly: a standalone
-         v24.2.7 broker accepts the identical registration call with
-         HTTP 200) rather than jumping straight to the newest available
-         chart -- see FRIC-010 for a deliberate modernization pass with
-         its own full live-verification, not bundled into this crash-loop
-         fix. CODE_LAYER-008: matches cli/platform/infra/base/main.tf's pin. *)
-      ~version:"5.9.15"
+        (* FRIC-007: 5.8.12 (image v24.1.8) predated JSON Schema Registry
+         support, which landed in Redpanda 24.2 (redpanda-data/redpanda#6220)
+         -- every generated Sol service's unconditional `schemaType: "JSON"`
+         registration call got HTTP 422 "Invalid schema type JSON" against it,
+         permanently crash-looping every -svc/-worker on a fresh substrate.
+         5.9.15 (image v24.2.7) was the smallest bump that provably fixed that
+         (verified live: a standalone v24.2.7 broker accepts the identical
+         registration call with HTTP 200).
+
+         FRIC-010 then evaluated a further modernization and declined it: an
+         in-place upgrade from v24.2.7 to a 26.x binary fails Redpanda's own
+         logical-version check ("Attempted to upgrade from incompatible logical
+         version 13 to logical version 18") -- a broker-side upgrade-path
+         constraint, not a values problem. That was the right call while 5.9.15
+         stayed installable.
+
+         INFRA-013: upstream retired the whole 5.x line from the
+         charts.redpanda.com index in 2026-09, so `--version 5.9.15` no longer
+         resolves and a fresh `sol local up` could not install a substrate at
+         all. That removed the option FRIC-010 preserved, so the pin moves to
+         26.1.11 (image v26.1.17): FRIC-010's evaluated target, one minor behind
+         newest, within support, and confirmed to render cleanly against
+         values-common.json/values-local.json (the console.* schema workaround
+         is still required upstream). A cluster still on v24.2.7 must be
+         recreated rather than upgraded in place -- see INFRA-013.
+         CODE_LAYER-008: matches cli/platform/infra/base/main.tf's pin. *)
+      ~version:"26.1.11"
       ~values:
         [ "storage.persistentVolume.size", Str "1Gi"
         ; (* Advertise localhost:9092 so librdkafka reconnects to the port-forward
