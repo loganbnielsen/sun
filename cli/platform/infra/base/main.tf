@@ -220,22 +220,24 @@ resource "helm_release" "redpanda" {
   repository = "https://charts.redpanda.com"
   chart      = "redpanda"
   # FRIC-007: 5.8.12 (image v24.1.8) predates JSON Schema Registry support
-  # (landed in Redpanda 24.2, redpanda-data/redpanda#6220) -- every real
-  # Sol service registers its schema with `schemaType: "JSON"`
-  # unconditionally, which this version rejects outright with HTTP 422.
-  # 5.9.15 (image v24.2.7) is the smallest bump onto a 24.2.x image that
-  # provably has the fix -- see cmd_dev.ml's own Redpanda install for the
-  # full verification. NOTE: this bump also flips console.enabled to
-  # false (values-common.json, worked around a chart values.schema.json
-  # bug) -- on any already-deployed environment, `terraform apply` will
-  # actively tear down Redpanda Console's Deployment/Service/ConfigMap/
-  # ServiceAccount, not just skip installing them going forward. Verified
-  # safe (ClusterIP-only, no ingress, nothing in Sol references it), but
-  # a real operator diffing a real plan should expect that deletion.
-  # See FRIC-010 for a deliberate modernization pass past this
-  # deliberately-conservative pin. Keep this in sync with that
-  # pin (CODE_LAYER-008).
-  version   = "5.9.15"
+  # (landed in Redpanda 24.2, redpanda-data/redpanda#6220) -- every real Sol
+  # service registers its schema with `schemaType: "JSON"` unconditionally,
+  # which this version rejects outright with HTTP 422. 5.9.15 (image v24.2.7)
+  # was the smallest bump that provably has the fix. FRIC-010 evaluated a
+  # further modernization and declined it (in-place v24.2.7 -> 26.x upgrades
+  # trip Redpanda's own logical-version check), which was safe only while
+  # 5.9.15 stayed installable. INFRA-013: upstream retired the 5.x line from
+  # the charts.redpanda.com index in 2026-09, so the pin moves to 26.1.11
+  # (image v26.1.17) -- FRIC-010's evaluated target, one minor behind newest
+  # and within support. A cluster still on v24.2.7 must be recreated rather
+  # than upgraded in place. NOTE: this bump also flips console.enabled to false
+  # (values-common.json, a chart values.schema.json workaround) -- on an
+  # already-deployed environment, `terraform apply` tears Redpanda Console's
+  # Deployment/Service/ConfigMap/ServiceAccount down, not just skips installing
+  # them. Verified safe (ClusterIP-only, no ingress, nothing in Sol references
+  # it), but a real operator diffing a real plan should expect that deletion.
+  # Keep this in sync with cmd_dev.ml's pin (CODE_LAYER-008).
+  version   = "26.1.11"
   namespace = kubernetes_namespace.redpanda.metadata[0].name
   timeout   = 600
 
